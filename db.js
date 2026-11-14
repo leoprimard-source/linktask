@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS requisitions(id INTEGER PRIMARY KEY, store_id INTEGER
 CREATE TABLE IF NOT EXISTS stocktakes(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, status TEXT, assignee_id INTEGER, items TEXT, created_by INTEGER, created_at TEXT, done_by INTEGER, done_at TEXT);
 CREATE TABLE IF NOT EXISTS train_classes(id INTEGER PRIMARY KEY, region_id INTEGER, name TEXT, kind TEXT, cert TEXT, start TEXT, end TEXT, seats INTEGER, trainer_id INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS train_enroll(id INTEGER PRIMARY KEY, class_id INTEGER, user_id INTEGER, status TEXT, score INTEGER, created_at TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS pay_appeals(id INTEGER PRIMARY KEY, user_id INTEGER, ym TEXT, item TEXT, reason TEXT, status TEXT, reply TEXT, by INTEGER, created_at TEXT, replied_at TEXT);
+CREATE TABLE IF NOT EXISTS shift_logs(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, shift TEXT, by INTEGER, issues TEXT, guest TEXT, equip TEXT, cash TEXT, status TEXT, created_at TEXT, taken_by INTEGER, taken_at TEXT, take_note TEXT);
 CREATE TABLE IF NOT EXISTS mentors(id INTEGER PRIMARY KEY, mentee_id INTEGER, mentor_id INTEGER, start TEXT, checks TEXT, status TEXT);`);
 try { db.exec('ALTER TABLE stores ADD COLUMN lc_stage TEXT'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */ }

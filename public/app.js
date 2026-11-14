@@ -119,23 +119,23 @@ function storeSwitch(route, extra = '') {
 
 // ---------- nav ----------
 const NAV = {
-  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
+  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['shift', '值班交接'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
-    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
+    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
   train_manager: [['sec', '培训'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  hr_manager: [['sec', '人事'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  hr_manager: [['sec', '人事'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
   region_manager: [['sec', '全局'], ['dash', '区域看板'], ['people', '人事档案与梯队'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
-    ['sec', '配置'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
+    ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -657,10 +657,10 @@ VIEWS.team = async () => {
   ${list.map(u => { const ts = tasks.filter(t => t.assignee_id === u.id); const lv = leaves.find(l => l.user_id === u.id);
     return `<tr><td>${esc(u.name)}</td><td>${u.level === 'staff' ? `<select data-role="${u.id}">${staffRoles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select>` : esc(u.role_name)}</td>
     <td class="n mono">${ts.length}</td><td class="n mono">${ts.filter(t => t.status === 'done').length}</td><td>${lv ? `<span class="tag warn">休息 · ${esc(lv.cover_name || '店长')}承接</span>` : '<span class="tag ok">在岗</span>'}</td>
-    <td>${u.level === 'staff' ? `<button class="btn sm danger" data-off="${u.id}">停用</button>` : ''}</td></tr>`; }).join('')}</table></div>`;
+    <td>${u.level === 'staff' ? `<button class="btn sm danger" data-off="${u.id}">离职 / 调岗</button>` : ''}</td></tr>`; }).join('')}</table></div>`;
   $('#f').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/users', { ...formData(e.target), store_id: sid }), '已添加')) { await loadMeta(); route(); } };
   document.querySelectorAll('[data-role]').forEach(s => s.onchange = () => act(async () => { await api('/users', { id: Number(s.dataset.role), role_id: Number(s.value) }); await loadMeta(); }, '岗位已更新'));
-  document.querySelectorAll('[data-off]').forEach(b => b.onclick = () => confirm('停用后其未完成任务会按岗位重新分配，确认？') && act(async () => { await api('/users', { id: Number(b.dataset.off), active: 0 }); await loadMeta(); route(); }, '已停用'));
+  document.querySelectorAll('[data-off]').forEach(b => b.onclick = () => handoffModal(Number(b.dataset.off)));
 };
 
 // ---------- region dashboard ----------
@@ -2205,6 +2205,73 @@ const isRegionLv = () => REGION_LV.includes(S.me.level);
 { const f0 = VIEWS.hrp; VIEWS.hrp = async id => { await f0(id); const s = await api('/mentor-stats/' + id).catch(() => null); if (!s || !$('#main') || !(s.as_mentor || s.as_mentee)) return;
   const box = document.createElement('div'); box.innerHTML = `<div class="sec-t2">师徒带教评价</div><div class="ldr"><div class="wgrid">${[['带徒', s.as_mentor, '人'], ['徒弟评分', s.mentor_score ?? '-', ''], ['90天结业', s.done90, '人'], ['被带教评分', s.mentee_score ?? '-', '']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div></div>`;
   const foot = $('#main').querySelector('.foot'); foot ? foot.before(box) : $('#main').appendChild(box); }; }
+
+
+// ---------- 绩效与薪酬 ----------
+const paySheet = p => `<div class="ldr"><div class="row between"><b>${esc(p.ym)} 绩效单 · 预估</b><b class="amt">¥${p.total}</b></div>
+  ${p.items.map(i => `<div class="iss-i"><span class="grow">${esc(i.l)}</span><b>¥${i.amt}</b></div>`).join('')}
+  ${p.kind === 'sm' && p.assess ? `<div class="muted small" style="margin-top:6px">季度考核 ${p.assess.score} 分 · ${p.assess.parts.map(x => `${esc(x.l)} ${x.v}（${x.w}%）${x.note ? ' ' + esc(x.note) : ''}`).join('，')}</div>` : ''}
+  ${p.kind === 'staff' ? `<div class="muted small" style="margin-top:6px">年度学分 ${p.credits}/${p.credit_target}${p.mentor.as_mentor ? ` · 带徒 ${p.mentor.as_mentor} 人` : ''} · 执行分系数：90 分以上 1.2，80 以上 1.0，70 以上 0.9，其余 0.8</div>` : ''}</div>`;
+const APL = { open: ['warn', '处理中'], accepted: ['ok', '已采纳'], rejected: ['bad', '未采纳'] };
+VIEWS.pay = async () => {
+  const uid = Number(qs().get('uid')) || 0, mine = !uid && S.me.level === 'staff';
+  if (mine || uid) {
+    const p = await api('/pay/' + (uid || S.me.id));
+    $('#main').innerHTML = `<div class="pghd row between"><b>${uid ? esc(p.name) + ' · ' : '我的'}绩效与薪酬</b>${mine ? '<button class="btn sm" id="apl">申诉</button>' : ''}</div>${paySheet(p)}
+    <div class="sec-t2">申诉记录</div><div class="list">${p.appeals.map(a => `<div class="task"><div class="b"><div class="ttl">${esc(a.item || '绩效')}：${esc(a.reason)}</div>${a.reply ? `<div class="muted small">回复：${esc(a.reply)}</div>` : ''}</div><span class="tag ${APL[a.status][0]}">${APL[a.status][1]}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>
+    <p class="muted small">金额为模拟预估，以财务发放为准。</p>`;
+    if ($('#apl')) $('#apl').onclick = () => formModal('绩效申诉', `<label class="f"><span>申诉项目</span><select name="item">${p.items.map(i => `<option>${esc(i.l.replace(/（.*/, ''))}</option>`).join('')}</select></label><label class="f"><span>理由</span><textarea name="reason" required></textarea></label>`, f => act(() => api('/pay/appeal', f), '已提交，店长和人事会处理'));
+    return;
+  }
+  const sid = Number(qs().get('store')) || 0, d = await api('/pay-board' + (sid ? '?store=' + sid : ''));
+  $('#main').innerHTML = `<div class="pghd"><b>绩效与薪酬</b></div>
+  ${d.appeals.length ? `<div class="sec-t2">待处理申诉</div><div class="list">${d.appeals.map(a => `<div class="task"><div class="b"><div class="ttl">${esc(a.name)} · ${esc(a.store || '')} · ${esc(a.item || '绩效')}</div><div class="muted small">${esc(a.reason)}</div></div><button class="btn primary sm" data-ap="${a.id}">处理</button></div>`).join('')}</div>` : ''}
+  ${d.sms.length ? `<div class="sec-t2">店长季度考核</div><div class="list">${d.sms.map(x => `<a class="task" href="#/pay?uid=${x.id}"><div class="b"><div class="ttl">${esc(x.name)}</div><div class="muted small">${x.assess ? `${x.assess.score} 分 · 奖金系数 ×${x.assess.coef}` : '未带店'}</div></div><span class="gchip g${x.assess?.grade || 'C'}">${x.assess?.grade || '-'}</span></a>`).join('')}</div>` : ''}
+  <div class="sec-t2">员工本月绩效单</div><div class="list">${d.staff.map(x => `<a class="task" href="#/pay?uid=${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)} · ${esc(x.store)}</span></div><div class="muted small">执行分 ${x.exec ?? '-'} · 系数 ${x.coef}${x.items[2] ? ' · ' + esc(x.items[2].l) + ' ¥' + x.items[2].amt : ''}</div></div><b class="amt">¥${x.total}</b></a>`).join('')}</div>
+  <p class="muted small">基本工资、提成为模拟数据。</p>`;
+  document.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => formModal('处理申诉', `<label class="f"><span>结果</span><select name="status"><option value="accepted">采纳</option><option value="rejected">不采纳</option></select></label><label class="f"><span>回复</span><textarea name="reply"></textarea></label>`, f => act(() => api('/pay/appeal/' + b.dataset.ap, f), '已回复')));
+};
+
+// ---------- 值班交接班 ----------
+VIEWS.shift = async () => {
+  const sid = Number(qs().get('store')) || S.me.store_id || S.meta.stores[0]?.id, d = await api('/shift?store=' + sid), p = d.pending;
+  const blk = s => `<div class="ldr"><div class="row between"><b>${esc(s.date)} ${esc(s.shift)} · ${esc(s.by_name)}</b><span class="tag ${s.status === 'open' ? 'warn' : 'ok'}">${s.status === 'open' ? '待接班' : '已接班 · ' + esc(s.taker || '')}</span></div>
+    ${s.issues.map(i => `<div class="iss-i"><span class="tag ${i.done ? 'ok' : 'bad'}">${i.done ? '已处理' : '遗留'}</span><span>${esc(i.text)}</span></div>`).join('')}
+    ${[['宾客', s.guest], ['设备', s.equip], ['备用金', s.cash]].filter(x => x[1]).map(([l, v]) => `<div class="muted small">${l}：${esc(v)}</div>`).join('')}</div>`;
+  $('#main').innerHTML = `<div class="pghd row between"><b>值班交接 · ${esc(d.store)}</b>${!p ? '<button class="btn primary sm" id="nsh">填写交班单</button>' : ''}</div>
+  ${p ? `<div class="sec-t2">待接班</div>${blk(p)}${p.by !== S.me.id ? '<button class="btn primary" id="tk" style="width:100%">确认接班</button>' : '<p class="muted small">等待下一班确认接班</p>'}` : ''}
+  ${d.carry.length && !p ? `<div class="sec-t2">上一班遗留 ${d.carry.length} 项（会自动带入本班交班单）</div><div class="ldr">${d.carry.map(i => `<div class="iss-i"><span class="tag bad">遗留</span><span>${esc(i.text)}</span></div>`).join('')}</div>` : ''}
+  <div class="sec-t2">交班记录</div>${d.logs.filter(s => s.status === 'taken').map(blk).join('') || '<div class="list"><div class="empty">暂无</div></div>'}`;
+  if ($('#tk')) $('#tk').onclick = () => formModal('确认接班', '<label class="f"><span>接班说明</span><textarea name="note" placeholder="例如：遗留问题已知悉，1208 回访由我跟进"></textarea></label>', f => act(() => api(`/shift/${p.id}/take`, f), '已接班'));
+  if ($('#nsh')) $('#nsh').onclick = () => formModal('填写交班单', `<label class="f"><span>班次</span><select name="shift">${d.shifts.map(x => `<option>${x}</option>`).join('')}</select></label>
+    ${d.carry.map((i, k) => `<label class="f row" style="gap:8px"><input type="checkbox" name="cd${k}"><span>上班遗留：${esc(i.text)}（勾选表示已处理）</span></label>`).join('')}
+    <label class="f"><span>本班遗留问题（每行一条）</span><textarea name="iss"></textarea></label><label class="f"><span>宾客特殊需求</span><input name="guest"></label><label class="f"><span>设备异常</span><input name="equip"></label><label class="f"><span>备用金 / 钥匙</span><input name="cash"></label>`,
+    f => act(() => api('/shift', { store_id: sid, shift: f.shift, guest: f.guest, equip: f.equip, cash: f.cash, issues: [...d.carry.map((i, k) => ({ ...i, done: !!f['cd' + k] })), ...(f.iss || '').split('\n').map(text => ({ text }))] }), '已交班，等待接班'));
+};
+
+// ---------- 品牌标准 ----------
+VIEWS.brands = async () => {
+  const d = await api('/brands');
+  $('#main').innerHTML = `<div class="pghd"><b>品牌标准</b></div><p class="muted small" style="margin-top:-6px">不同品牌分别设定统购率、爬坡基准、品牌认证和筹建工期，门店按所属品牌考核和排名。</p>
+  ${d.brands.map((b, i) => `<div class="ldr"><div class="row between"><b>${esc(b.name)}</b>${d.can_edit ? `<button class="btn sm" data-bd="${i}">编辑</button>` : ''}</div>
+    <div class="muted small">统购率 ≥ ${b.rate}%（必须统购：${esc(b.must.join('、'))}）· 爬坡基准 ×${b.ramp} · 认证「${esc(b.cert)}」· 标准工期 ${b.open_days} 天</div>
+    <div class="list" style="margin-top:6px">${b.stores.map((s, k) => `<a class="task" href="#/sp/${s.id}"><span class="rk">${k + 1}</span><div class="b"><div class="ttl">${esc(s.name)}</div><div class="muted small">统购率 ${s.rate ?? '-'}%</div></div><b>${s.score}</b><span class="gchip g${s.grade}">${s.grade}</span></a>`).join('') || '<div class="empty">本区域暂无该品牌门店</div>'}</div></div>`).join('')}`;
+  document.querySelectorAll('[data-bd]').forEach(x => x.onclick = () => { const b = d.brands[Number(x.dataset.bd)];
+    formModal('编辑 · ' + b.name, `<label class="f"><span>统购率目标 %</span><input type="number" name="rate" value="${b.rate}"></label><label class="f"><span>必须统购品类（逗号分隔）</span><input name="must" value="${esc(b.must.join(','))}"></label><label class="f"><span>爬坡基准系数</span><input type="number" step="0.01" name="ramp" value="${b.ramp}"></label><label class="f"><span>品牌认证名称</span><input name="cert" value="${esc(b.cert)}"></label><label class="f"><span>标准筹建工期（天）</span><input type="number" name="open_days" value="${b.open_days}"></label>`,
+      f => act(() => api('/brands', { ...f, name: b.name, must: f.must.split(/[,，、\s]+/) }), '已保存')); });
+};
+
+// ---------- 离职 / 调岗交接 ----------
+async function handoffModal(uid) {
+  const d = await api('/handoff/' + uid), L2 = { tasks: '待办任务', rects: '整改', scenes: '负责场景', templates: '工作清单', mentees: '徒弟', takes: '盘点', repairs: '报修' };
+  formModal(`${d.name} · 离职 / 调岗交接`, `<p class="muted small">共 ${d.count} 项未完成工作，提交后全部转交给接手人。</p>
+    <div class="ldr">${Object.entries(d.items).filter(([, v]) => v.length).map(([k, v]) => `<div class="iss-i"><span class="tag">${L2[k]} ${v.length}</span><span class="muted small">${v.slice(0, 3).map(x => esc(x.title)).join('、')}${v.length > 3 ? ' 等' : ''}</span></div>`).join('') || '<div class="muted small">无未完成工作</div>'}</div>
+    <label class="f"><span>类型</span><select name="mode" id="hm"><option value="leave">离职</option><option value="transfer">调岗到其他门店</option></select></label>
+    <label class="f" id="hs" style="display:none"><span>调入门店</span><select name="store_id">${d.stores.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>接手人</span><select name="to">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select></label>`,
+    f => act(async () => { await api('/handoff/' + uid, { ...f, to: Number(f.to), store_id: Number(f.store_id) }); await loadMeta(); }, '已交接'));
+  $('#hm').onchange = () => { $('#hs').style.display = $('#hm').value === 'transfer' ? '' : 'none'; };
+}
 
 // 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）
 const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParams(location.search).get('feishu') === '1';
