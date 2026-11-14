@@ -1462,10 +1462,9 @@ async function staffHome() {
   const groups = {};
   for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   $('#main').innerHTML = `<div class="sf-hd"><div><b>${hi}，${esc(S.me.name)}</b><div class="small">${esc(S.me.role_name)} · ${esc(storeName(sid))}</div></div><span class="sp"></span>${calMini(date, 'w')}<button class="ib w" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid)}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/standards', '品牌标准', '标'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/standards', '品牌标准', '标']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar()}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/my"><b>${pend.length}</b><span>待完成</span></a><a href="#/my" class="${od.length ? 'bad' : ''}"><b>${od.length}</b><span>已超时</span></a><a href="#/my-rect" class="${openR.length ? 'warn' : ''}"><b>${openR.length}</b><span>待整改</span></a><a href="#/my"><b>${fb.filter(t => t.check_result === 'good').length}</b><span>获肯定</span></a></div></div>
-  <div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/standards', '品牌标准', '标'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/standards', '品牌标准', '标']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div>
   ${next ? `<a class="sf-next" href="#/task/${next.id}"><div class="small">下一项任务 · ${next.overdue ? '<b style="color:#FFD2D2">已超时</b>' : '截止 ' + esc(next.due_time)}</div><b>${esc(next.title)}</b><div class="small">${esc(next.scene_name || '')} ${next.covered ? '· 顶岗替 ' + esc(next.orig_name) : ''}${next.need_photo ? ' · 需拍照' : ''}</div><span class="gbtn go">去完成 →</span></a>`
     : `<div class="sf-next done"><b>${all.length ? '今天的任务都完成了' : '今天没有任务'}</b><div class="small">${all.length ? '辛苦了，店长会随机抽查' : ''}</div></div>`}
   ${openR.length ? `<div class="sec-t2">我的整改</div><div class="list">${openR.slice(0, 3).map(x => `<a class="task" href="#/my-rect"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.reason || '')} · 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</a>`).join('')}</div>` : ''}
@@ -1511,12 +1510,9 @@ async function managerHome() {
   const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['handover', '一键交班', '交', '']];
   $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
     ${calMini(date)}<a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid)}
-  ${rhythmBar()}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar()}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/home?view=store&store=${sid}"><b>${all.length - done.length}</b><span>待完成</span></a><a href="#/must" class="${od ? 'bad' : ''}"><b>${od}</b><span>已超时</span></a><a href="#/must" class="${toCheck ? 'warn' : ''}"><b>${toCheck}</b><span>待点评</span></a><a href="#/rect" class="${openR ? 'warn' : ''}"><b>${openR}</b><span>待整改</span></a></div></div>
-  <div class="sec-t2">我的工作</div>
-  <div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>
   ${upN ? `<div class="sec-t2 row between"><span>上级安排</span><a href="#/upper" class="small">全部 ${upN} ›</a></div><div class="list">${up.focus.slice(0, 2).map(f => `<a class="task" href="#/upper"><div class="b"><div class="ttl">${esc(f.title)}</div><div class="muted small">${esc(f.creator || '区域')} 下发 · 每日 ${esc(f.due_time)} · ${esc(f.assignee_name || '')} 落实 · 历史执行 ${pct(f.rate)}</div></div>${f.today ? `<span class="tag ${f.today.status === 'done' ? 'ok' : 'warn'}">${f.today.status === 'done' ? '今日已落实' : '今日待落实'}</span>` : ''}</a>`).join('')}
     ${up.rects.slice(0, 2).map(x => `<a class="task" href="#/rect"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.creator_role)} ${esc(x.creator)} · ${esc(x.assignee_name || '')} · 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</a>`).join('')}</div>` : ''}
   <div class="sec-t2 row between"><span>今日必做推荐</span><a href="#/must" class="small">全部 ${must.length} ›</a></div>
@@ -1613,7 +1609,7 @@ function plList(sid) {
 const da = k => (S.me.data_auth || []).includes(k);
 const regionTeam = async () => { $('#main').innerHTML = `${plBar('ren')}<div class="pghd"><b>团队</b></div>${da('hrm') || da('care') ? '' : '<p class="muted">暂无团队数据授权，可请区域经理在「数据授权」中开通。</p>'}`; };
 const plLab = k => (k === 'ren' && S.me.level === 'staff' ? (S.me.lead ? ['团队', '画像 · 预警'] : ['画像', '我的档案']) : PL[k]);
-const plBar = (on, sid) => { const a = plList(sid); return `${a.length > 1 ? `<div class="pltabs n${a.length}">${a.map(k => `<a class="${on === k ? 'on' : ''}" href="#/home?${new URLSearchParams(sid ? { pl: k, store: sid } : { pl: k })}"><b>${plLab(k)[0]}</b><span>${plLab(k)[1]}</span></a>`).join('')}</div>` : ''}<div id="inbox"></div>`; };
+const plBar = (on, sid, top = '') => { const a = plList(sid); return `${a.length > 1 ? `<div class="pltabs n${a.length}">${a.map(k => `<a class="${on === k ? 'on' : ''}" href="#/home?${new URLSearchParams(sid ? { pl: k, store: sid } : { pl: k })}"><b>${plLab(k)[0]}</b><span>${plLab(k)[1]}</span></a>`).join('')}</div>` : ''}${top}<div id="inbox"></div>`; };
 const plHead = (title, sw) => `<div class="storebar"><button class="storename" ${sw ? 'id="sw"' : 'disabled'}>${esc(title)}${sw ? '<i>▾</i>' : ''}</button>
   <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>`;
 function bindHead() {
@@ -2099,7 +2095,7 @@ async function fillExec(uid) {
   <div class="ldr"><div class="ldr-h"><span class="sgd ${m.score >= 90 ? 'gS' : m.score >= 80 ? 'gA' : m.score >= 70 ? 'gB' : 'gD'} lg">${m.score}</span><div class="grow"><b>${m.level}员工</b><span class="muted small">完成率 ${m.parts.rate ?? '-'}% · 准时率 ${m.parts.ontime ?? '-'}% · 合格率 ${m.parts.pass ?? '-'}% · 获肯定 ${m.parts.good}</span></div></div>
     <div class="bud"><i><em style="width:${Math.min(100, m.month_good * 100 / m.star_need)}%"></em></i></div><div class="muted small">${m.star_left ? `本月获肯定 ${m.month_good} 次，再 ${m.star_left} 次可评「月度星级员工」` : '本月已达「月度星级员工」标准'}</div></div>` : ''}${commCard(d.comm)}`;
 }
-{ const f0 = staffHome; staffHome = async () => { await f0(); const a = document.querySelector('.mtiles'); if (a && !$('#exs')) { const d = document.createElement('div'); d.id = 'exs'; a.before(d); } fillExec(S.me.id); }; }
+{ const f0 = staffHome; staffHome = async () => { await f0(); const a = $('#topw') || document.querySelector('.mtiles'); if (a && !$('#exs')) { const d = document.createElement('div'); d.id = 'exs'; a.id === 'topw' ? a.after(d) : a.before(d); } fillExec(S.me.id); }; }
 { const f0 = storePeopleView; storePeopleView = async sid => {
   await f0(sid);
   const xs = await api(`/store/${sid}/exec`).catch(() => null); if (!xs || !$('#main')) return;
@@ -2384,7 +2380,7 @@ async function loadCockpit(sid) {
   <section class="yic"><div class="row between"><b>今日三件事</b><span class="muted small">按影响大小排序</span></div>
   ${d.items.map((x, i) => `<a class="ck-i" href="${x.link || '#/home'}"><span class="rk">${i + 1}</span><div class="b"><div class="ttl"><span class="tag ${x.lv}">${esc(x.tag)}</span> ${esc(x.title)}</div><div class="muted small">建议：${esc(x.how)}${x.sub ? ' · ' + esc(x.sub) : ''}</div></div><span class="btn sm">去处理</span></a>`).join('') || '<div class="empty">今天没有紧急事项</div>'}
   ${d.onboard != null ? `<a class="ck-i" href="#/onboard"><div class="b"><div class="ttl">90 天上手 · 已验收 ${d.onboard}%</div>${pbar(d.onboard)}</div></a>` : ''}</section></div>`;
-  const bar = $('#main .storebar') || $('#main .pghd'); bar ? bar.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+  const bar = $('#topw') || $('#main .storebar') || $('#main .pghd'); bar ? bar.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
 }
 VIEWS.coach = async () => {
   const d = await api('/coach');
