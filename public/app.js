@@ -1041,7 +1041,7 @@ VIEWS.standards = async () => {
   const rate = c => (c.n_total ? Math.round(c.n_done * 100 / c.n_total) : null);
   const byScene = {};
   for (const c of list) (byScene[c.scene_name] ||= []).push(c);
-  const rm = ['region_manager', 'coach'].includes(S.me.level);
+  const rm = S.me.level === 'region_manager';
   $('#main').innerHTML = `<div class="row between"><h1>品牌标准库</h1>${storeSwitch('#/standards')}</div>
   <p class="muted small" style="margin-top:-6px">《品牌审计线下检查标准 2026Q3（全季）》M-L-F 分解 · 共 ${all.length} 条，已转为门店固定工作并用于巡店打分。执行情况为本店近 14 天（${esc(d.from.slice(5))} 起）。</p>
   <div class="panel stats">${['M1', 'M2', 'M3', 'M4'].map(m => `<a href="${link('m', f.m === m ? '' : m)}" class="${f.m === m ? 'on' : ''}"><b>${cnt('m', m)}</b><span>${m} ${M_TEXT[m]}</span></a>`).join('')}</div>

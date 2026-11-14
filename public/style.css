@@ -201,8 +201,8 @@ tr.click:hover td{background:rgba(0,0,0,.02)}
 .dots i{width:10px;height:10px;border-radius:2px;background:rgba(0,0,0,.1)}
 .dots i.d{background:var(--ok)}.dots i.b{background:var(--bad)}.dots i.p{background:rgba(217,48,37,.25)}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:flex-end;justify-content:center;padding:40px 0 0;overflow:auto}
-.modal{background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:640px;padding:18px 16px calc(24px + env(safe-area-inset-bottom))}
-.modal h1{display:flex;justify-content:space-between}
+.modal{background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:640px;max-height:calc(100dvh - 40px);overflow-y:auto;padding:18px 16px calc(24px + env(safe-area-inset-bottom))}
+.modal h1{display:flex;justify-content:space-between;position:sticky;top:-18px;background:var(--surface);z-index:1;padding:4px 0}
 .modal .x{cursor:pointer;color:var(--text-muted);font-weight:400}
 #toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:60}
 #toast div{background:#191919;color:#fff;padding:8px 14px;border-radius:var(--radius);margin-top:6px;font-size:13px}

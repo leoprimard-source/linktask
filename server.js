@@ -3220,7 +3220,7 @@ app.get('/api/hrm', (req, res) => {
   const link = all.map(x => { const sc = storeScore(x.id); return { id: x.id, name: x.name, grade: sc.grade, total: sc.total, team: sc.dims.team, cp30: q1('SELECT COUNT(*) n FROM complaints WHERE store_id=? AND created_at>=?', x.id, L.addDays(t, -30)).n, fill: x.fill, y_rate: x.y_rate, early_rate: x.early_rate, stab: x.stab, tstab: stabMix(x.id) }; });
   const ms = sel ? [sel.id] : sids;
   const moves = ms.length ? q(`SELECT m.*, s.name store FROM hr_moves m LEFT JOIN stores s ON s.id=m.store_id WHERE m.kind='leave' AND m.store_id IN (${ms.join(',')}) AND m.date>=? ORDER BY m.date DESC LIMIT 20`, L.addDays(t, -365)) : [];
-  res.json({ sum: hrAgg(all, sids), stores: all.map(x => ({ id: x.id, name: x.name })), link, sel, moves, th: HC_TH, cost_def: LEAVE_COST, can_plan: canHR(u), can_rec: canHR(u) || u.level === 'store_manager',
+  res.json({ sum: hrAgg(all, sids), stores: all.map(x => ({ id: x.id, name: x.name })), link, sel, moves, th: HC_TH, cost_def: LEAVE_COST, can_plan: ['region_manager', 'hr_manager'].includes(u.level), can_rec: canHR(u) || u.level === 'store_manager',
     exit_reasons: EXIT_R, channels: REC_CH, pos: HC_POS, sim: true });
 });
 app.post('/api/hrm/plan', (req, res) => {
