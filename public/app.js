@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -155,7 +155,7 @@ const ICON = {
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
 const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
-const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
 
 function shell(route, html) {
   const root = ['home', 'notices', 'work', 'rect', 'my-rect', 'me'].includes(route);
@@ -164,7 +164,7 @@ function shell(route, html) {
   $('#app').innerHTML = `<div class="phone">
   <header class="appbar">${root ? '<img class="logo" src="/icon.svg" alt="">' : '<a class="back" id="back" href="javascript:void 0" aria-label="返回">‹</a>'}
     <b>${root ? '宏图' : esc(navLabel(route))}</b><span class="sp"></span>
-    <button class="dots" id="dots" aria-label="更多">···</button></header>
+    ${typeof helpBar === 'function' ? helpBar(route) : ''}<button class="dots" id="dots" aria-label="更多">···</button></header>
   <main class="main ${route === 'home' ? 'home' : ''}" id="main">${html}</main>
   <div class="foot">宏图计划 · 演示模式 · 数据为模拟数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div>
   <nav class="tabbar">${tabs.map(([k, l, ic]) => `<a href="#/${k}" class="${route === k ? 'on' : ''}">${icon(ic)}${k === 'notices' && S.me.unread ? `<b>${S.me.unread > 99 ? '99+' : S.me.unread}</b>` : ''}<span>${l}</span></a>`).join('')}</nav>
@@ -198,6 +198,7 @@ async function route() {
   const v = name;
   shell(v, '<div class="empty">加载中…</div>');
   try { await VIEWS[v](arg); } catch (e) { $('#main').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  if (typeof helpDecorate === 'function') helpDecorate(v);
 }
 async function loadMeta() {
   S.meta = await api('/meta');
@@ -2662,7 +2663,7 @@ VIEWS.deleg = async () => {
   if (d.mode === 'sm') {
     const s = d.stats;
     $('#main').innerHTML = `<div class="pghd"><b>任务授权</b></div><p class="muted small" style="margin-top:-6px">把自己的任务授权给本店店助或主管：执行分记在接手人身上，责任仍在店长；随时可以收回，没做完的回到你手里。区域经理、运营经理、教练能看到授权情况。</p>
-    ${s ? `<div class="kpis"><div class="kpi"><div class="muted small">近 7 天到未来 7 天</div><b>${s.ratio}%</b><div class="small">${s.deleg}/${s.total} 项已转出${s.warn ? ' · <span style="color:var(--bad)">超过 50%</span>' : ''}</div></div></div>` : ''}
+    ${s ? `<div class="kpis"><div class="kpi"><div class="muted small">转出比例 · 近 7 天到未来 7 天</div><b>${s.ratio}%</b><div class="small">${s.deleg}/${s.total} 项已转出${s.warn ? ' · <span style="color:var(--bad)">超过 50%</span>' : ''}</div></div></div>` : ''}
     <div class="sec-t2">整体授权（出差、休假期间）</div>
     <form id="fa" class="card"><div class="row" style="flex-wrap:wrap;gap:6px"><select name="to_id">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select>
       <input type="date" name="start" value="${S.me.today}" min="${S.me.today}"><span>至</span><input type="date" name="end" value="${addDays(S.me.today, 2)}" min="${S.me.today}" max="${addDays(S.me.today, 30)}"></div>

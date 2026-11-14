@@ -1376,6 +1376,7 @@ app.get('/api/inbox', (req, res) => {
     if (hp) add('困难帮扶', 'bad', `${hp} 条帮扶申请待审批`, '', '#/care'); if (sp) add('月度之星', 'warn', `${sp} 条月度之星提名待审核`, '', '#/care'); }
   if (['region_manager', 'coach', 'hr_manager'].includes(u.level)) { sids.map(careOf).filter(x => x.score < 70).forEach(x => add('员工美好', 'warn', `${x.name} 员工美好分 ${x.score}`, x.alerts.slice(0, 2).map(a => a.text).join('；'), '#/care?store=' + x.id));
     if (u.level !== 'hr_manager') { const qs0 = qStart(L.today()), left = [...new Set(sids.flatMap(s => D.storeManagers(s)))].filter(id => !q1("SELECT 1 x FROM care_log WHERE user_id=? AND kind='sm_talk' AND date>=?", id, qs0)); if (left.length) add('店长谈心', 'warn', `本季度还有 ${left.length} 位店长未谈心`, left.map(id => q1('SELECT name FROM users WHERE id=?', id).name).join('、'), '#/care'); } }
+  q("SELECT id, title, kind FROM help_q WHERE owner_id=? AND reply IS NULL ORDER BY id DESC LIMIT 3", u.id).forEach(x => add(x.kind === 'unclear' ? '说明反馈' : '咨询', 'acc', x.title, '待你回复', '#/help/inbox'));
   res.json(out);
 });
 
@@ -3341,5 +3342,62 @@ function seedCare() {
   });
 }
 seedCare();
+
+// ---------- 说明文档：责任人与咨询 ----------
+D.db.exec('CREATE TABLE IF NOT EXISTS help_q(id INTEGER PRIMARY KEY, hkey TEXT, title TEXT, kind TEXT, text TEXT, user_id INTEGER, owner_id INTEGER, created_at TEXT, reply TEXT, replied_at TEXT)');
+const HELP_OWNER_DEF = { home: 'ops_manager', must: 'ops_manager', deleg: 'ops_manager', pfind: 'region_manager', patrol: 'region_manager', rect: 'ops_manager', issues: 'region_manager', hrm: 'hr_manager', care: 'hr_manager', dataauth: 'hq', dash: 'region_manager', coach: 'coach', sbiz: 'sales_manager' };
+const helpOwners = () => ({ ...HELP_OWNER_DEF, ...D.getSetting('help_owner', {}) });
+const helpOwnerOf = (u, k) => {
+  const v = helpOwners()[k];
+  if (!v) return null;
+  const sel = 'SELECT u.id, u.name, u.phone, r.name role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND ';
+  return typeof v === 'number' ? q1(sel + 'u.id=?', v) : (q1(sel + 'r.level=? AND u.region_id=? ORDER BY u.id', v, u.region_id) || q1(sel + 'r.level=? ORDER BY u.id', v));
+};
+const canEditHelp = u => ['region_manager', 'hq'].includes(u.level);
+app.get('/api/help', (req, res) => {
+  const u = req.u, owners = {};
+  for (const k of Object.keys(helpOwners())) {
+    const o = helpOwnerOf(u, k);
+    if (o) owners[k] = { id: o.id, name: o.name, role: o.role_name, phone: o.phone };
+  }
+  const c = cfg(), cc = careCfg();
+  res.json({ owners, cats: DA_CATS, mine_da: [...(daAuth()[daKey(u)] || [])], can_edit: canEditHelp(u), th: { ...HC_TH, ...cc, recheck_days: c.recheck_days, deleg_all: 30, deleg_task: 90, deleg_warn: 50, patrol_day_max: 3, stale: 30 },
+    users: canEditHelp(u) ? q("SELECT u.id, u.name, r.name role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level NOT IN ('staff') AND u.store_id IS NULL ORDER BY u.id") : [] });
+});
+app.post('/api/help/owner', (req, res) => {
+  if (!canEditHelp(req.u)) return deny(res, '说明责任人由区域经理或总部指定');
+  const { key, user_id } = req.body || {};
+  if (!HELP_OWNER_DEF[key]) return err(res, '没有这篇说明');
+  if (!q1('SELECT 1 FROM users WHERE id=? AND active=1', user_id)) return err(res, '责任人不存在或已停用');
+  const m = D.getSetting('help_owner', {}); m[key] = Number(user_id); D.setSetting('help_owner', m);
+  D.audit(req.u.id, null, '指定说明责任人', key + ' → ' + user_id);
+  res.json({ ok: true });
+});
+app.post('/api/help/ask', (req, res) => {
+  const u = req.u, { key, title, kind, text } = req.body || {};
+  const o = helpOwnerOf(u, key);
+  if (!o) return err(res, '这篇说明还没有责任人');
+  if (o.id === u.id) return err(res, '你就是这篇说明的责任人');
+  const k = kind === 'unclear' ? 'unclear' : 'ask', tx = String(text || '').trim().slice(0, 1000);
+  if (k === 'ask' && !tx) return err(res, '请写下你的问题');
+  if (q1("SELECT 1 FROM help_q WHERE user_id=? AND hkey=? AND kind=? AND text=? AND created_at>?", u.id, key, k, tx, L.nowStr().slice(0, 10))) return err(res, '同样的问题今天已经提交过');
+  const tt = String(title || key).slice(0, 60);
+  const id = Number(run('INSERT INTO help_q(hkey,title,kind,text,user_id,owner_id,created_at) VALUES(?,?,?,?,?,?,?)', key, tt, k, tx, u.id, o.id, L.nowStr()).lastInsertRowid);
+  D.notify([o.id], 'assign', k === 'unclear' ? '说明没看懂：' + tt : '咨询：' + tt, `${u.name}：${tx || '这篇说明没看懂'}`, '#/help/inbox');
+  res.json({ ok: true, id, owner: o.name });
+});
+app.get('/api/help/q', (req, res) => {
+  const u = req.u, f = r => ({ ...r, from: q1('SELECT name FROM users WHERE id=?', r.user_id)?.name, owner: q1('SELECT name FROM users WHERE id=?', r.owner_id)?.name });
+  res.json({ inbox: q('SELECT * FROM help_q WHERE owner_id=? ORDER BY reply IS NOT NULL, id DESC LIMIT 100', u.id).map(f), mine: q('SELECT * FROM help_q WHERE user_id=? ORDER BY id DESC LIMIT 50', u.id).map(f) });
+});
+app.post('/api/help/q/:id/reply', (req, res) => {
+  const r = q1('SELECT * FROM help_q WHERE id=?', req.params.id), tx = String(req.body?.reply || '').trim().slice(0, 1000);
+  if (!r || r.owner_id !== req.u.id) return deny(res, '只有说明责任人可以回复');
+  if (r.reply) return err(res, '已回复过');
+  if (!tx) return err(res, '请填写回复');
+  run('UPDATE help_q SET reply=?, replied_at=? WHERE id=?', tx, L.nowStr(), r.id);
+  D.notify([r.user_id], 'assign', '咨询已回复：' + r.title, tx, '#/help/inbox');
+  res.json({ ok: true });
+});
 
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));
