@@ -12,7 +12,7 @@ app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '
 app.use(express.static(path.join(__dirname, 'public')));
 
 const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
-const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', store_manager: '店长', staff: '员工' };
+const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '筹建经理', store_manager: '店长', staff: '员工' };
 
 app.get('/api/users', (req, res) => {
   const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
@@ -31,7 +31,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager'].includes(u.level);
+const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager'].includes(u.level);
 function visibleStores(u) {
   if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
@@ -537,7 +537,7 @@ const REVIEW_TOPICS = [
 function bizDay(sid, d) {
   const base = BIZ_BASE[sid] || 350;
   const wk = [5, 6].includes(L.weekday(d)) ? 1.12 : 1;
-  const occ = Math.min(0.97, 0.7 + hash(sid + 'o' + d) * 0.22) * (wk > 1 ? 1.04 : 1);
+  const occ = rampFactor(sid, d) * Math.min(0.97, 0.7 + hash(sid + 'o' + d) * 0.22) * (wk > 1 ? 1.04 : 1);
   const adr = base / 0.82 * (0.92 + hash(sid + 'a' + d) * 0.16) * wk;
   const bad = hash(sid + 'r' + d) > 0.62 ? 1 + (hash(sid + 'r2' + d) > 0.8 ? 1 : 0) : 0;
   const topic = sid === 3 && hash(sid + 't' + d) > 0.35 ? 1 : Math.floor(hash(sid + 't' + d) * REVIEW_TOPICS.length);
@@ -864,7 +864,7 @@ app.post('/api/region/follow', (req, res) => {
 });
 
 // ---------- 四板块：门店档案 / 经营 / 证照 / 人 / 加盟商 / 门店画像（实验）/ 周报 / 待我处理（档案、预算、业主数据为模拟） ----------
-const AREAS = { 1: ['商务区', '亚朵 · 桔子水晶 · 美居'], 2: ['交通枢纽', '汉庭优佳 · 亚朵 · 智选假日'], 3: ['旅游景区', '维也纳国际 · 亚朵 · 民宿集群'] };
+const AREAS = { 4: ['商务区', '亚朵 · 美居 · 智选假日'], 1: ['商务区', '亚朵 · 桔子水晶 · 美居'], 2: ['交通枢纽', '汉庭优佳 · 亚朵 · 智选假日'], 3: ['旅游景区', '维也纳国际 · 亚朵 · 民宿集群'] };
 const isFr = sid => q1('SELECT stype FROM stores WHERE id=?', sid)?.stype === '加盟店';
 const daysTo = d => Math.round((Date.parse(d) - Date.parse(L.today())) / 864e5);
 const canSee = (u, sid) => visibleStores(u).includes(Number(sid));
@@ -1013,13 +1013,13 @@ function renoOf(sid) {
 }
 const plansOf = sid => q("SELECT p.*, u.name owner FROM store_plans p LEFT JOIN users u ON u.id=p.owner_id WHERE p.store_id=? ORDER BY p.status!='open', p.id DESC", sid).map(p => ({ ...p, updates: JSON.parse(p.updates || '[]') }));
 function regionScores(regionId) {
-  const all = q('SELECT id FROM stores WHERE region_id=?', regionId).map(s => storeScore(s.id)).sort((a, b) => b.total - a.total);
+  const all = q("SELECT id FROM stores WHERE region_id=? AND COALESCE(lc_stage,'')!='退出'", regionId).map(s => storeScore(s.id)).sort((a, b) => b.total - a.total);
   const avg = { total: Math.round(all.reduce((a, x) => a + x.total, 0) / (all.length || 1)) };
   STORE_DIMS_FN().forEach(([k]) => { avg[k] = Math.round(all.reduce((a, x) => a + x.dims[k], 0) / (all.length || 1)); });
   all.forEach((x, i) => {
     x.rank = i + 1; x.of = all.length;
     const peers = all.filter(y => y.type === x.type); x.peer_rank = peers.indexOf(x) + 1; x.peers = peers.length;
-    x.tags = tagsOf(x.id); x.reno = renoOf(x.id); x.plans = plansOf(x.id);
+    x.tags = tagsOf(x.id); x.stage = storeStage(x.id); x.reno = renoOf(x.id); x.plans = plansOf(x.id);
     const [pv, cur] = x.trend.slice(-2).map(t => t.g);
     x.drop = GRADES.indexOf(cur) > GRADES.indexOf(pv) ? { from: pv, to: cur } : null;
     x.dim_trend = {}; x.declines = [];
@@ -1028,6 +1028,7 @@ function regionScores(regionId) {
       x.dim_trend[k] = [m2, m1, v];
       if (m2 > m1 && m1 > v) x.declines.push(l);
     });
+    if (x.stage === "爬坡") { x.drop = null; x.declines = []; x.trend = x.trend.slice(-Math.max(1, Math.ceil(dBetween(openOf(x.id), L.today()) / 30))); STORE_DIM_BASE.forEach(([k]) => { x.dim_trend[k] = [x.dims[k]]; }); }
   });
   return { all, avg };
 }
@@ -1035,7 +1036,7 @@ const regionOfStore = sid => q1('SELECT region_id FROM stores WHERE id=?', sid).
 app.get('/api/store/:sid/profile', (req, res) => {
   const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
   const { all, avg } = regionScores(regionOfStore(sid));
-  res.json({ info: storeInfo(sid), score: all.find(x => x.id === sid), avg, licenses: licensesOf(sid), repairs: repairStats(sid), cfg: cfg(), dim_def: STORE_DIMS_FN(), types: STORE_TYPES, tag_opts: TAG_OPTS });
+  res.json({ info: storeInfo(sid), score: all.find(x => x.id === sid), avg, licenses: licensesOf(sid), repairs: repairStats(sid), lc: lcOf(sid), cfg: cfg(), dim_def: STORE_DIMS_FN(), types: STORE_TYPES, tag_opts: TAG_OPTS });
 });
 app.get('/api/region/stores', (req, res) => {
   if (!isRegion(req.u)) return deny(res);
@@ -1241,6 +1242,19 @@ app.get('/api/inbox', (req, res) => {
   if (['region_manager', 'ops_manager'].includes(u.level) && sids.length) {
     q(`SELECT p.*, s.name store FROM repairs p JOIN stores s ON s.id=p.store_id WHERE p.esc_level=2 AND p.status IN ('open','accepted') AND p.store_id IN (${sids.map(() => '?').join(',')})`, ...sids).forEach(x => add('报修升级', 'bad', `${x.store}：${x.title}`, `${x.location} · 应于 ${x.due_at} 修复`, '#/repair/' + x.id));
   }
+  if (['region_manager', 'dev_manager', 'build_manager'].includes(u.level)) {
+    q(PJ_SQL + " WHERE p.region_id=? AND p.status='active'", u.region_id).map(projOf).forEach(p => {
+      const mine = u.level === 'region_manager' || p.dev_id === u.id || p.build_id === u.id;
+      if (!mine) return;
+      if (p.health === 'red') add('项目风险', 'bad', `${p.name}：${p.why.filter(w => w[0] === 'bad').map(w => w[1]).join('；')}`, `${p.stage} · 预计 ${p.predicted_open} 开业`, '#/proj/' + p.id);
+      else if (p.cur?.late) add('节点逾期', 'warn', `${p.name}：${p.cur.name}逾期 ${p.cur.slip} 天`, `计划 ${p.cur.plan_date} · 开业顺延至 ${p.predicted_open}`, '#/proj/' + p.id);
+    });
+  }
+  if (u.level === 'region_manager') q("SELECT id, name FROM stores WHERE region_id=?", u.region_id).filter(s => storeStage(s.id) === '爬坡').forEach(s => {
+    const r = rampOf(s.id);
+    if (r.eval_due) add('新店评估', 'warn', `${s.name} 开业满 ${r.days} 天，待做 90 天新店评估`, `近 4 周出租率较爬坡基准 ${r.gap >= 0 ? '+' : ''}${r.gap} 个点`, '#/sp/' + s.id);
+    if (r.ready) add('转入成熟', 'acc', `${s.name} 已满 6 个月且 RevPAR 达标，可转入成熟期`, '', '#/sp/' + s.id);
+  });
   if (u.level === 'ops_manager') q("SELECT p.*, s.name store FROM patrols p JOIN stores s ON s.id=p.store_id WHERE p.kind='recheck' AND p.status='planned' AND p.planned_date<=? ORDER BY p.planned_date", L.addDays(t, 2)).forEach(p => add('巡店复查', 'acc', `${p.planned_date} 复查 ${p.store}`, p.reason, '#/patrol/' + p.id));
   if (u.level === 'store_manager' && sid) {
     const sc = regionScores(regionOfStore(sid)).all.find(x => x.id === sid);
@@ -1321,7 +1335,8 @@ app.post('/api/patrols/:id/complete', (req, res) => {
         if (rid && result === 'fail') run("UPDATE rectifications SET status='open', deadline=?, verify_comment=?, verified_by=?, verified_at=?, escalated=0 WHERE id=?", L.addDays(t, 3), '巡店复查未通过：' + cm, req.u.id, now, rid);
       }
     }
-    const score = zero.length ? 0 : Math.round(earned * 100 / (max || 1));
+    const judged = tpls.filter(tp => (res0[tp.code] || {}).result !== 'na').length;
+    const score = recheck ? Math.round(pass * 100 / (judged || 1)) : zero.length ? 0 : Math.round(earned * 100 / (max || 1));
     run("UPDATE patrols SET status='done', score=?, summary=?, done_at=?, mode=?, owner_sent=? WHERE id=?", score, req.body.summary || '', now, mode, !recheck && isFr(p.store_id) ? now : null, p.id);
     if (recheck) run('UPDATE patrols SET recheck_result=? WHERE id=?', `${pass}/${tpls.length} 项通过`, p.parent_id);
     else if (fails.length) run("INSERT INTO patrols(store_id,planned_date,reason,status,created_by,created_at,kind,parent_id,codes) VALUES(?,?,?,'planned',?,?,'recheck',?,?)",
@@ -1470,6 +1485,238 @@ function seedRepairs() {
   }
 }
 seedRepairs();
+
+// ---------- lifecycle ----------
+const LC_NODES = [['sign', '签约', 0], ['design', '设计', 30], ['permit', '证照报建', 50], ['build', '工程筹建', 150], ['fire', '消防验收', 160], ['accept', '品牌验收', 170], ['hire', '招聘培训', 178], ['trial', '试营业', 185], ['open', '正式开业', 190]];
+const LC_STAGES = ['管道', '筹备', '爬坡', '成熟', '改造', '续约评估', '退出'];
+const BUILD_STD = 120;
+const dBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+const isDev = u => ['region_manager', 'dev_manager', 'build_manager'].includes(u.level);
+const PJ_SQL = `SELECT p.*, d.name dev_name, b.name build_name FROM projects p LEFT JOIN users d ON d.id=p.dev_id LEFT JOIN users b ON b.id=p.build_id`;
+function projOf(p) {
+  const t = L.today();
+  const nodes = q('SELECT n.*, u.name owner_name FROM project_nodes n LEFT JOIN users u ON u.id=n.owner_id WHERE n.project_id=? ORDER BY n.sort', p.id).map(n => {
+    const late = !n.actual_date && n.plan_date < t;
+    return { ...n, data: JSON.parse(n.data || '{}'), late, slip: n.actual_date ? Math.max(0, dBetween(n.plan_date, n.actual_date)) : late ? dBetween(n.plan_date, t) : 0 };
+  });
+  const cur = nodes.find(n => !n.actual_date), done = nodes.filter(n => n.actual_date);
+  const shift = p.status === 'active' ? Math.max(0, done.length ? done[done.length - 1].slip : 0, cur?.late ? cur.slip : 0) : 0;
+  const plan_open = nodes[nodes.length - 1]?.plan_date;
+  const stage = p.status === 'exit' ? '退出' : p.status === 'opened' ? '已开业' : nodes.find(n => n.key === 'permit')?.actual_date ? '筹备' : '管道';
+  const why = [];
+  if (p.status === 'active' && stage === '管道' && dBetween(p.sign_date, t) > 90 && !nodes.find(n => n.key === 'design')?.actual_date) why.push(['bad', `签约 ${dBetween(p.sign_date, t)} 天仍未完成设计，存在流失风险`]);
+  if (p.status === 'active' && !p.fund_ok) why.push(['bad', '业主资金未到位']);
+  if (p.status === 'active' && cur?.late) why.push([cur.slip >= 30 ? 'bad' : 'warn', `${cur.name}逾期 ${cur.slip} 天`]);
+  if (cur?.key === 'accept' && cur.data.fails?.length) why.push(['warn', `品牌验收 ${cur.data.fails.length} 项不合格，整改后复验`]);
+  const b = nodes.find(n => n.key === 'build'), pm = nodes.find(n => n.key === 'permit');
+  const bStart = pm?.actual_date, bDays = bStart ? dBetween(bStart, b?.actual_date || t) : null;
+  if (bDays != null && !b.actual_date && bDays > BUILD_STD) why.push(['warn', `工期已 ${bDays} 天，超过标准 ${BUILD_STD} 天`]);
+  const health = p.status !== 'active' ? null : why.some(w => w[0] === 'bad') ? 'red' : why.length ? 'yellow' : 'green';
+  return { ...p, stage, nodes, cur: cur ? { key: cur.key, name: cur.name, plan_date: cur.plan_date, late: cur.late, slip: cur.slip } : null, shift, plan_open,
+    predicted_open: plan_open ? L.addDays(plan_open, shift) : null, health, why, build_days: bDays, build_std: BUILD_STD, progress: Math.round(done.length * 100 / (nodes.length || 1)) };
+}
+const OPEN_CACHE = {};
+const openOf = sid => (OPEN_CACHE[sid] ??= q1('SELECT open_date FROM stores WHERE id=?', sid)?.open_date || '2000-01-01');
+const rampFactor = (sid, d) => { const n = dBetween(openOf(sid), d); return n >= 180 ? 1 : 0.62 + 0.38 * Math.max(0, n) / 180; };
+const rampBench = w => 0.55 + 0.3 * Math.min(1, w / 26);
+function storeStage(sid) {
+  const s = q1('SELECT * FROM stores WHERE id=?', sid);
+  if (s.lc_stage === '退出') return '退出';
+  if (s.lc_stage !== '成熟' && dBetween(s.open_date, L.today()) < 180) return '爬坡';
+  if (tagsOf(sid).includes('改造中')) return '改造';
+  if (isFr(sid) && daysTo(L.addDays(s.open_date, 365 * 8 + 2)) <= 365) return '续约评估';
+  return '成熟';
+}
+const eventsOf = sid => q('SELECT e.*, u.name by_name FROM store_events e LEFT JOIN users u ON u.id=e.by WHERE e.store_id=? ORDER BY e.at, e.id', sid);
+function rampOf(sid) {
+  const od = openOf(sid), t = L.today(), days = dBetween(od, t);
+  if (days >= 180 && q1('SELECT lc_stage FROM stores WHERE id=?', sid).lc_stage === '成熟') return null;
+  const weeks = [];
+  for (let w = 1; w <= Math.min(26, Math.floor(days / 7)); w++) {
+    const f = L.addDays(od, (w - 1) * 7), b = bizRange(sid, f, L.addDays(f, 6));
+    weeks.push({ w, occ: Math.round(b.occ * 100), bench: Math.round(rampBench(w) * 100) });
+  }
+  const last = weeks.slice(-4), gap = last.length ? Math.round(last.reduce((a, x) => a + x.occ - x.bench, 0) / last.length) : 0;
+  const rv = bizRange(sid, L.addDays(t, -30), L.addDays(t, -1)).revpar, base = BIZ_BASE[sid] || 350;
+  const evs = eventsOf(sid);
+  return { days, weeks, gap, revpar_rate: Math.round(rv * 100 / base), eval_done: evs.some(e => e.kind === '新店评估'), eval_due: days >= 90 && !evs.some(e => e.kind === '新店评估'),
+    ready: days >= 180 && rv >= base * 0.9 };
+}
+function lcOf(sid) {
+  const stage = storeStage(sid), pj = q1('SELECT id FROM projects WHERE store_id=?', sid);
+  return { stage, stages: LC_STAGES, events: eventsOf(sid), ramp: stage === '爬坡' ? rampOf(sid) : null, project_id: pj?.id || null };
+}
+app.get('/api/lifecycle', (req, res) => {
+  if (!isRegion(req.u)) return deny(res);
+  const t = L.today(), y = t.slice(0, 4), u = req.u;
+  const projects = q(PJ_SQL + ' WHERE p.region_id=? ORDER BY p.sign_date DESC', u.region_id).map(projOf);
+  const stores = q('SELECT id, name, open_date, rooms, stype FROM stores WHERE region_id=? ORDER BY id', u.region_id).map(s => ({ ...s, stage: storeStage(s.id), days: dBetween(s.open_date, t), ramp: storeStage(s.id) === '爬坡' ? rampOf(s.id) : null }));
+  const count = {};
+  for (const k of LC_STAGES) count[k] = 0;
+  projects.forEach(p => { if (p.stage === '管道' || p.stage === '筹备') count[p.stage]++; else if (p.stage === '退出') count['退出']++; });
+  stores.forEach(s => count[s.stage]++);
+  const evs = q("SELECT e.*, s.name store, p.name proj FROM store_events e LEFT JOIN stores s ON s.id=e.store_id LEFT JOIN projects p ON p.id=e.project_id WHERE COALESCE(s.region_id, p.region_id)=? ORDER BY e.at DESC, e.id DESC LIMIT 30", u.region_id);
+  const tgt = D.getSetting('dev_target', { sign: 8, open: 4 });
+  const yr = { sign: evs.filter(e => e.kind === '签约' && e.at.startsWith(y)).length, open: evs.filter(e => e.kind === '开业' && e.at.startsWith(y)).length,
+    exit: evs.filter(e => ['解约', '摘牌'].includes(e.kind) && e.at.startsWith(y)).length };
+  yr.net = yr.open - evs.filter(e => ['解约', '摘牌'].includes(e.kind) && e.store_id && e.at.startsWith(y)).length;
+  const pipeRooms = projects.filter(p => ['管道', '筹备'].includes(p.stage)).reduce((a, p) => a + p.rooms, 0);
+  res.json({ count, stages: LC_STAGES, projects, stores, events: evs, target: tgt, year: yr, year_label: y, pipe_rooms: pipeRooms, nodes_def: LC_NODES, build_std: BUILD_STD });
+});
+app.get('/api/projects/:id', (req, res) => {
+  const p = q1(PJ_SQL + ' WHERE p.id=?', req.params.id);
+  if (!p || !isRegion(req.u) || p.region_id !== req.u.region_id) return deny(res);
+  const acc = q("SELECT code, title, tag, s.name scene FROM templates t LEFT JOIN scenes s ON s.id=t.scene_id WHERE t.src='audit' AND t.active=1 AND t.tag IN ('清零项','重点项') ORDER BY t.code");
+  res.json({ ...projOf(p), events: q('SELECT e.*, u.name by_name FROM store_events e LEFT JOIN users u ON u.id=e.by WHERE e.project_id=? ORDER BY e.at, e.id', p.id), accept_items: acc, can: isDev(req.u) });
+});
+function nodeOwner(key, p) {
+  if (['sign', 'design'].includes(key)) return p.dev_id;
+  if (key === 'hire') return D.regionUsers(p.region_id, 'hr_manager')[0] || p.build_id;
+  if (['trial', 'open'].includes(key)) return D.regionUsers(p.region_id, 'region_manager')[0];
+  return p.build_id;
+}
+app.post('/api/projects', (req, res) => {
+  const u = req.u, b = req.body || {};
+  if (!['region_manager', 'dev_manager'].includes(u.level)) return deny(res, '由区域经理或开发经理录入签约项目');
+  if (!(b.name || '').trim() || !b.sign_date || !Number(b.rooms)) return err(res, '请填写项目名称、签约日期和房量');
+  const dev = Number(b.dev_id) || (u.level === 'dev_manager' ? u.id : D.regionUsers(u.region_id, 'dev_manager')[0]) || null;
+  const build = Number(b.build_id) || D.regionUsers(u.region_id, 'build_manager')[0] || null;
+  const id = Number(run('INSERT INTO projects(region_id,name,city,brand,stype,rooms,owner,owner_company,dev_id,build_id,sign_date,fund_ok,budget,paid,changes,staff_plan,staff_hired,staff_trained,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,0,0,?,?)',
+    u.region_id, b.name.trim(), b.city || '', b.brand || '全季 4.0', b.stype || '加盟店', Number(b.rooms), b.owner || '', b.owner_company || '', dev, build, b.sign_date, b.fund_ok ? 1 : 0, Number(b.budget) || Math.round(Number(b.rooms) * 10), Math.round(Number(b.rooms) * 0.18), 'active', L.nowStr()).lastInsertRowid);
+  const p = q1('SELECT * FROM projects WHERE id=?', id);
+  LC_NODES.forEach(([k, n, off], i) => run('INSERT INTO project_nodes(project_id,key,name,sort,plan_date,actual_date,owner_id) VALUES(?,?,?,?,?,?,?)', id, k, n, i, L.addDays(b.sign_date, off), k === 'sign' ? b.sign_date : null, nodeOwner(k, p)));
+  run('INSERT INTO store_events(project_id,kind,at,note,by) VALUES(?,?,?,?,?)', id, '签约', b.sign_date, `${b.name.trim()} · ${b.rooms} 间 · ${b.stype || '加盟店'}`, u.id);
+  D.notify([dev, build, ...D.regionUsers(u.region_id, 'region_manager')].filter(x => x && x !== u.id), 'project', `新签约项目：${b.name.trim()}`, `${b.sign_date} 签约，计划 ${L.addDays(b.sign_date, 190)} 开业`, '#/proj/' + id);
+  D.audit(u.id, null, '新签约项目', b.name.trim());
+  res.json({ ok: true, id });
+});
+app.post('/api/projects/:id/node/:key', (req, res) => {
+  const u = req.u, p = q1('SELECT * FROM projects WHERE id=?', req.params.id), b = req.body || {};
+  if (!p || !isDev(u) || p.region_id !== u.region_id || p.status !== 'active') return deny(res);
+  const nodes = q('SELECT * FROM project_nodes WHERE project_id=? ORDER BY sort', p.id), i = nodes.findIndex(n => n.key === req.params.key), n = nodes[i];
+  if (!n) return err(res, '节点不存在');
+  if (b.plan_date) {
+    if (u.level !== 'region_manager') return deny(res, '调整计划日期需区域经理确认');
+    run('UPDATE project_nodes SET plan_date=? WHERE id=?', b.plan_date, n.id);
+    D.audit(u.id, null, '调整项目节点', `${p.name} ${n.name} → ${b.plan_date}`);
+    return res.json({ ok: true });
+  }
+  if (nodes.slice(0, i).some(x => !x.actual_date)) return err(res, '请先完成前面的节点');
+  if (n.key === 'open') return err(res, '正式开业请用「确认开业」');
+  const data = { ...JSON.parse(n.data || '{}'), note: b.note || '', photo: savePhoto(b.photo) || JSON.parse(n.data || '{}').photo || null };
+  if (n.key === 'accept') {
+    const fails = (b.fails || []).map(String);
+    data.fails = fails; data.rounds = (data.rounds || 0) + 1;
+    if (fails.length) {
+      run('UPDATE project_nodes SET data=? WHERE id=?', JSON.stringify(data), n.id);
+      D.notify([p.build_id, ...D.regionUsers(p.region_id, 'region_manager')].filter(Boolean), 'project', `${p.name} 品牌验收未通过`, `${fails.length} 项不合格，整改后复验`, '#/proj/' + p.id);
+      D.audit(u.id, null, '品牌验收', `${p.name} 不合格 ${fails.length} 项`);
+      return res.json({ ok: true, passed: false });
+    }
+  }
+  const date = b.actual_date || L.today();
+  run('UPDATE project_nodes SET actual_date=?, data=? WHERE id=?', date, JSON.stringify(data), n.id);
+  const nx = nodes[i + 1];
+  if (nx) D.notify([nx.owner_id].filter(Boolean), 'project', `${p.name}：${n.name}已完成`, `下一节点「${nx.name}」计划 ${nx.plan_date}`, '#/proj/' + p.id);
+  if (n.key === 'permit') run('INSERT INTO store_events(project_id,kind,at,note,by) VALUES(?,?,?,?,?)', p.id, '进场筹建', date, '证照报建完成，进入工程筹建', u.id);
+  D.audit(u.id, null, '项目节点完成', `${p.name} ${n.name}`);
+  res.json({ ok: true, passed: true });
+});
+app.post('/api/projects/:id/update', (req, res) => {
+  const u = req.u, p = q1('SELECT * FROM projects WHERE id=?', req.params.id), b = req.body || {};
+  if (!p || !isDev(u) || p.region_id !== u.region_id) return deny(res);
+  const f = ['budget', 'paid', 'changes', 'staff_plan', 'staff_hired', 'staff_trained'].filter(k => b[k] !== undefined && b[k] !== '');
+  for (const k of f) run(`UPDATE projects SET ${k}=? WHERE id=?`, Math.max(0, Number(b[k]) || 0), p.id);
+  if (b.fund_ok !== undefined) run('UPDATE projects SET fund_ok=? WHERE id=?', b.fund_ok ? 1 : 0, p.id);
+  if (b.sm_name !== undefined) run('UPDATE projects SET sm_name=? WHERE id=?', b.sm_name, p.id);
+  D.audit(u.id, null, '更新项目', p.name);
+  res.json({ ok: true });
+});
+app.post('/api/projects/:id/open', (req, res) => {
+  const u = req.u, p = q1('SELECT * FROM projects WHERE id=?', req.params.id);
+  if (!p || u.level !== 'region_manager' || p.region_id !== u.region_id || p.status !== 'active') return deny(res);
+  const nodes = q('SELECT * FROM project_nodes WHERE project_id=? ORDER BY sort', p.id);
+  if (nodes.filter(n => n.key !== 'open').some(n => !n.actual_date)) return err(res, '开业前节点尚未全部完成');
+  const t = (req.body || {}).date || L.today();
+  const sid = Number(run('INSERT INTO stores(region_id,name,code,address,brand,stype,open_date,rooms,tags) VALUES(?,?,?,?,?,?,?,?,?)', p.region_id, p.name, 'NEW' + p.id, p.city || '', p.brand, p.stype, t, p.rooms, '新开业').lastInsertRowid);
+  run("UPDATE project_nodes SET actual_date=? WHERE project_id=? AND key='open'", t, p.id);
+  run("UPDATE projects SET status='opened', store_id=? WHERE id=?", sid, p.id);
+  run('UPDATE store_events SET store_id=? WHERE project_id=?', sid, p.id);
+  run('INSERT INTO store_events(store_id,project_id,kind,at,note,by) VALUES(?,?,?,?,?,?)', sid, p.id, '开业', t, `${p.rooms} 间，进入新店爬坡期`, u.id);
+  D.notify([p.dev_id, p.build_id, ...D.regionUsers(p.region_id, 'ops_manager'), ...D.regionUsers(p.region_id, 'hr_manager')].filter(Boolean), 'project', `${p.name} 正式开业`, '进入爬坡期，90 天做新店评估', '#/sp/' + sid);
+  D.audit(u.id, sid, '门店开业', p.name);
+  res.json({ ok: true, store_id: sid });
+});
+app.post('/api/projects/:id/exit', (req, res) => {
+  const u = req.u, p = q1('SELECT * FROM projects WHERE id=?', req.params.id), note = ((req.body || {}).note || '').trim();
+  if (!p || u.level !== 'region_manager' || p.region_id !== u.region_id || p.status !== 'active') return deny(res);
+  if (!note) return err(res, '请填写解约原因');
+  run("UPDATE projects SET status='exit', exit_note=? WHERE id=?", note, p.id);
+  run('INSERT INTO store_events(project_id,kind,at,note,by) VALUES(?,?,?,?,?)', p.id, '解约', L.today(), note, u.id);
+  D.audit(u.id, null, '项目解约', p.name + '：' + note);
+  res.json({ ok: true });
+});
+app.post('/api/store/:sid/stage', (req, res) => {
+  const u = req.u, sid = Number(req.params.sid), b = req.body || {}, note = (b.note || '').trim();
+  if (u.level !== 'region_manager' || !canSee(u, sid)) return deny(res);
+  const KINDS = { mature: '转入成熟', eval: '新店评估', 续约: '续约', 转让: '转让', 解约: '解约', 摘牌: '摘牌', 改造: '改造' };
+  const kind = KINDS[b.op]; if (!kind) return err(res, '操作无效');
+  if (['解约', '摘牌', '转让'].includes(kind) && !note) return err(res, '请填写原因和交接事项');
+  if (kind === '转入成熟') run("UPDATE stores SET lc_stage='成熟' WHERE id=?", sid);
+  if (['解约', '摘牌'].includes(kind)) run("UPDATE stores SET lc_stage='退出' WHERE id=?", sid);
+  if (kind === '改造') { const tg = tagsOf(sid).filter(x => x !== '改造规划'); if (!tg.includes('改造中')) tg.push('改造中'); run('UPDATE stores SET tags=? WHERE id=?', tg.join(','), sid); }
+  if (kind === '转入成熟') run('UPDATE stores SET tags=? WHERE id=?', tagsOf(sid).filter(x => x !== '新开业').join(','), sid);
+  run('INSERT INTO store_events(store_id,kind,at,note,by) VALUES(?,?,?,?,?)', sid, kind, b.date || L.today(), note, u.id);
+  D.notify(D.storeManagers(sid), 'project', `${sname(sid)}：${kind}`, note, '#/home?pl=shop&store=' + sid);
+  D.audit(u.id, sid, '门店周转', kind + ' ' + note);
+  res.json({ ok: true });
+});
+function seedLifecycle() {
+  if (D.getSetting('lc_seeded', 0)) return;
+  const t = L.today();
+  D.tx(() => {
+    for (const [n, lv] of [['开发经理', 'dev_manager'], ['筹建经理', 'build_manager']]) if (!q1('SELECT 1 FROM roles WHERE name=?', n)) run('INSERT INTO roles(name,level,sort) VALUES(?,?,?)', n, lv, 3);
+    const rid = n => q1('SELECT id FROM roles WHERE name=?', n).id;
+    const add = (name, role, store) => Number(run('INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES(?,?,1,?,?)', name, rid(role), store, '137' + String(10000000 + Math.floor(hash(name) * 89999999))).lastInsertRowid);
+    const dev = add('何俊', '开发经理', null), build = add('吴涛', '筹建经理', null);
+    const rm = D.regionUsers(1, 'region_manager')[0], hr = D.regionUsers(1, 'hr_manager')[0];
+    const od = L.addDays(t, -75);
+    const sid = Number(run('INSERT INTO stores(region_id,name,code,address,brand,stype,open_date,rooms,tags) VALUES(1,?,?,?,?,?,?,?,?)', '苏州金鸡湖店', 'SZ001', '苏州工业园区星海街 88 号', '全季 4.0', '直营店', od, 156, '新开业').lastInsertRowid);
+    const sm = add('顾磊', '店长', null); run('INSERT INTO user_stores VALUES(?,?)', sm, sid);
+    const ST = [['店助', '钱佳'], ['前台经理', '许诺'], ['前台高级', '蒋玥'], ['前台初级', '沈一帆'], ['客房经理', '韩梅'], ['客房中级', '杨柳'], ['客房初级', '朱丽'], ['餐厅厨师', '秦川'], ['工程', '尤明'], ['PA', '施红'], ['保安', '孔军']];
+    for (const [r, n] of ST) add(n, r, sid);
+    const owner = { 前台: '前台经理', 餐厅: '餐厅厨师', 客房: '客房经理', 公区: '店助', 外围: '保安', 后场: '工程', 营业功能区: '客房经理' };
+    for (const sc of q('SELECT id, name FROM scenes')) { const uid = q1('SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND r.name=?', sid, owner[sc.name] || '店助')?.id; if (uid) run('INSERT OR IGNORE INTO scene_owners VALUES(?,?,?)', sid, sc.id, uid); }
+    const mk = (name, city, stype, rooms, own, comp, sign, fund, budget, paid, changes, sp, sh, st, done, extra = {}) => {
+      const id = Number(run('INSERT INTO projects(region_id,name,city,brand,stype,rooms,owner,owner_company,dev_id,build_id,sign_date,fund_ok,budget,paid,changes,staff_plan,staff_hired,staff_trained,status,store_id,exit_note,sm_name,created_at) VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        name, city, '全季 4.0', stype, rooms, own, comp, dev, build, sign, fund, budget, paid, changes, sp, sh, st, extra.status || 'active', extra.store_id || null, extra.exit_note || null, extra.sm_name || null, sign + ' 10:00').lastInsertRowid);
+      const p = { region_id: 1, dev_id: dev, build_id: build };
+      LC_NODES.forEach(([k, n, off], i) => run('INSERT INTO project_nodes(project_id,key,name,sort,plan_date,actual_date,owner_id,data) VALUES(?,?,?,?,?,?,?,?)', id, k, n, i, L.addDays(sign, off), done[k] || null, nodeOwner(k, p), extra.data?.[k] ? JSON.stringify(extra.data[k]) : null));
+      run('INSERT INTO store_events(project_id,store_id,kind,at,note,by) VALUES(?,?,?,?,?,?)', id, extra.store_id || null, '签约', sign, `${name} · ${rooms} 间 · ${stype}`, dev);
+      if (done.permit) run('INSERT INTO store_events(project_id,store_id,kind,at,note,by) VALUES(?,?,?,?,?,?)', id, extra.store_id || null, '进场筹建', done.permit, '证照报建完成，进入工程筹建', build);
+      return id;
+    };
+    const s1 = L.addDays(t, -120); mk('南京新街口店', '南京', '加盟店', 180, '孙志强', '南京鼎盛酒店管理有限公司', s1, 0, 1800, 120, 0, 32, 0, 0, { sign: s1 });
+    const s2 = L.addDays(t, -20); mk('宁波天一广场店', '宁波', '加盟店', 140, '陈慧', '宁波甬江置业有限公司', s2, 1, 1450, 260, 0, 26, 0, 0, { sign: s2 });
+    const s3 = L.addDays(t, -140); mk('无锡万象城店', '无锡', '加盟店', 168, '周文斌', '无锡锡城投资集团', s3, 1, 1800, 1150, 60, 30, 12, 0, { sign: s3, design: L.addDays(s3, 28), permit: L.addDays(s3, 52) });
+    const s4 = L.addDays(t, -175); mk('合肥天鹅湖店', '合肥', '直营店', 150, '华住直营', '-', s4, 1, 1600, 1480, 85, 28, 24, 15, { sign: s4, design: L.addDays(s4, 31), permit: L.addDays(s4, 49), build: L.addDays(s4, 152), fire: L.addDays(s4, 163) }, { sm_name: '待定' });
+    const s5 = L.addDays(od, -192);
+    const pj5 = mk('苏州金鸡湖店', '苏州', '直营店', 156, '华住直营', '-', s5, 1, 1650, 1650, 40, 26, 26, 26, { sign: s5, design: L.addDays(s5, 29), permit: L.addDays(s5, 50), build: L.addDays(s5, 155), fire: L.addDays(s5, 163), accept: L.addDays(s5, 172), hire: L.addDays(s5, 178), trial: L.addDays(s5, 184), open: od }, { status: 'opened', store_id: sid, sm_name: '顾磊', data: { accept: { fails: [], rounds: 2, note: '首轮 3 项不合格，整改后复验通过' } } });
+    run('INSERT INTO store_events(project_id,store_id,kind,at,note,by) VALUES(?,?,?,?,?,?)', pj5, sid, '开业', od, '156 间，进入新店爬坡期', rm);
+    const s6 = L.addDays(t, -300); const pj6 = mk('上海徐家汇店', '上海', '加盟店', 120, '黄海', '上海汇金物业有限公司', s6, 0, 1300, 0, 0, 24, 0, 0, { sign: s6 }, { status: 'exit', exit_note: '业主资金链问题，签约后 6 个月未进场，双方协商解约' });
+    run('INSERT INTO store_events(project_id,kind,at,note,by) VALUES(?,?,?,?,?)', pj6, '解约', L.addDays(t, -60), '业主资金链问题，签约后 6 个月未进场，双方协商解约', rm);
+    for (const s of q("SELECT id, open_date FROM stores WHERE id IN (1,2,3)")) {
+      run('INSERT INTO store_events(store_id,kind,at,note,by) VALUES(?,?,?,?,?)', s.id, '签约', L.addDays(s.open_date, -200), '', rm);
+      run('INSERT INTO store_events(store_id,kind,at,note,by) VALUES(?,?,?,?,?)', s.id, '开业', s.open_date, '', rm);
+      run('INSERT INTO store_events(store_id,kind,at,note,by) VALUES(?,?,?,?,?)', s.id, '转入成熟', L.addDays(s.open_date, 183), '爬坡期结束，RevPAR 达到区域基准', rm);
+      run("UPDATE stores SET lc_stage='成熟' WHERE id=?", s.id);
+    }
+    const r3 = storeInfo(3).renovate; if (r3) run('INSERT INTO store_events(store_id,kind,at,note,by) VALUES(3,?,?,?,?)', '改造', r3, '公区及 60 间客房软装焕新', rm);
+    void hr;
+    D.setSetting('lc_seeded', 1);
+  });
+}
+seedLifecycle();
 
 // ---------- notifications ----------
 app.get('/api/notifications', (req, res) => res.json(q('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', req.u.id)));

@@ -60,6 +60,12 @@ db.exec("CREATE TABLE IF NOT EXISTS store_plans(id INTEGER PRIMARY KEY, store_id
 db.exec(`CREATE TABLE IF NOT EXISTS repairs(id INTEGER PRIMARY KEY, store_id INTEGER, location TEXT, title TEXT, body TEXT, urgency TEXT DEFAULT 'normal', photo TEXT,
   status TEXT DEFAULT 'open', created_by INTEGER, created_at TEXT, due_at TEXT, assignee_id INTEGER, accepted_at TEXT, done_at TEXT, done_note TEXT, done_photo TEXT,
   closed_at TEXT, rating INTEGER, esc_level INTEGER DEFAULT 0, log TEXT)`);
+db.exec(`CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, region_id INTEGER, name TEXT, city TEXT, brand TEXT, stype TEXT, rooms INTEGER, owner TEXT, owner_company TEXT,
+  dev_id INTEGER, build_id INTEGER, sign_date TEXT, fund_ok INTEGER DEFAULT 0, budget INTEGER, paid INTEGER, changes INTEGER, staff_plan INTEGER, staff_hired INTEGER, staff_trained INTEGER,
+  sm_name TEXT, status TEXT DEFAULT 'active', store_id INTEGER, exit_note TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS project_nodes(id INTEGER PRIMARY KEY, project_id INTEGER, key TEXT, name TEXT, sort INTEGER, plan_date TEXT, actual_date TEXT, owner_id INTEGER, data TEXT);
+CREATE TABLE IF NOT EXISTS store_events(id INTEGER PRIMARY KEY, store_id INTEGER, project_id INTEGER, kind TEXT, at TEXT, note TEXT, by INTEGER);`);
+try { db.exec('ALTER TABLE stores ADD COLUMN lc_stage TEXT'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */ }
 for (const [id, t] of [[1, '标杆复制'], [2, '店长兼管'], [3, '重点帮扶,改造规划']]) db.prepare('UPDATE stores SET tags=? WHERE id=? AND tags IS NULL').run(t, id);
 for (const [id, v] of Object.entries(STORE_INFO)) try { db.prepare('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=? AND brand IS NULL').run(...v, Number(id)); } catch { /* fresh db */ }
