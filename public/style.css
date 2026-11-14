@@ -387,3 +387,14 @@ td:first-child,td.n,th.n{white-space:nowrap}
 .list .hd{display:flex;flex-wrap:wrap;width:auto;height:auto;border-radius:0;margin:0;vertical-align:baseline;row-gap:2px}
 .list .hd>span.muted{white-space:normal}
 .ttabs{gap:16px}.ttabs a{font-size:17px}
+/* v7: 小日历按钮、指标格 */
+.calmini{display:flex;align-items:center;gap:4px;margin-left:auto;background:#F2F4F7;border:0;border-radius:16px;padding:5px 10px;font:13px var(--font);color:var(--text);cursor:pointer;white-space:nowrap}
+.calmini .ico{width:16px;height:16px}.calmini i{font-style:normal;font-size:10px;color:var(--text-muted)}
+.calmini.w{background:rgba(255,255,255,.18);color:#fff;margin-right:10px}.calmini.w i{color:#fff}
+.storebar .storename{margin-right:0}
+.sf-hd .sp{flex:1}
+.sf-kv{flex:1;display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.sf-kv a{background:#F6F7F9;border-radius:12px;padding:8px 10px;color:var(--text);display:flex;flex-direction:column}
+.sf-kv b{font-size:20px;font-weight:600;line-height:1.2}.sf-kv span{font-size:12px;color:var(--text-muted)}
+.sf-kv .bad b{color:var(--bad)}.sf-kv .warn b{color:var(--warn)}
+.sf-sum+.mtiles{margin-bottom:6px}
