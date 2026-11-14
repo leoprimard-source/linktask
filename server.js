@@ -36,10 +36,11 @@ app.use('/api', (req, res, next) => {
 
 const DA_CATS = [['biz', '经营数据', '营收、利润、预算与门店经营报表'], ['pay', '薪酬绩效', '他人的工资、绩效单、奖金与申诉'], ['hr', '人事档案', '他人的个人档案、执行分明细、晋升路径、门店人员名单'], ['hrm', '人事指标', '编制、满编率、离职率、招聘、离职成本'], ['care', '员工关怀与帮扶', '关怀记录、困难帮扶、福利台账、员工声音'], ['risk', '离职预警', '离职风险名单与原因'], ['diag', '店长诊断与上手', '店长能力诊断、90 天上手进度'], ['mentor', '带教统计', '他人的带教记录与统计'], ['pii', '联系方式', '他人的手机号等个人联系方式，未授权时打码显示']];
 const DA_ROLES = [['region_manager', '区域经理'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
-const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['pay', 'biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii'], lead: ['hr', 'mentor'], staff: [] };
+const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['pay', 'biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii', 'care'], lead: ['hr', 'mentor'], staff: [] };
 let DA_CACHE = null;
 const daAuth = () => DA_CACHE || (DA_CACHE = { ...DA_DEF, ...D.getSetting('data_auth', {}) });
 { const s0 = D.getSetting('data_auth', null); if (s0 && s0.coach && !D.getSetting('da_mig_coach_pay', 0)) { if (!s0.coach.includes('pay')) s0.coach.push('pay'); D.setSetting('data_auth', s0); D.setSetting('da_mig_coach_pay', 1); } }
+{ const s0 = D.getSetting('data_auth', null); if (s0 && s0.assistant && !D.getSetting('da_mig_assist_care', 0)) { if (!s0.assistant.includes('care')) s0.assistant.push('care'); D.setSetting('data_auth', s0); D.setSetting('da_mig_assist_care', 1); } }
 const daKey = u => u.level !== 'staff' ? u.level : u.role_name === '店助' ? 'assistant' : LEADS[u.role_name] ? 'lead' : 'staff';
 const daCan = (u, k) => (daAuth()[daKey(u)] || []).includes(k);
 const DA_ROUTES = [[/^\/(region\/biz|store\/\d+\/biz)(\/|$)/, 'biz'], [/^\/pay\/(\d+)$/, 'pay', 1], [/^\/pay-board$/, 'pay'], [/^\/(hr\/people|region\/people|store\/\d+\/people)$/, 'hr'], [/^\/(hr\/person|person|exec|career)\/(\d+)$/, 'hr', 2],
@@ -1400,7 +1401,7 @@ app.get('/api/inbox', (req, res) => {
   if (u.level === 'store_manager' && req.query.full !== '1') out = slimInbox(u, sid, out);
   if (u.level === 'staff' && u.role_name === '店助' && u.store_id) {
     const sm = D.storeManagers(u.store_id)[0], smu = sm && q1(USER_SQL + ' WHERE u.id=? AND u.active=1', sm);
-    if (smu) buildInbox(smu, { store: u.store_id }).filter(x => ASSIST_TAGS.includes(x.tag) && !out.some(o => o.tag === x.tag && o.title === x.title)).forEach(x => out.push({ ...x, tag: '店长交办·' + x.tag }));
+    if (smu) buildInbox(smu, { store: u.store_id }).filter(x => ASSIST_TAGS.includes(x.tag) && !out.some(o => o.tag === x.tag)).forEach(x => out.push({ ...x, tag: '店长交办·' + x.tag }));
   }
   res.json(out);
 });
@@ -1472,7 +1473,7 @@ app.get('/api/cdesk', (req, res) => {
     const grades = st.map(s => sc[s] && sc[s].grade).filter(Boolean);
     const risk = grades.filter(g => ['C', 'D'].includes(g)).length * 3 + (tb.over ? 2 : 0) + (dg ? Math.max(0, 75 - dg.total) / 5 : 0) + (!lc || dBetween(lc, t) > 30 ? 1 : 0) + (tot && dd * 100 / tot > 50 ? 1 : 0);
     return { id, name: m.name, stores: st.map(s => ({ id: s, name: sname(s), grade: sc[s] && sc[s].grade })), time: tb.total, budget: tb.budget, over: tb.over, deleg: tot ? Math.round(dd * 100 / tot) : 0,
-      diag: dg && dg.total, weak: dg ? dg.caps.filter(c => dg.weak.includes(c.k)).map(c => c.l).slice(0, 2) : [], last_coach: lc, last_talk: lt, talk_due: !lt || lt < qs0, risk: Math.round(risk * 10) / 10 };
+      diag: dg && dg.total, weak: dg ? dg.caps.filter(c => dg.weak.includes(c.k)).map(c => c.l).slice(0, 2) : [], last_coach: lc, last_talk: lt, talk_due: (!lt || lt < qs0) && !q1("SELECT 1 x FROM cal_events WHERE kind='店长谈心' AND title LIKE ? AND date>=?", '%#' + id, t), talk_sched: q1("SELECT MIN(date) d FROM cal_events WHERE kind='店长谈心' AND title LIKE ? AND date>=?", '%#' + id, t).d, risk: Math.round(risk * 10) / 10 };
   }).filter(Boolean).sort((a, b) => b.risk - a.risk);
   const LV = { bad: 3, warn: 2, acc: 1, ok: 0 }, grp = {};
   buildInbox(u, {}).forEach(x => { const g = grp[x.tag] || (grp[x.tag] = { tag: x.tag, lv: x.lv, n: 0, items: [] }); g.n++; if (LV[x.lv] > LV[g.lv]) g.lv = x.lv; if (g.items.length < 3) g.items.push(x); });
@@ -3285,7 +3286,7 @@ const wkOf = d => L.addDays(d, -((new Date(d + 'T00:00:00').getDay() + 6) % 7));
 const qStart = d => d.slice(0, 5) + String(Math.floor((Number(d.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01';
 const bdOf = id => ({ m: 1 + Math.floor(hx('bm' + id) * 12), d: 1 + Math.floor(hx('bdd' + id) * 28) });
 const CARE_LV = ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'hq', 'store_manager'];
-const canCareDo = (u, sid) => visibleStores(u).includes(Number(sid)) && ['store_manager', 'region_manager', 'hr_manager'].includes(u.level);
+const canCareDo = (u, sid) => visibleStores(u).includes(Number(sid)) && (['store_manager', 'region_manager', 'coach', 'hr_manager'].includes(u.level) || (u.role_name === '店助' && Number(u.store_id) === Number(sid)));
 const nextRole = r => Object.keys(LADDER).find(k => LADDER[k][LADDER[k].length - 1] === r) || (['店助', '前台经理', '客房经理'].includes(r) ? '店长' : null);
 function careOf(sid) {
   const t = L.today(), ym = t.slice(0, 7), qs0 = qStart(t), y0 = t.slice(0, 4) + '-01-01', c = careCfg(), wk = wkOf(t), d90 = L.addDays(t, -90);
