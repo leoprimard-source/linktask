@@ -70,8 +70,14 @@ function importAudit() {
   });
 }
 
+function ensureHR() {
+  if (!q1("SELECT 1 FROM roles WHERE level='hr_manager'")) run("INSERT INTO roles(name,level,sort) VALUES('人事经理','hr_manager',2)");
+  if (!q1("SELECT 1 FROM users u JOIN roles r ON r.id=u.role_id WHERE r.level='hr_manager'"))
+    run("INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES('沈悦',(SELECT id FROM roles WHERE level='hr_manager'),1,NULL,'13916882046')");
+}
+
 function seed() {
-  if (q1('SELECT 1 FROM regions')) { importAudit(); return false; }
+  if (q1('SELECT 1 FROM regions')) { importAudit(); ensureHR(); return false; }
   const T = L.today();
   const r = rnd(42);
   tx(() => {
@@ -200,6 +206,7 @@ function seed() {
   D.notify([5], 'escalate', '整改逾期：杭州西湖店', '按标准重新执行并拍照上传（已过截止日期）', '#/rect');
   D.notify([1, 2], 'system', '欢迎使用宏图计划', '这是演示数据：3 家门店、近 14 天的任务记录（已融合品牌审计 202 条 M-L-F 分解）、1 次已完成巡店和 1 个重点跟踪任务。', '#/standards');
   D.audit(1, null, '初始化', '载入演示数据');
+  ensureHR();
   return true;
 }
 module.exports = { seed };
