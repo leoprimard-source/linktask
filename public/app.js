@@ -135,7 +135,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -1614,8 +1614,19 @@ VIEWS.home = async () => {
   else if (lv === 'store_manager') await ({ ops: managerHome, biz: () => storeBizView(sid), ren: () => storePeopleView(sid), shop: () => storeShopView(sid) }[pl])();
   else if (pl === 'ren') await (S.me.lead ? storePeopleView(sid) : myPortrait(sid));
   else await staffHome();
+  if (region) loadYi();
   loadInbox(sid);
 };
+async function loadYi() {
+  const xs = await api('/yi'); if (!xs.length || $('#yi')) return;
+  const h = `<div id="yi">${xs.length > 1 ? `<div class="sec-t2">易系列 · 角色模块</div><div class="yig">${xs.map(m => `<a class="yit" href="#/yi?k=${m.k}"><b>${esc(m.name)}</b><span>${esc(m.sub)}</span>${m.alert ? '<i class="dot"></i>' : ''}</a>`).join('')}</div>` : yiCard(xs[0])}</div>`;
+  const bar = $('#main .storebar') || $('#main .pghd'); bar ? bar.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+}
+const yiCard = m => `<section class="yic"><div class="row between"><b>${esc(m.name)}</b><span class="muted small">${esc(m.sub)}</span></div>
+  <div class="rkpi">${m.kpis.map(([l, v, u]) => `<a><b>${v}<small>${u}</small></b><span>${esc(l)}</span></a>`).join('')}</div>
+  ${m.alert ? `<div class="iss-i"><span class="tag bad">关注</span><span class="small">${esc(m.alert)}</span></div>` : ''}
+  <div class="stags">${m.links.map(([h, l]) => `<a class="btn sm" href="${h}">${esc(l)} ›</a>`).join('')}</div></section>`;
+VIEWS.yi = async () => { const xs = await api('/yi'), k = qs().get('k'); $('#main').innerHTML = `<div class="pghd"><b>易系列 · 角色模块</b></div>${xs.filter(m => !k || m.k === k).map(yiCard).join('')}${k ? '<p><a href="#/yi">查看全部模块 ›</a></p>' : ''}`; };
 async function loadInbox(sid) {
   const el = $('#inbox'); if (!el) return;
   const xs = await api('/inbox' + (sid ? '?store=' + sid : ''));

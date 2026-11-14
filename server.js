@@ -1532,10 +1532,11 @@ function projOf(p) {
   if (cur?.key === 'accept' && cur.data.fails?.length) why.push(['warn', `品牌验收 ${cur.data.fails.length} 项不合格，整改后复验`]);
   const b = nodes.find(n => n.key === 'build'), pm = nodes.find(n => n.key === 'permit');
   const bStart = pm?.actual_date, bDays = bStart ? dBetween(bStart, b?.actual_date || t) : null;
-  if (bDays != null && !b.actual_date && bDays > BUILD_STD) why.push(['warn', `工期已 ${bDays} 天，超过标准 ${BUILD_STD} 天`]);
+  const bstd = brands()[p.brand]?.open_days || BUILD_STD;
+  if (bDays != null && !b.actual_date && bDays > bstd) why.push(['warn', `工期已 ${bDays} 天，超过${p.brand || ''}标准 ${bstd} 天`]);
   const health = p.status !== 'active' ? null : why.some(w => w[0] === 'bad') ? 'red' : why.length ? 'yellow' : 'green';
   return { ...p, stage, nodes, cur: cur ? { key: cur.key, name: cur.name, plan_date: cur.plan_date, late: cur.late, slip: cur.slip } : null, shift, plan_open,
-    predicted_open: plan_open ? L.addDays(plan_open, shift) : null, health, why, build_days: bDays, build_std: BUILD_STD, progress: Math.round(done.length * 100 / (nodes.length || 1)) };
+    predicted_open: plan_open ? L.addDays(plan_open, shift) : null, health, why, build_days: bDays, build_std: bstd, progress: Math.round(done.length * 100 / (nodes.length || 1)) };
 }
 const OPEN_CACHE = {};
 const openOf = sid => (OPEN_CACHE[sid] ??= q1('SELECT open_date FROM stores WHERE id=?', sid)?.open_date || '2000-01-01');
@@ -2263,6 +2264,37 @@ function seedBatchA() {
   });
 }
 seedBatchA();
+
+// ---------- 易 X 角色模块 ----------
+const YI_ROLE = { dev_manager: ['dev'], build_manager: ['build'], train_manager: ['train'], hr_manager: ['hr'], region_manager: ['dev', 'build', 'train', 'hr'] };
+app.get('/api/yi', (req, res) => {
+  const u = req.u, ks = YI_ROLE[u.level] || []; if (!ks.length) return res.json([]);
+  const t = L.today(), y = t.slice(0, 4), out = [];
+  const pj = ks.some(k => ['dev', 'build'].includes(k)) ? q(PJ_SQL + ' WHERE p.region_id=?', u.region_id).map(projOf) : [];
+  if (ks.includes('dev')) {
+    const tg = D.getSetting('dev_target', { sign: 8, open: 4 }), sg = pj.filter(p => p.sign_date?.startsWith(y)).length, f = funnelOf(pj, q('SELECT * FROM store_events WHERE project_id IS NOT NULL'));
+    const risk = pj.filter(p => p.stage === '管道' && p.health === 'red');
+    out.push({ k: 'dev', name: '易开发', sub: '线索 · 签约 · 漏斗', kpis: [['线索 / 意向', pj.filter(p => ['lead', 'intent'].includes(p.status)).length, '个'], ['本年签约', `${sg}/${tg.sign}`, '家'], ['线索到签约', f.lead_to_sign ?? '-', '天']],
+      alert: risk.length ? `${risk.length} 个管道项目有流失风险：${risk.map(p => p.name).join('、')}` : '', links: [['#/home?pl=shop&lc=pipe', '开发漏斗与线索'], ['#/home?pl=shop&lc=flow', '周转记录']] });
+  }
+  if (ks.includes('build')) {
+    const act = pj.filter(p => p.status === 'active'), late = act.filter(p => p.cur?.late), soon = act.filter(p => p.predicted_open && dBetween(t, p.predicted_open) <= 90);
+    out.push({ k: 'build', name: '易筹建', sub: '节点 · 工期 · 验收', kpis: [['在建项目', act.length, '个'], ['节点逾期', late.length, '个'], ['90 天内开业', soon.length, '家']],
+      alert: late.length ? late.map(p => `${p.name}「${p.cur.name}」逾期 ${p.cur.slip} 天`).join('；') : '', links: [['#/home?pl=shop&lc=pipe', '项目看板'], ...late.slice(0, 2).map(p => ['#/proj/' + p.id, p.name])] });
+  }
+  if (ks.includes('train')) {
+    const al = trainAlerts(u.region_id), cl = q('SELECT * FROM train_classes WHERE region_id=?', u.region_id), ing = cl.filter(c => c.start <= t && c.end >= t).length, up = cl.filter(c => c.start > t).length;
+    out.push({ k: 'train', name: '易培训', sub: '开班 · 认证 · 带教', kpis: [['未达标', al.length, '人'], ['在训 / 待开', `${ing}/${up}`, '班'], ['带教中', q("SELECT COUNT(*) n FROM mentors m JOIN users x ON x.id=m.mentee_id WHERE m.status='active' AND x.region_id=?", u.region_id)[0].n, '对']],
+      alert: al.slice(0, 2).map(a => a.text).join('；'), links: [['#/train', '培训与认证'], ['#/train?k=' + encodeURIComponent('店长班'), '店长班'], ['#/train?k=' + encodeURIComponent('师徒带教'), '师徒带教']] });
+  }
+  if (ks.includes('hr')) {
+    const ps = q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level IN ('staff','store_manager')", u.region_id), hs = ps.map(hrSummary), sids = visibleStores(u);
+    const ap = q(`SELECT COUNT(*) n FROM pay_appeals a JOIN users x ON x.id=a.user_id WHERE a.status='open' AND x.store_id IN (${sids.join(',') || 'NULL'})`)[0].n;
+    out.push({ k: 'hr', name: '易人事', sub: '档案 · 绩效 · 交接', kpis: [['在职', ps.length, '人'], ['人事预警', hs.filter(h => h.alerts.length).length, '人'], ['待处理申诉', ap, '条']],
+      alert: '', links: [['#/people', '人员档案与梯队'], ['#/pay', '绩效与薪酬'], ['#/train', '培训认证']] });
+  }
+  res.json(out);
+});
 
 // ---------- notifications ----------
 app.get('/api/notifications', (req, res) => res.json(q('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', req.u.id)));
