@@ -310,7 +310,7 @@ VIEWS.my = async () => {
       <div class="ttl">${esc(t.title)}${qm(t)}</div>
       <div class="tsub">${esc(t.scene_name || '')} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''} ${statusTag(t)} ${checkTag(t)}</div>
       ${t.check_comment ? `<div class="muted small">店长：${esc(t.check_comment)}</div>` : ''}</div>
-      <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`, 'my')
+      <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : t.status === 'missed' || t.date < S.me.today ? '<span class="tag bad">逾期未完成</span>' : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`, 'my')
     : '<div class="list"><div class="empty">今天没有分配给你的任务</div></div>'}`;
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeModal(list.find(t => t.id === Number(b.dataset.done))));
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'));
@@ -968,7 +968,7 @@ VIEWS.home = async () => {
     <div class="tb"><div class="tt">${esc(t.title)}${qm(t)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
       <div class="ts">${mine ? esc(t.scene_name || '') : `${esc(t.assignee_name || '未分配')} · ${esc(t.assignee_role || '')}`}</div>
       <div class="tg">${statusTag(t)} ${checkTag(t)}</div></div>
-    <div class="ta">${t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? `<button class="btn primary sm" data-done="${t.id}">完成</button>` : ''}
+    <div class="ta">${t.status === 'pending' && t.date === S.me.today && (t.assignee_id === S.me.id || manage) ? `<button class="btn primary sm" data-done="${t.id}">完成</button>` : ''}
       ${manage && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}
       <button class="btn sm" data-view="${t.id}">详情</button></div></div>`;
   $('#main').innerHTML = `
