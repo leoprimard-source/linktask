@@ -1077,7 +1077,7 @@ const NAV_DA = { pay: 'pay', hrm: 'hrm', care: 'care', people: 'hr', diag: 'diag
 VIEWS.work = async () => {
   const yi = await api('/yi').catch(() => []);
   const secs = []; let cur = null;
-  for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else if (S.me.level === 'staff' || !NAV_DA[k] || da(NAV_DA[k])) cur.items.push([k, l]); }
+  for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else if (S.me.level === 'staff' || !NAV_DA[k] || da(NAV_DA[k])) cur.items.push([k, l]); else if (k === 'pay') cur.items.push([k, '我的绩效与薪酬']); }
   let ci = 0;
   $('#main').innerHTML = `<h1>工作台</h1>${yi.length ? `<div class="sec-t">易系列 · 角色模块</div>${yi.map(yiCard).join('')}` : ''}${secs.filter(sc => sc.items.length).map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
     `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}
@@ -2248,7 +2248,7 @@ const paySheet = p => `<div class="ldr"><div class="row between"><b>${esc(p.ym)}
   ${p.kind === 'staff' ? `<div class="muted small" style="margin-top:6px">年度学分 ${p.credits}/${p.credit_target}${p.mentor.as_mentor ? ` · 带徒 ${p.mentor.as_mentor} 人` : ''} · 执行分系数：90 分以上 1.2，80 以上 1.0，70 以上 0.9，其余 0.8</div>` : ''}</div>`;
 const APL = { open: ['warn', '处理中'], accepted: ['ok', '已采纳'], rejected: ['bad', '未采纳'] };
 VIEWS.pay = async () => {
-  const uid = Number(qs().get('uid')) || 0, mine = !uid && S.me.level === 'staff';
+  const uid = Number(qs().get('uid')) || 0, mine = !uid && (S.me.level === 'staff' || !da('pay'));
   if (mine || uid) {
     const p = await api('/pay/' + (uid || S.me.id));
     $('#main').innerHTML = `<div class="pghd row between"><b>${uid ? esc(p.name) + ' · ' : '我的'}绩效与薪酬</b>${mine ? '<button class="btn sm" id="apl">申诉</button>' : ''}</div>${paySheet(p)}
@@ -2359,7 +2359,7 @@ VIEWS.labor = async () => {
   <div class="sec-t2 row between"><span>本周排班 ${esc(d.sched.days[0].slice(5))} 起</span><span><a href="#/labor?store=${sid}&from=${addD(d.from, -7)}">上周</a> · <a href="#/labor?store=${sid}&from=${addD(d.from, 7)}">下周</a></span></div>
   <div class="tbl sched"><table><tr><th>姓名</th>${d.sched.days.map(x => `<th>${'一二三四五六日'[(new Date(x).getDay() + 6) % 7]}<br><small>${x.slice(8)}</small></th>`).join('')}</tr>
   ${d.sched.rows.map(r => `<tr><td>${esc(r.name)}<br><small class="muted">${esc(r.role_name)}</small></td>${r.cells.map((c, i) => `<td><button class="shc s${'早中夜休'.indexOf(c)}" ${d.can_edit ? `data-sh="${r.id}:${d.sched.days[i]}:${c}"` : 'disabled'}>${c}</button></td>`).join('')}</tr>`).join('')}</table></div>
-  <div class="sec-t2">客房计件与人效</div><div class="list">${d.hk.map((h, i) => `<div class="task"><span class="rk">${i + 1}</span><div class="b"><div class="ttl">${esc(h.name)}</div><div class="muted small">本月 ${h.rooms} 间 · 工时 ${h.hours} 小时 · 提成 ¥${h.amount}</div></div><b>${h.per_h}<small class="muted"> 间/时</small></b></div>`).join('')}</div>
+  <div class="sec-t2">客房计件与人效</div><div class="list">${d.hk.map((h, i) => `<div class="task"><span class="rk">${i + 1}</span><div class="b"><div class="ttl">${esc(h.name)}</div><div class="muted small">本月 ${h.rooms} 间 · 工时 ${h.hours} 小时${h.amount != null ? ` · 提成 ¥${h.amount}` : ''}</div></div><b>${h.per_h}<small class="muted"> 间/时</small></b></div>`).join('')}</div>
   <div class="sec-t2">加班排行</div><div class="list">${d.ot.slice(0, 5).map(o => `<div class="task"><div class="b"><div class="ttl">${esc(o.name)} <span class="muted small">${esc(o.role_name)}</span></div></div><span class="tag ${o.ot > S2.ot ? 'bad' : ''}">${o.ot} 小时</span></div>`).join('')}</div>`;
   document.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const [uid, date, c] = b.dataset.sh.split(':'), nx = '早中夜休'['早中夜休'.indexOf(c) + 1] || '早';
     act(async () => { await api('/labor/shift', { uid: Number(uid), date, shift: nx }); b.textContent = nx; b.className = 'shc s' + '早中夜休'.indexOf(nx); b.dataset.sh = `${uid}:${date}:${nx}`; }); });

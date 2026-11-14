@@ -45,9 +45,14 @@ const DA_ROUTES = [[/^\/(region\/biz|store\/\d+\/biz)(\/|$)/, 'biz'], [/^\/pay\/
   [/^\/hrm$/, 'hrm'], [/^\/care$/, 'care'], [/^\/(diag|onboard)\/(\d+)$/, 'diag', 2], [/^\/mentor-stats\/(\d+)$/, 'mentor', 1]];
 const maskPhone = v => typeof v === 'string' && v.length > 6 ? v.slice(0, 3) + '****' + v.slice(-4) : v;
 app.use('/api', (req, res, next) => {
-  if (daCan(req.u, 'pii')) return next();
+  const pii = daCan(req.u, 'pii'), pay = daCan(req.u, 'pay');
+  if (pii && pay) return next();
   const uid = req.u.id;
-  res.json = body => res.type('json').send(JSON.stringify(body, function (k, v) { return k === 'phone' && this.id !== uid ? maskPhone(v) : v; }));
+  res.json = body => res.type('json').send(JSON.stringify(body, function (k, v) {
+    if (!pii && k === 'phone' && this.id !== uid) return maskPhone(v);
+    if (!pay && k === 'comm') { const o = this.id ?? this.me?.id; if (o != null && o !== uid) return undefined; }
+    return v;
+  }));
   next();
 });
 app.use('/api', (req, res, next) => {
@@ -2433,7 +2438,8 @@ function laborOf(sid) {
 app.get('/api/labor', (req, res) => {
   const u = req.u, sids = visibleStores(u), sid = Number(req.query.store) || u.store_id; if (!sids.includes(sid) || u.level === 'staff') return deny(res);
   const mon = L.addDays(L.today(), -((new Date(L.today()).getDay() + 6) % 7)), from = req.query.from || mon;
-  res.json({ store: sname(sid), ...laborOf(sid), sched: schedOf(sid, from), from, shifts: SH_K, can_edit: canManage(u, sid), region: isRegion(u) ? sids.map(s => { const l = laborOf(s); return { id: s, name: sname(s), ratio: l.ratio, cost_rate: l.cost_rate, ot_total: l.ot_total, rn_per: l.rn_per }; }) : null, simulated: true });
+  const lo = laborOf(sid); if (!daCan(u, 'pay')) lo.hk = lo.hk.map(x => ({ ...x, amount: null }));
+  res.json({ store: sname(sid), ...lo, sched: schedOf(sid, from), from, shifts: SH_K, can_edit: canManage(u, sid), region: isRegion(u) ? sids.map(s => { const l = laborOf(s); return { id: s, name: sname(s), ratio: l.ratio, cost_rate: l.cost_rate, ot_total: l.ot_total, rn_per: l.rn_per }; }) : null, simulated: true });
 });
 app.post('/api/labor/shift', (req, res) => {
   const u = req.u, b = req.body || {}, x = q1('SELECT * FROM users WHERE id=?', b.uid);
