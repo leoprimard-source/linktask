@@ -65,6 +65,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, region_id I
   sm_name TEXT, status TEXT DEFAULT 'active', store_id INTEGER, exit_note TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS project_nodes(id INTEGER PRIMARY KEY, project_id INTEGER, key TEXT, name TEXT, sort INTEGER, plan_date TEXT, actual_date TEXT, owner_id INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS store_events(id INTEGER PRIMARY KEY, store_id INTEGER, project_id INTEGER, kind TEXT, at TEXT, note TEXT, by INTEGER);`);
+db.exec(`CREATE TABLE IF NOT EXISTS materials(id INTEGER PRIMARY KEY, cat TEXT, name TEXT, unit TEXT, central INTEGER, std_per_rn REAL, price REAL);
+CREATE TABLE IF NOT EXISTS store_stock(store_id INTEGER, material_id INTEGER, qty REAL, safety REAL, PRIMARY KEY(store_id, material_id));
+CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY, store_id INTEGER, month TEXT, cat TEXT, amount INTEGER, central INTEGER);
+CREATE TABLE IF NOT EXISTS requisitions(id INTEGER PRIMARY KEY, store_id INTEGER, items TEXT, status TEXT, note TEXT, created_by INTEGER, created_at TEXT, approved_by INTEGER, received_at TEXT);
+CREATE TABLE IF NOT EXISTS stocktakes(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, status TEXT, assignee_id INTEGER, items TEXT, created_by INTEGER, created_at TEXT, done_by INTEGER, done_at TEXT);
+CREATE TABLE IF NOT EXISTS train_classes(id INTEGER PRIMARY KEY, region_id INTEGER, name TEXT, kind TEXT, cert TEXT, start TEXT, end TEXT, seats INTEGER, trainer_id INTEGER, note TEXT);
+CREATE TABLE IF NOT EXISTS train_enroll(id INTEGER PRIMARY KEY, class_id INTEGER, user_id INTEGER, status TEXT, score INTEGER, created_at TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS mentors(id INTEGER PRIMARY KEY, mentee_id INTEGER, mentor_id INTEGER, start TEXT, checks TEXT, status TEXT);`);
 try { db.exec('ALTER TABLE stores ADD COLUMN lc_stage TEXT'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */ }
 for (const [id, t] of [[1, '标杆复制'], [2, '店长兼管'], [3, '重点帮扶,改造规划']]) db.prepare('UPDATE stores SET tags=? WHERE id=? AND tags IS NULL').run(t, id);

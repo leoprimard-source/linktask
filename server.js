@@ -12,7 +12,7 @@ app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '
 app.use(express.static(path.join(__dirname, 'public')));
 
 const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
-const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', store_manager: '店长', staff: '员工' };
+const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', store_manager: '店长', staff: '员工' };
 
 app.get('/api/users', (req, res) => {
   const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
@@ -31,7 +31,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager'].includes(u.level);
+const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager'].includes(u.level);
 function visibleStores(u) {
   if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
@@ -1261,6 +1261,18 @@ app.get('/api/inbox', (req, res) => {
     if (r.eval_due) add('新店评估', 'warn', `${s.name} 开业满 ${r.days} 天，待做 90 天新店评估`, `近 4 周出租率较爬坡基准 ${r.gap >= 0 ? '+' : ''}${r.gap} 个点`, '#/sp/' + s.id);
     if (r.ready) add('转入成熟', 'acc', `${s.name} 已满 6 个月且 RevPAR 达标，可转入成熟期`, '', '#/sp/' + s.id);
   });
+  if (u.level === 'store_manager' && sid) {
+    q("SELECT * FROM stocktakes WHERE store_id=? AND status='planned'", sid).forEach(k => add('物料盘点', 'warn', `${k.date} 物料盘点待提交`, '逐项清点库存，提交差异', '#/proc?store=' + sid));
+    q("SELECT * FROM requisitions WHERE store_id=? AND status='approved'", sid).forEach(r => add('物料到货', 'acc', '统购物料已批准配送，到货后确认收货', JSON.parse(r.items).map(x => x.name).join('、'), '#/proc?store=' + sid));
+    const p = procOf(sid); if (p.rate != null && p.rate < p.target) add('统购率', 'bad', `近 3 月统购率 ${p.rate}%，低于品牌标准 ${p.target}%`, '必须统购：' + p.must.join('、'), '#/proc?store=' + sid);
+    q(`SELECT m.*, a.name mentee, a.store_id FROM mentors m JOIN users a ON a.id=m.mentee_id WHERE a.store_id=? AND m.status='active'`, sid).forEach(m => { const d = dBetween(m.start, t), ch = JSON.parse(m.checks || '{}'), k = d >= 90 && !ch.d90 ? 'd90' : d >= 60 && !ch.d60 ? 'd60' : d >= 30 && !ch.d30 ? 'd30' : null; if (k) add('师徒带教', 'warn', `${m.mentee} 入职 ${d} 天，${k.slice(1)} 天带教验收待确认`, '', '#/train'); });
+  }
+  if (u.level === 'staff' && u.store_id) q("SELECT * FROM stocktakes WHERE assignee_id=? AND status='planned'", u.id).forEach(k => add('物料盘点', 'warn', `${k.date} 物料盘点`, '逐项清点库存，提交差异', '#/proc?store=' + u.store_id));
+  if (['region_manager', 'ops_manager'].includes(u.level)) q(`SELECT r.*, s.name store FROM requisitions r JOIN stores s ON s.id=r.store_id WHERE r.status='open'`).forEach(r => add('物料申领', 'warn', `${r.store} 申领待审批`, JSON.parse(r.items).map(x => `${x.name} ${x.qty}${x.unit}`).join('、'), '#/proc'));
+  if (u.level === 'train_manager') {
+    q('SELECT * FROM train_classes WHERE region_id=? AND start BETWEEN ? AND ?', u.region_id, t, L.addDays(t, 14)).forEach(c => add('即将开班', 'acc', `${c.start} ${c.name}`, `已报名 ${q1('SELECT COUNT(*) n FROM train_enroll WHERE class_id=?', c.id).n}/${c.seats}`, '#/train'));
+    q("SELECT c.name, COUNT(*) n FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE c.end<? AND e.status='enrolled' GROUP BY c.id", t).forEach(c => add('待录成绩', 'warn', `${c.name} 有 ${c.n} 人待录入考核结果`, '', '#/train'));
+  }
   if (u.level === 'ops_manager') q("SELECT p.*, s.name store FROM patrols p JOIN stores s ON s.id=p.store_id WHERE p.kind='recheck' AND p.status='planned' AND p.planned_date<=? ORDER BY p.planned_date", L.addDays(t, 2)).forEach(p => add('巡店复查', 'acc', `${p.planned_date} 复查 ${p.store}`, p.reason, '#/patrol/' + p.id));
   if (u.level === 'store_manager' && sid) {
     const sc = regionScores(regionOfStore(sid)).all.find(x => x.id === sid);
@@ -1874,6 +1886,175 @@ function seedLeads() {
   D.setSetting('lc2_seeded', 1);
 }
 seedLeads();
+
+// ---------- 采购与物料 ----------
+const PROC_STD = { rate: 85, must: ['布草', '客用品', '床品', '早餐原料'] };
+const MATS = [['布草', '浴巾', '条', 1, 0.5, 28], ['布草', '面巾', '条', 1, 0.5, 9], ['床品', '床单', '张', 1, 0.6, 45], ['床品', '被套', '张', 1, 0.6, 68], ['客用品', '洗护套装', '套', 1, 1.1, 3.2], ['客用品', '一次性拖鞋', '双', 1, 1.0, 1.5],
+  ['早餐原料', '鸡蛋', '枚', 1, 1.6, 0.9], ['早餐原料', '咖啡豆', 'kg', 1, 0.01, 120], ['清洁用品', '多功能清洁剂', '瓶', 0, 0.02, 18], ['工程备件', 'LED 筒灯', '只', 0, 0.004, 35], ['工程备件', '空调滤网', '片', 0, 0.006, 22]];
+const procStd = () => ({ ...PROC_STD, ...D.getSetting('proc_std', {}) });
+function procOf(sid) {
+  const t = L.today(), f30 = L.addDays(t, -30), b = bizRange(sid, f30, L.addDays(t, -1)), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms || 150;
+  const rn = Math.round(rooms * b.occ * 30), std = procStd();
+  const mats = q('SELECT m.*, s.qty, s.safety FROM materials m LEFT JOIN store_stock s ON s.material_id=m.id AND s.store_id=? ORDER BY m.id', sid).map(m => {
+    const use = Math.round(m.std_per_rn * rn * (0.92 + hx('mu' + sid + m.id) * (sid === 3 ? 0.45 : 0.28)) * 10) / 10, stdUse = Math.round(m.std_per_rn * rn * 10) / 10;
+    return { ...m, use, std_use: stdUse, dev: stdUse ? Math.round((use / stdUse - 1) * 100) : 0, low: m.qty != null && m.qty < m.safety };
+  });
+  const cats = {};
+  for (const p of q('SELECT * FROM purchases WHERE store_id=? AND month>=?', sid, L.addDays(t, -92).slice(0, 7))) { const c = cats[p.cat] ||= { cat: p.cat, total: 0, central: 0 }; c.total += p.amount; if (p.central) c.central += p.amount; }
+  const must = Object.values(cats).filter(c => std.must.includes(c.cat)), tot = must.reduce((a, c) => a + c.total, 0), cen = must.reduce((a, c) => a + c.central, 0);
+  return { rn, rate: tot ? Math.round(cen * 100 / tot) : null, target: std.rate, must: std.must, cats: Object.values(cats).map(c => ({ ...c, rate: Math.round(c.central * 100 / (c.total || 1)), must: std.must.includes(c.cat) })),
+    mats, abn: mats.filter(m => m.dev >= 20), low: mats.filter(m => m.low),
+    reqs: q('SELECT r.*, u.name creator FROM requisitions r LEFT JOIN users u ON u.id=r.created_by WHERE r.store_id=? ORDER BY r.id DESC LIMIT 20', sid).map(r => ({ ...r, items: JSON.parse(r.items || '[]') })),
+    takes: q('SELECT k.*, u.name assignee FROM stocktakes k LEFT JOIN users u ON u.id=k.assignee_id WHERE k.store_id=? ORDER BY k.id DESC LIMIT 6', sid).map(k => ({ ...k, items: JSON.parse(k.items || '[]') })) };
+}
+app.get('/api/proc', (req, res) => {
+  const u = req.u, sids = visibleStores(u);
+  if (u.level === 'staff' && !['店助'].includes(u.role_name)) return deny(res);
+  const sid = Number(req.query.store);
+  if (sid) { if (!sids.includes(sid)) return deny(res); return res.json({ store: sname(sid), ...procOf(sid), can_approve: ['region_manager', 'ops_manager'].includes(u.level), can_req: canManage(u, sid) || u.role_name === '店助' }); }
+  res.json({ std: procStd(), stores: sids.map(s => { const p = procOf(s); return { id: s, name: sname(s), rate: p.rate, target: p.target, abn: p.abn.length, low: p.low.length, open: p.reqs.filter(r => r.status === 'open').length }; }).sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0)),
+    reqs: q(`SELECT r.*, s.name store, u.name creator FROM requisitions r JOIN stores s ON s.id=r.store_id LEFT JOIN users u ON u.id=r.created_by WHERE r.status IN ('open','approved') AND r.store_id IN (${sids.map(() => '?').join(',') || 'NULL'}) ORDER BY r.id DESC`, ...sids).map(r => ({ ...r, items: JSON.parse(r.items || '[]') })),
+    can_approve: ['region_manager', 'ops_manager'].includes(u.level), can_std: u.level === 'region_manager' });
+});
+app.post('/api/proc/std', (req, res) => {
+  if (req.u.level !== 'region_manager') return deny(res);
+  const rate = Number(req.body.rate), must = (req.body.must || []).filter(Boolean);
+  if (!(rate > 0 && rate <= 100) || !must.length) return err(res, '请填写统购率目标和必须统购的品类');
+  D.setSetting('proc_std', { rate, must }); D.audit(req.u.id, null, '统购标准', `${rate}% ${must.join('、')}`); res.json({ ok: true });
+});
+app.post('/api/requisitions', (req, res) => {
+  const u = req.u, b = req.body || {}, sid = Number(b.store_id);
+  if (!(canManage(u, sid) || (u.role_name === '店助' && u.store_id === sid))) return deny(res);
+  const items = (b.items || []).map(x => ({ mid: Number(x.mid), qty: Number(x.qty) })).filter(x => x.qty > 0 && q1('SELECT 1 FROM materials WHERE id=?', x.mid));
+  if (!items.length) return err(res, '请填写申领数量');
+  items.forEach(x => { const m = q1('SELECT name, unit, price, central FROM materials WHERE id=?', x.mid); Object.assign(x, { name: m.name, unit: m.unit, amt: Math.round(m.price * x.qty), central: m.central }); });
+  const id = Number(run("INSERT INTO requisitions(store_id,items,status,note,created_by,created_at) VALUES(?,?,'open',?,?,?)", sid, JSON.stringify(items), b.note || '', u.id, L.nowStr()).lastInsertRowid);
+  D.notify([...D.regionUsers(u.region_id, 'ops_manager')], 'proc', `${sname(sid)} 物料申领`, items.map(x => `${x.name} ${x.qty}${x.unit}`).join('、'), '#/proc');
+  D.audit(u.id, sid, '物料申领', items.map(x => x.name).join('、'));
+  res.json({ ok: true, id });
+});
+app.post('/api/requisitions/:id/:op', (req, res) => {
+  const u = req.u, r = q1('SELECT * FROM requisitions WHERE id=?', req.params.id), op = req.params.op;
+  if (!r || !visibleStores(u).includes(r.store_id)) return deny(res);
+  const items = JSON.parse(r.items || '[]');
+  if (op === 'approve' && r.status === 'open' && ['region_manager', 'ops_manager'].includes(u.level)) {
+    run("UPDATE requisitions SET status='approved', approved_by=? WHERE id=?", u.id, r.id);
+    D.notify(D.storeManagers(r.store_id), 'proc', '物料申领已批准，统购配送中', items.map(x => x.name).join('、'), '#/proc?store=' + r.store_id);
+  } else if (op === 'reject' && r.status === 'open' && ['region_manager', 'ops_manager'].includes(u.level)) {
+    run("UPDATE requisitions SET status='rejected', note=? WHERE id=?", (req.body || {}).note || '', r.id);
+    D.notify([r.created_by], 'proc', '物料申领被退回', (req.body || {}).note || '', '#/proc?store=' + r.store_id);
+  } else if (op === 'receive' && r.status === 'approved' && (canManage(u, r.store_id) || u.role_name === '店助')) {
+    run("UPDATE requisitions SET status='received', received_at=? WHERE id=?", L.nowStr(), r.id);
+    for (const x of items) run('INSERT INTO store_stock(store_id,material_id,qty,safety) VALUES(?,?,?,0) ON CONFLICT(store_id,material_id) DO UPDATE SET qty=qty+excluded.qty', r.store_id, x.mid, x.qty);
+    for (const x of items) run('INSERT INTO purchases(store_id,month,cat,amount,central) VALUES(?,?,?,?,?)', r.store_id, L.today().slice(0, 7), q1('SELECT cat FROM materials WHERE id=?', x.mid).cat, x.amt, x.central ? 1 : 0);
+  } else return deny(res);
+  D.audit(u.id, r.store_id, '物料申领' + { approve: '批准', reject: '退回', receive: '收货' }[op], '');
+  res.json({ ok: true });
+});
+app.post('/api/stocktakes', (req, res) => {
+  const u = req.u, sid = Number((req.body || {}).store_id);
+  if (!canManage(u, sid) && u.level !== 'ops_manager') return deny(res);
+  const asg = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.name='店助'", sid)?.id || D.storeManagers(sid)[0];
+  const id = Number(run("INSERT INTO stocktakes(store_id,date,status,assignee_id,created_by,created_at) VALUES(?,?,'planned',?,?,?)", sid, (req.body || {}).date || L.today(), asg, u.id, L.nowStr()).lastInsertRowid);
+  D.notify([asg], 'proc', `${sname(sid)} 物料盘点任务`, '请逐项清点库存并提交差异', '#/proc?store=' + sid);
+  res.json({ ok: true, id });
+});
+app.post('/api/stocktakes/:id/submit', (req, res) => {
+  const u = req.u, k = q1('SELECT * FROM stocktakes WHERE id=?', req.params.id);
+  if (!k || k.status !== 'planned' || !(k.assignee_id === u.id || canManage(u, k.store_id))) return deny(res);
+  const got = (req.body || {}).counts || {}, items = [];
+  for (const m of q('SELECT m.id, m.name, m.unit, m.price, s.qty FROM materials m LEFT JOIN store_stock s ON s.material_id=m.id AND s.store_id=?', k.store_id)) {
+    const actual = got[m.id] === undefined || got[m.id] === '' ? null : Number(got[m.id]);
+    if (actual == null || !Number.isFinite(actual)) return err(res, `请填写「${m.name}」的实盘数量`);
+    items.push({ mid: m.id, name: m.name, unit: m.unit, book: m.qty ?? 0, actual, diff: Math.round((actual - (m.qty ?? 0)) * 10) / 10, amt: Math.round((actual - (m.qty ?? 0)) * m.price) });
+    run('INSERT INTO store_stock(store_id,material_id,qty,safety) VALUES(?,?,?,0) ON CONFLICT(store_id,material_id) DO UPDATE SET qty=excluded.qty', k.store_id, m.id, actual);
+  }
+  run("UPDATE stocktakes SET status='done', items=?, done_by=?, done_at=? WHERE id=?", JSON.stringify(items), u.id, L.nowStr(), k.id);
+  const loss = items.reduce((a, x) => a + Math.min(0, x.amt), 0);
+  D.notify([...D.storeManagers(k.store_id), ...D.regionUsers(u.region_id, 'ops_manager')], 'proc', `${sname(k.store_id)} 盘点完成`, `盘亏 ${-loss} 元`, '#/proc?store=' + k.store_id);
+  res.json({ ok: true });
+});
+
+// ---------- 培训与认证 ----------
+const TR_KINDS = ['店长班', '经理班', '品牌认证', '新员工入职'];
+const isTrain = u => ['train_manager', 'region_manager', 'hr_manager'].includes(u.level);
+app.get('/api/train', (req, res) => {
+  const u = req.u; if (!isRegion(u) && u.level !== 'store_manager') return deny(res);
+  const sids = visibleStores(u), t = L.today();
+  const classes = q('SELECT c.*, u.name trainer FROM train_classes c LEFT JOIN users u ON u.id=c.trainer_id WHERE c.region_id=? ORDER BY c.start DESC', u.region_id).map(c => {
+    const en = q(`SELECT e.*, u.name, r.name role_name, s.name store FROM train_enroll e JOIN users u ON u.id=e.user_id JOIN roles r ON r.id=u.role_id LEFT JOIN stores s ON s.id=u.store_id WHERE e.class_id=?`, c.id)
+      .filter(e => isRegion(u) || sids.includes(q1('SELECT store_id FROM users WHERE id=?', e.user_id).store_id) || q1('SELECT 1 FROM user_stores WHERE user_id=? AND store_id IN (' + (sids.join(',') || 'NULL') + ')', e.user_id));
+    return { ...c, enroll: en, phase: c.end < t ? '已结束' : c.start <= t ? '进行中' : '报名中' };
+  });
+  const mentors = q(`SELECT m.*, a.name mentee, ar.name mentee_role, b.name mentor, s.name store FROM mentors m JOIN users a ON a.id=m.mentee_id JOIN roles ar ON ar.id=a.role_id JOIN users b ON b.id=m.mentor_id LEFT JOIN stores s ON s.id=a.store_id WHERE a.store_id IN (${sids.join(',') || 'NULL'}) ORDER BY m.start DESC`)
+    .map(m => ({ ...m, checks: JSON.parse(m.checks || '{}'), day: dBetween(m.start, t) }));
+  res.json({ kinds: TR_KINDS, classes, mentors, can_edit: isTrain(u), can_nominate: u.level === 'store_manager' || isTrain(u) });
+});
+app.post('/api/train/classes', (req, res) => {
+  const u = req.u, b = req.body || {}; if (!isTrain(u)) return deny(res);
+  if (!(b.name || '').trim() || !TR_KINDS.includes(b.kind) || !b.start || !b.end) return err(res, '请填写班级名称、类型和日期');
+  const id = Number(run('INSERT INTO train_classes(region_id,name,kind,cert,start,end,seats,trainer_id,note) VALUES(?,?,?,?,?,?,?,?,?)', u.region_id, b.name.trim(), b.kind, b.cert || '', b.start, b.end, Number(b.seats) || 20, u.id, b.note || '').lastInsertRowid);
+  D.notify(D.regionUsers(u.region_id, 'store_manager'), 'train', `开班：${b.name.trim()}`, `${b.start} 至 ${b.end}，可在「培训与认证」提名学员`, '#/train');
+  res.json({ ok: true, id });
+});
+app.post('/api/train/enroll', (req, res) => {
+  const u = req.u, b = req.body || {}, c = q1('SELECT * FROM train_classes WHERE id=?', b.class_id), x = q1(USER_SQL + ' WHERE u.id=?', b.user_id);
+  if (!c || !x || !(isTrain(u) || (u.level === 'store_manager' && visibleStores(u).includes(x.store_id)))) return deny(res);
+  if (q1('SELECT 1 FROM train_enroll WHERE class_id=? AND user_id=?', c.id, x.id)) return err(res, '已报名');
+  run("INSERT INTO train_enroll(class_id,user_id,status,created_at,by) VALUES(?,?,'enrolled',?,?)", c.id, x.id, L.nowStr(), u.id);
+  D.notify([x.id, ...D.regionUsers(c.region_id, 'train_manager')].filter(i => i !== u.id), 'train', `${c.name} 报名：${x.name}`, `${c.start} 开班`, '#/train');
+  res.json({ ok: true });
+});
+app.post('/api/train/result', (req, res) => {
+  const u = req.u, b = req.body || {}, e = q1('SELECT * FROM train_enroll WHERE id=?', b.id);
+  if (!e || !isTrain(u) || !['passed', 'certified', 'failed'].includes(b.status)) return deny(res);
+  run('UPDATE train_enroll SET status=?, score=? WHERE id=?', b.status, Number(b.score) || null, e.id);
+  const c = q1('SELECT * FROM train_classes WHERE id=?', e.class_id);
+  D.notify([e.user_id, ...D.storeManagers(q1('SELECT store_id FROM users WHERE id=?', e.user_id).store_id || 0)], 'train', `${c.name}：${{ passed: '考核通过', certified: '取得认证', failed: '未通过' }[b.status]}`, b.score ? `成绩 ${b.score}` : '', '#/train');
+  res.json({ ok: true });
+});
+app.post('/api/mentors/:id/check', (req, res) => {
+  const u = req.u, m = q1('SELECT m.*, a.store_id FROM mentors m JOIN users a ON a.id=m.mentee_id WHERE m.id=?', req.params.id), k = (req.body || {}).k;
+  if (!m || !['d30', 'd60', 'd90'].includes(k) || !(m.mentor_id === u.id || canManage(u, m.store_id) || isTrain(u))) return deny(res);
+  const ch = JSON.parse(m.checks || '{}'); ch[k] = { at: L.today(), by: u.name, note: (req.body || {}).note || '' };
+  run('UPDATE mentors SET checks=?, status=? WHERE id=?', JSON.stringify(ch), k === 'd90' ? 'done' : 'active', m.id);
+  res.json({ ok: true });
+});
+function seedProcTrain() {
+  if (D.getSetting('pt_seeded', 0)) return;
+  const t = L.today();
+  D.tx(() => {
+    if (!q1('SELECT 1 FROM roles WHERE name=?', '培训经理')) run("INSERT INTO roles(name,level,sort) VALUES('培训经理','train_manager',3)");
+    const tm = Number(run("INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES('唐琳',(SELECT id FROM roles WHERE name='培训经理'),1,NULL,'13761205539')").lastInsertRowid);
+    MATS.forEach(([cat, name, unit, central, std, price]) => run('INSERT INTO materials(cat,name,unit,central,std_per_rn,price) VALUES(?,?,?,?,?,?)', cat, name, unit, central, std, price));
+    const stores = q('SELECT id, rooms FROM stores');
+    for (const s of stores) {
+      for (const m of q('SELECT * FROM materials')) { const safety = Math.ceil(m.std_per_rn * s.rooms * 0.8 * 7); run('INSERT OR REPLACE INTO store_stock(store_id,material_id,qty,safety) VALUES(?,?,?,?)', s.id, m.id, Math.round(safety * (0.6 + hx('st' + s.id + m.id) * 1.4)), safety); }
+      for (let i = 0; i < 3; i++) { const mon = L.addDays(t, -30 * i).slice(0, 7);
+        for (const cat of [...new Set(MATS.map(x => x[0]))]) { const amt = Math.round(s.rooms * (cat === '早餐原料' ? 60 : cat === '工程备件' ? 12 : 30) * (0.8 + hx('pa' + s.id + cat + i) * 0.4)), cr = PROC_STD.must.includes(cat) ? (s.id === 3 ? 0.62 : s.id === 2 ? 0.84 : 0.93) + (hx('pc' + s.id + cat + i) - 0.5) * 0.1 : 0.3;
+          run('INSERT INTO purchases(store_id,month,cat,amount,central) VALUES(?,?,?,?,1),(?,?,?,?,0)', s.id, mon, cat, Math.round(amt * cr), s.id, mon, cat, Math.round(amt * (1 - cr))); } }
+      const asg = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND r.name='店助'", s.id)?.id;
+      if (asg) run("INSERT INTO stocktakes(store_id,date,status,assignee_id,created_by,created_at) VALUES(?,?,'planned',?,?,?)", s.id, t, asg, tm, L.nowStr());
+    }
+    run("INSERT INTO requisitions(store_id,items,status,note,created_by,created_at) VALUES(3,?,'open','旺季前补货',?,?)", JSON.stringify([{ mid: 1, name: '浴巾', unit: '条', qty: 200, amt: 5600, central: 1 }, { mid: 5, name: '洗护套装', unit: '套', qty: 1500, amt: 4800, central: 1 }]), D.storeManagers(3)[0], L.nowStr());
+    const cls = [['2026 第三期店长班', '店长班', '全季店长认证', L.addDays(t, -50), L.addDays(t, -36), 12], ['2026 第四期经理班', '经理班', '经理班', L.addDays(t, 10), L.addDays(t, 17), 20], ['全季 4.0 品牌标准认证', '品牌认证', '全季 4.0 品牌认证', L.addDays(t, -3), L.addDays(t, 4), 30], ['11 月新员工入职培训', '新员工入职', '', L.addDays(t, -10), L.addDays(t, -8), 25]];
+    const cids = cls.map(([n, k, c, a, b2, seats]) => Number(run('INSERT INTO train_classes(region_id,name,kind,cert,start,end,seats,trainer_id,note) VALUES(1,?,?,?,?,?,?,?,?)', n, k, c, a, b2, seats, tm, '').lastInsertRowid));
+    const pick = re => q(USER_SQL + ' WHERE u.active=1 AND r.name LIKE ?', re).map(x => x.id);
+    pick('店助').slice(0, 3).forEach((id, i) => run('INSERT INTO train_enroll(class_id,user_id,status,score,created_at,by) VALUES(?,?,?,?,?,?)', cids[0], id, i < 2 ? 'certified' : 'failed', i < 2 ? 88 - i * 4 : 68, L.nowStr(), tm));
+    [...pick('前台经理'), ...pick('客房经理')].slice(0, 4).forEach(id => run("INSERT INTO train_enroll(class_id,user_id,status,created_at,by) VALUES(?,?,'enrolled',?,?)", cids[1], id, L.nowStr(), tm));
+    [...pick('前台高级'), ...pick('客房高级')].slice(0, 5).forEach(id => run("INSERT INTO train_enroll(class_id,user_id,status,created_at,by) VALUES(?,?,'enrolled',?,?)", cids[2], id, L.nowStr(), tm));
+    for (const s of stores) {
+      const staff = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff'", s.id), newbies = staff.filter(x => profileOf(x).in_probation).slice(0, 2);
+      for (const n of newbies) { const dept = n.role_name.slice(0, 2), mentor = staff.find(x => x.id !== n.id && x.role_name.startsWith(dept) && /高级|经理/.test(x.role_name)) || staff.find(x => x.role_name === '店助');
+        if (!mentor) continue; const st = profileOf(n).hire, d = dBetween(st, t), ch = {};
+        if (d >= 30) ch.d30 = { at: L.addDays(st, 30), by: mentor.name, note: '岗位基础流程掌握' }; if (d >= 60 && hx('mt' + n.id) > 0.4) ch.d60 = { at: L.addDays(st, 61), by: mentor.name, note: '可独立当班' };
+        run('INSERT INTO mentors(mentee_id,mentor_id,start,checks,status) VALUES(?,?,?,?,?)', n.id, mentor.id, st, JSON.stringify(ch), 'active'); }
+      if (!newbies.length) { const a = staff.find(x => /初级/.test(x.role_name)), m = staff.find(x => /高级/.test(x.role_name)); if (a && m) run('INSERT INTO mentors(mentee_id,mentor_id,start,checks,status) VALUES(?,?,?,?,?)', a.id, m.id, L.addDays(t, -40), JSON.stringify({ d30: { at: L.addDays(t, -10), by: m.name, note: '已掌握基础流程' } }), 'active'); }
+    }
+    D.setSetting('pt_seeded', 1);
+  });
+}
+seedProcTrain();
 
 // ---------- notifications ----------
 app.get('/api/notifications', (req, res) => res.json(q('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', req.u.id)));
