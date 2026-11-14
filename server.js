@@ -1,0 +1,561 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const D = require('./db');
+const L = require('./lib');
+const { q, q1, run } = D;
+require('./seed').seed();
+
+const app = express();
+app.use(express.json({ limit: '8mb' }));
+app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '7d' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
+const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', store_manager: '店长', staff: '员工' };
+
+app.get('/api/users', (req, res) => {
+  const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
+  const stores = q('SELECT * FROM stores');
+  const us = q('SELECT * FROM user_stores');
+  res.json(users.map(u => ({ id: u.id, name: u.name, role_name: u.role_name, level: u.level,
+    stores: u.level === 'store_manager' ? us.filter(x => x.user_id === u.id).map(x => stores.find(s => s.id === x.store_id)?.name)
+      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : ['华东一区'] })));
+});
+
+app.use('/api', (req, res, next) => {
+  const id = Number(req.get('x-user-id'));
+  const u = id && q1(USER_SQL + ' WHERE u.id=? AND u.active=1', id);
+  if (!u) return res.status(401).json({ error: '请选择身份' });
+  req.u = u;
+  next();
+});
+
+const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager'].includes(u.level);
+function visibleStores(u) {
+  if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
+  if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
+  return u.store_id ? [u.store_id] : [];
+}
+const canManage = (u, sid) => u.level === 'region_manager' || (u.level === 'store_manager' && visibleStores(u).includes(Number(sid)));
+const catFilter = u => (u.level === 'sales_manager' ? 'sales' : u.level === 'ops_manager' ? 'ops' : null);
+function deny(res, msg) { res.status(403).json({ error: msg || '无权限' }); }
+function err(res, msg) { res.status(400).json({ error: msg }); }
+
+function savePhoto(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) return null;
+  const m = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+  if (!m) return null;
+  const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + (m[1] === 'png' ? 'png' : 'jpg');
+  fs.writeFileSync(path.join(D.DATA_DIR, 'uploads', name), Buffer.from(m[2], 'base64'));
+  return '/uploads/' + name;
+}
+
+const INST_SQL = `SELECT i.*, s.name AS scene_name, st.name AS store_name, a.name AS assignee_name, ar.name AS assignee_role,
+  o.name AS orig_name, c.name AS checker_name,
+  (SELECT id FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_id,
+  (SELECT status FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_status
+  FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=i.store_id
+  LEFT JOIN users a ON a.id=i.assignee_id LEFT JOIN roles ar ON ar.id=a.role_id LEFT JOIN users o ON o.id=i.orig_assignee_id LEFT JOIN users c ON c.id=i.checked_by`;
+function decorate(rows) {
+  const t = L.today(), hm = L.nowHM();
+  return rows.map(r => ({ ...r, overdue: r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
+    covered: r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
+}
+
+// ---------- me / meta ----------
+app.get('/api/me', (req, res) => {
+  const u = req.u;
+  const unread = q1('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read=0', u.id).n;
+  res.json({ ...u, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
+    can: { manage: ['region_manager', 'store_manager'].includes(u.level), region: isRegion(u), patrol: u.level === 'region_manager', settings: u.level === 'region_manager' },
+    category: catFilter(u) });
+});
+app.get('/api/meta', (req, res) => {
+  const sids = visibleStores(req.u);
+  const ph = sids.map(() => '?').join(',') || 'NULL';
+  res.json({
+    scenes: q('SELECT * FROM scenes WHERE active=1 ORDER BY sort, id'),
+    roles: q('SELECT * FROM roles ORDER BY sort, id'),
+    stores: q(`SELECT * FROM stores WHERE id IN (${ph}) ORDER BY id`, ...sids),
+    users: q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${ph}) OR u.id IN (SELECT user_id FROM user_stores WHERE store_id IN (${ph}))) ORDER BY r.sort, u.id`, ...sids, ...sids),
+    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), patrol_checklist: D.getSetting('patrol_checklist', []) },
+  });
+});
+
+// ---------- tasks ----------
+app.get('/api/my/tasks', (req, res) => {
+  const date = req.query.date || L.today();
+  const sids = visibleStores(req.u);
+  D.ensureInstances(date, sids);
+  res.json(decorate(q(INST_SQL + ' WHERE i.date=? AND i.assignee_id=? ORDER BY i.due_time', date, req.u.id)));
+});
+app.get('/api/tasks', (req, res) => {
+  const date = req.query.date || L.today();
+  const sids = visibleStores(req.u);
+  const sid = req.query.store ? Number(req.query.store) : null;
+  if (sid && !sids.includes(sid)) return deny(res);
+  const list = sid ? [sid] : sids;
+  if (!list.length) return res.json([]);
+  D.ensureInstances(date, list);
+  let sql = INST_SQL + ` WHERE i.date=? AND i.store_id IN (${list.map(() => '?').join(',')})`;
+  const p = [date, ...list];
+  const cat = catFilter(req.u);
+  if (cat) { sql += ' AND i.category=?'; p.push(cat); }
+  if (req.u.level === 'staff') { sql += ' AND i.assignee_id=?'; p.push(req.u.id); }
+  res.json(decorate(q(sql + ' ORDER BY i.scene_id, i.due_time', ...p)));
+});
+app.get('/api/instances/:id', (req, res) => {
+  const it = q1(INST_SQL + ' WHERE i.id=?', req.params.id);
+  if (!it || !visibleStores(req.u).includes(it.store_id)) return deny(res);
+  const rects = q(`SELECT r.*, u.name assignee_name FROM rectifications r LEFT JOIN users u ON u.id=r.assignee_id WHERE instance_id=? ORDER BY id`, it.id);
+  res.json({ ...decorate([it])[0], rects });
+});
+app.post('/api/instances/:id/complete', (req, res) => {
+  const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
+  if (!it) return err(res, '任务不存在');
+  if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id)) return deny(res, '只能完成分配给自己的任务');
+  const photo = savePhoto(req.body.photo) || it.photo;
+  if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
+  run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=? WHERE id=?", L.nowStr(), req.body.note || '', photo, it.id);
+  D.audit(req.u.id, it.store_id, '完成任务', it.title);
+  res.json({ ok: true });
+});
+app.post('/api/instances/:id/undo', (req, res) => {
+  const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
+  if (!it || (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id))) return deny(res);
+  if (it.check_result) return err(res, '已抽查的任务不能撤回');
+  run("UPDATE instances SET status='pending', done_at=NULL WHERE id=?", it.id);
+  D.audit(req.u.id, it.store_id, '撤回完成', it.title);
+  res.json({ ok: true });
+});
+app.post('/api/instances/:id/reassign', (req, res) => {
+  const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
+  if (!it || !canManage(req.u, it.store_id)) return deny(res);
+  const to = q1('SELECT * FROM users WHERE id=?', req.body.user_id);
+  if (!to) return err(res, '人员不存在');
+  run('UPDATE instances SET assignee_id=? WHERE id=?', to.id, it.id);
+  D.notify([to.id], 'assign', '新增临时任务', `${it.date} ${it.due_time} ${it.title}`, '#/my');
+  D.audit(req.u.id, it.store_id, '临时改派', `${it.title} → ${to.name}`);
+  res.json({ ok: true });
+});
+app.post('/api/instances/:id/check', (req, res) => {
+  const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
+  if (!it || !canManage(req.u, it.store_id)) return deny(res, '只有店长或区域经理可以抽查');
+  const { result, comment, rectify } = req.body;
+  if (!['good', 'bad'].includes(result)) return err(res, '请选择抽查结果');
+  if (result === 'bad' && !(comment || '').trim()) return err(res, '请写明不合格原因');
+  D.tx(() => {
+    run('UPDATE instances SET check_result=?, check_comment=?, checked_by=?, checked_at=? WHERE id=?', result, comment || '', req.u.id, L.nowStr(), it.id);
+    if (result === 'good') {
+      D.notify([it.assignee_id], 'praise', '工作获得肯定', `${it.title}：${comment || '执行到位，继续保持'}`, '#/my');
+    } else {
+      const r = rectify || {};
+      if (!r.deadline || !(r.task || '').trim()) throw new Error('请填写整改任务和整改日期');
+      const assignee = Number(r.assignee_id) || it.assignee_id;
+      run(`INSERT INTO rectifications(instance_id,store_id,assignee_id,reason,training,task,deadline,status,created_by,created_at)
+        VALUES(?,?,?,?,?,?,?,'open',?,?)`, it.id, it.store_id, assignee, comment, r.training || '', r.task, r.deadline, req.u.id, L.nowStr());
+      D.notify([assignee], 'rectify', '收到整改任务', `${it.title}：${comment}。整改要求：${r.task}，截止 ${r.deadline}`, '#/my-rect');
+    }
+  });
+  D.audit(req.u.id, it.store_id, result === 'good' ? '抽查合格' : '抽查不合格', `${it.title} ${comment || ''}`);
+  res.json({ ok: true });
+});
+
+// ---------- assignments ----------
+app.get('/api/stores/:id/assign', (req, res) => {
+  const sid = Number(req.params.id);
+  if (!visibleStores(req.u).includes(sid)) return deny(res);
+  const tpls = q(`SELECT t.*, r.name role_name FROM templates t LEFT JOIN roles r ON r.id=t.role_id WHERE t.active=1 ORDER BY t.scene_id, t.due_time`);
+  const owners = q('SELECT so.*, u.name FROM scene_owners so LEFT JOIN users u ON u.id=so.user_id WHERE so.store_id=?', sid);
+  const explicit = q('SELECT * FROM assignments WHERE store_id=?', sid);
+  res.json({
+    owners,
+    templates: tpls.map(t => {
+      const uid = D.baseAssignee(sid, t);
+      const u = uid && q1('SELECT name FROM users WHERE id=?', uid);
+      return { ...t, user_id: uid, user_name: u?.name, explicit: explicit.some(e => e.template_id === t.id) };
+    }),
+  });
+});
+app.put('/api/stores/:id/assign', (req, res) => {
+  const sid = Number(req.params.id);
+  if (!canManage(req.u, sid)) return deny(res);
+  const { template_id, user_id, scene_id, owner_id, apply_scene } = req.body;
+  if (template_id) {
+    if (user_id) run('INSERT INTO assignments VALUES(?,?,?) ON CONFLICT(store_id,template_id) DO UPDATE SET user_id=excluded.user_id', sid, template_id, user_id);
+    else run('DELETE FROM assignments WHERE store_id=? AND template_id=?', sid, template_id);
+  }
+  if (scene_id && owner_id !== undefined) {
+    run('INSERT INTO scene_owners VALUES(?,?,?) ON CONFLICT(store_id,scene_id) DO UPDATE SET user_id=excluded.user_id', sid, scene_id, owner_id);
+    if (apply_scene) for (const t of q('SELECT id FROM templates WHERE scene_id=? AND active=1', scene_id))
+      run('INSERT INTO assignments VALUES(?,?,?) ON CONFLICT(store_id,template_id) DO UPDATE SET user_id=excluded.user_id', sid, t.id, owner_id);
+  }
+  D.refreshPending(sid);
+  const who = user_id || owner_id ? q1('SELECT name FROM users WHERE id=?', user_id || owner_id)?.name : '默认';
+  D.audit(req.u.id, sid, '调整分配', template_id ? `${q1('SELECT title FROM templates WHERE id=?', template_id)?.title} → ${who}` : `场景负责人 ${q1('SELECT name FROM scenes WHERE id=?', scene_id)?.name} → ${who}${apply_scene ? '（含全部任务）' : ''}`);
+  if (user_id || owner_id) D.notify([user_id || owner_id], 'assign', '工作分配有调整', '店长调整了你的固定运营工作，请在「我的任务」查看。', '#/my');
+  res.json({ ok: true });
+});
+
+// ---------- leaves ----------
+app.get('/api/leaves', (req, res) => {
+  const sids = visibleStores(req.u);
+  const from = req.query.from || L.addDays(L.today(), -7);
+  if (!sids.length) return res.json([]);
+  res.json(q(`SELECT l.*, u.name, r.name role_name, u.store_id, c.name cover_name, cr.name cover_role FROM leaves l JOIN users u ON u.id=l.user_id JOIN roles r ON r.id=u.role_id
+    LEFT JOIN users c ON c.id=l.cover_user_id LEFT JOIN roles cr ON cr.id=c.role_id WHERE l.date>=? AND u.store_id IN (${sids.map(() => '?').join(',')}) ORDER BY l.date DESC`, from, ...sids));
+});
+app.post('/api/leaves', (req, res) => {
+  const { user_id, date, cover_user_id, note, days } = req.body;
+  const u = q1('SELECT * FROM users WHERE id=?', user_id);
+  if (!u || !canManage(req.u, u.store_id)) return deny(res);
+  if (!date) return err(res, '请选择日期');
+  const n = Math.max(1, Math.min(31, Number(days) || 1));
+  for (let i = 0; i < n; i++) run('INSERT INTO leaves(user_id,date,cover_user_id,note,created_by) VALUES(?,?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET cover_user_id=excluded.cover_user_id, note=excluded.note',
+    user_id, L.addDays(date, i), cover_user_id || null, note || '', req.u.id);
+  D.refreshPending(u.store_id);
+  const c = cover_user_id && q1('SELECT name FROM users WHERE id=?', cover_user_id);
+  if (cover_user_id) D.notify([cover_user_id], 'cover', '顶岗通知', `${date} 起 ${n} 天，${u.name} 休息，其工作由你承接。`, '#/my');
+  D.audit(req.u.id, u.store_id, '登记休息', `${u.name} ${date} ×${n} 天，承接人 ${c ? c.name : '店长'}`);
+  res.json({ ok: true });
+});
+app.delete('/api/leaves/:id', (req, res) => {
+  const l = q1('SELECT l.*, u.store_id, u.name FROM leaves l JOIN users u ON u.id=l.user_id WHERE l.id=?', req.params.id);
+  if (!l || !canManage(req.u, l.store_id)) return deny(res);
+  run('DELETE FROM leaves WHERE id=?', l.id);
+  D.refreshPending(l.store_id);
+  D.audit(req.u.id, l.store_id, '取消休息', `${l.name} ${l.date}`);
+  res.json({ ok: true });
+});
+
+// ---------- flex & focus tasks ----------
+app.get('/api/flex', (req, res) => {
+  const sids = visibleStores(req.u);
+  if (!sids.length) return res.json([]);
+  let sql = `SELECT f.*, s.name scene_name, st.name store_name, u.name assignee_name, c.name creator_name,
+    (SELECT COUNT(*) FROM instances i WHERE i.src='flex' AND i.src_id=f.id AND i.date<=?) total,
+    (SELECT COUNT(*) FROM instances i WHERE i.src='flex' AND i.src_id=f.id AND i.date<=? AND i.status='done') done,
+    (SELECT COUNT(*) FROM instances i WHERE i.src='flex' AND i.src_id=f.id AND i.check_result='bad') bad
+    FROM flex_tasks f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN stores st ON st.id=f.store_id LEFT JOIN users u ON u.id=f.assignee_id LEFT JOIN users c ON c.id=f.created_by
+    WHERE f.store_id IN (${sids.map(() => '?').join(',')})`;
+  const p = [L.today(), L.today(), ...sids];
+  if (req.query.source) { sql += ' AND f.source=?'; p.push(req.query.source); }
+  const rows = q(sql + ' ORDER BY f.active DESC, f.id DESC', ...p);
+  for (const r of rows) r.recent = q("SELECT date, status, check_result FROM instances WHERE src='flex' AND src_id=? AND date<=? ORDER BY date DESC LIMIT 7", r.id, L.today()).reverse();
+  res.json(rows);
+});
+app.post('/api/flex', (req, res) => {
+  const b = req.body;
+  if (!canManage(req.u, b.store_id)) return deny(res);
+  const source = b.source === 'focus' ? 'focus' : 'flex';
+  if (source === 'focus' && req.u.level !== 'region_manager') return deny(res, '重点跟踪任务由区域经理创建');
+  if (!(b.title || '').trim() || !b.assignee_id || !b.start_date || !b.due_time) return err(res, '请填写任务名称、执行人、开始日期和时间');
+  const id = Number(run(`INSERT INTO flex_tasks(store_id,scene_id,title,standard,assignee_id,recur,recur_val,start_date,end_date,due_time,need_photo,source,created_by,created_at,ref)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, b.store_id, b.scene_id || null, (source === 'focus' && !b.title.startsWith('【') ? '【重点跟踪】' : '') + b.title.trim(), b.standard || '', b.assignee_id,
+    b.recur || 'once', b.recur_val || null, b.start_date, b.recur === 'once' ? b.start_date : (b.end_date || null), b.due_time, b.need_photo ? 1 : 0, source, req.u.id, L.nowStr(), b.ref || null).lastInsertRowid);
+  if (b.start_date <= L.today()) D.ensureInstances(L.today(), [Number(b.store_id)]);
+  const store = q1('SELECT name FROM stores WHERE id=?', b.store_id).name;
+  D.notify([b.assignee_id], source === 'focus' ? 'focus' : 'assign', source === 'focus' ? '区域重点跟踪任务' : '店长新增任务', `${b.title}（${b.due_time}）`, '#/my');
+  if (source === 'focus') D.notify([...D.storeManagers(b.store_id), ...D.regionUsers(req.u.region_id, 'ops_manager')], 'focus', `${store} 新增重点跟踪任务`, b.title, '#/focus');
+  D.audit(req.u.id, b.store_id, source === 'focus' ? '新增重点跟踪' : '新增灵活任务', b.title);
+  res.json({ ok: true, id });
+});
+app.put('/api/flex/:id', (req, res) => {
+  const f = q1('SELECT * FROM flex_tasks WHERE id=?', req.params.id);
+  if (!f || !canManage(req.u, f.store_id)) return deny(res);
+  if (f.source === 'focus' && req.u.level !== 'region_manager' && req.body.active === 0) return deny(res, '重点跟踪任务只能由区域经理关闭');
+  if (req.body.active !== undefined) run('UPDATE flex_tasks SET active=? WHERE id=?', req.body.active ? 1 : 0, f.id);
+  if (req.body.assignee_id) { run('UPDATE flex_tasks SET assignee_id=? WHERE id=?', req.body.assignee_id, f.id); D.refreshPending(f.store_id); }
+  if (req.body.active === 0) run("DELETE FROM instances WHERE src='flex' AND src_id=? AND date>=? AND status='pending'", f.id, L.today());
+  D.audit(req.u.id, f.store_id, req.body.active === 0 ? '停用任务' : '修改任务', f.title);
+  res.json({ ok: true });
+});
+
+// ---------- rectifications ----------
+const RECT_SQL = `SELECT r.*, i.title, i.date inst_date, i.scene_id, s.name scene_name, st.name store_name, u.name assignee_name, c.name creator_name, v.name verifier_name
+  FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=r.store_id
+  LEFT JOIN users u ON u.id=r.assignee_id LEFT JOIN users c ON c.id=r.created_by LEFT JOIN users v ON v.id=r.verified_by`;
+app.get('/api/rectifications', (req, res) => {
+  const sids = visibleStores(req.u);
+  if (!sids.length) return res.json([]);
+  let sql = RECT_SQL + ` WHERE r.store_id IN (${sids.map(() => '?').join(',')})`;
+  const p = [...sids];
+  if (req.query.mine || req.u.level === 'staff') { sql += ' AND r.assignee_id=?'; p.push(req.u.id); }
+  const cat = catFilter(req.u);
+  if (cat) { sql += ' AND i.category=?'; p.push(cat); }
+  const t = L.today();
+  res.json(q(sql + " ORDER BY CASE r.status WHEN 'submitted' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, r.deadline", ...p)
+    .map(r => ({ ...r, late: r.status === 'open' && r.deadline < t })));
+});
+app.post('/api/rectifications/:id/submit', (req, res) => {
+  const r = q1('SELECT * FROM rectifications WHERE id=?', req.params.id);
+  if (!r || (r.assignee_id !== req.u.id && !canManage(req.u, r.store_id))) return deny(res);
+  if (!(req.body.note || '').trim()) return err(res, '请说明整改情况');
+  run("UPDATE rectifications SET status='submitted', submit_note=?, submit_photo=?, submitted_at=? WHERE id=?", req.body.note, savePhoto(req.body.photo) || r.submit_photo, L.nowStr(), r.id);
+  D.notify([r.created_by, ...D.storeManagers(r.store_id)], 'rectify', '整改已提交，待复查', req.body.note, '#/rect');
+  D.audit(req.u.id, r.store_id, '提交整改', req.body.note);
+  res.json({ ok: true });
+});
+app.post('/api/rectifications/:id/verify', (req, res) => {
+  const r = q1('SELECT * FROM rectifications WHERE id=?', req.params.id);
+  if (!r || !canManage(req.u, r.store_id)) return deny(res);
+  const pass = !!req.body.pass;
+  if (!pass && !req.body.deadline) return err(res, '复查不通过需重新规定整改日期');
+  run('UPDATE rectifications SET status=?, verify_comment=?, verified_by=?, verified_at=?, deadline=COALESCE(?, deadline), escalated=0 WHERE id=?',
+    pass ? 'closed' : 'open', req.body.comment || '', req.u.id, L.nowStr(), pass ? null : req.body.deadline, r.id);
+  D.notify([r.assignee_id], 'rectify', pass ? '整改复查通过，已闭环' : '整改复查未通过', req.body.comment || '', '#/my-rect');
+  D.audit(req.u.id, r.store_id, pass ? '整改闭环' : '整改退回', req.body.comment || '');
+  res.json({ ok: true });
+});
+
+// ---------- dashboard & issues ----------
+function storeStats(sids, from, to, cat) {
+  const t = L.today(), hm = L.nowHM();
+  return sids.map(sid => {
+    const p = [sid, from, to];
+    let c = '';
+    if (cat) { c = ' AND category=?'; p.push(cat); }
+    const s = q1(`SELECT COUNT(*) total, SUM(status='done') done, SUM(status='pending' AND (date<? OR (date=? AND due_time<?))) overdue,
+      SUM(check_result IS NOT NULL) checked, SUM(check_result='good') good, SUM(check_result='bad') bad,
+      SUM(origin='focus') focus_total, SUM(origin='focus' AND status='done') focus_done,
+      SUM(status='done' AND substr(done_at,12,5)>due_time) late
+      FROM instances WHERE store_id=? AND date BETWEEN ? AND ?${c}`, t, t, hm, ...p);
+    const rect = q1(`SELECT SUM(r.status!='closed') open, SUM(r.status='open' AND r.deadline<?) late, SUM(r.status='closed') closed, COUNT(*) total
+      FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id WHERE r.store_id=?${cat ? ' AND i.category=?' : ''}`, t, sid, ...(cat ? [cat] : []));
+    const store = q1('SELECT * FROM stores WHERE id=?', sid);
+    const total = s.total || 0;
+    return { ...store, ...Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v || 0])), rate: total ? Math.round((s.done || 0) * 100 / total) : null,
+      pass_rate: s.checked ? Math.round((s.good || 0) * 100 / s.checked) : null, rect_open: rect.open || 0, rect_late: rect.late || 0, rect_closed: rect.closed || 0,
+      managers: D.storeManagers(sid).map(id => q1('SELECT name FROM users WHERE id=?', id).name) };
+  });
+}
+app.get('/api/dashboard', (req, res) => {
+  const sids = visibleStores(req.u);
+  const t = L.today();
+  const days = Number(req.query.days) || 7;
+  const from = L.addDays(t, -(days - 1));
+  for (let d = from; d <= t; d = L.addDays(d, 1)) D.ensureInstances(d, sids);
+  const cat = catFilter(req.u);
+  const ph = sids.map(() => '?').join(',') || 'NULL';
+  const catSql = cat ? ' AND i.category=?' : '';
+  const catP = cat ? [cat] : [];
+  const trend = [];
+  for (let d = from; d <= t; d = L.addDays(d, 1)) {
+    const r = q1(`SELECT COUNT(*) total, SUM(status='done') done FROM instances i WHERE date=? AND store_id IN (${ph})${catSql}`, d, ...sids, ...catP);
+    trend.push({ date: d, rate: r.total ? Math.round((r.done || 0) * 100 / r.total) : null });
+  }
+  const scenes = q(`SELECT s.id, s.name, COUNT(i.id) total, SUM(i.status='done') done, SUM(i.check_result='bad') bad FROM scenes s
+    LEFT JOIN instances i ON i.scene_id=s.id AND i.date BETWEEN ? AND ? AND i.store_id IN (${ph})${catSql} WHERE s.active=1 GROUP BY s.id ORDER BY s.sort`, from, t, ...sids, ...catP)
+    .map(s => ({ ...s, rate: s.total ? Math.round((s.done || 0) * 100 / s.total) : null }));
+  const people = q(`SELECT u.id, u.name, r.name role_name, st.name store_name, COUNT(i.id) total, SUM(i.status='done') done, SUM(i.check_result='good') good, SUM(i.check_result='bad') bad
+    FROM instances i JOIN users u ON u.id=i.assignee_id JOIN roles r ON r.id=u.role_id LEFT JOIN stores st ON st.id=i.store_id
+    WHERE i.date BETWEEN ? AND ? AND i.date<? AND i.store_id IN (${ph})${catSql} GROUP BY u.id, i.store_id HAVING total>=3`, from, t, t, ...sids, ...catP)
+    .map(p => ({ ...p, rate: Math.round((p.done || 0) * 100 / p.total) })).sort((a, b) => b.rate - a.rate || b.good - a.good);
+  res.json({ from, to: t, today: storeStats(sids, t, t, cat), period: storeStats(sids, from, t, cat), trend, scenes, people });
+});
+app.get('/api/issues', (req, res) => {
+  if (!isRegion(req.u) && req.u.level !== 'store_manager') return deny(res);
+  const sids = visibleStores(req.u);
+  const t = L.today();
+  const from = L.addDays(t, -6);
+  const cat = catFilter(req.u);
+  const stats = storeStats(sids, from, L.addDays(t, -1), cat);
+  const out = stats.map(s => {
+    const issues = [];
+    if (s.rate !== null && s.rate < 85) issues.push({ level: s.rate < 75 ? 'high' : 'mid', type: '完成率低', text: `近 7 日任务完成率 ${s.rate}%（目标 ≥85%）` });
+    if (s.bad) issues.push({ level: s.bad >= 3 ? 'high' : 'mid', type: '抽查不合格', text: `近 7 日抽查不合格 ${s.bad} 次，合格率 ${s.pass_rate ?? '-'}%` });
+    if (s.rect_late) issues.push({ level: 'high', type: '整改逾期', text: `${s.rect_late} 项整改已过截止日期未完成` });
+    const rep = q(`SELECT i.title, s.name scene, COUNT(*) n FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.store_id=? AND i.check_result='bad' AND i.date>=? ${cat ? 'AND i.category=?' : ''}
+      GROUP BY i.src, i.src_id HAVING n>=2`, s.id, L.addDays(t, -14), ...(cat ? [cat] : []));
+    for (const r of rep) issues.push({ level: 'high', type: '问题重复出现', text: `「${r.title}」14 日内不合格 ${r.n} 次`, scene: r.scene, title: r.title });
+    const miss = q(`SELECT i.title, s.name scene, i.scene_id, COUNT(*) n, (SELECT COUNT(*) FROM instances j WHERE j.src=i.src AND j.src_id=i.src_id AND j.store_id=i.store_id AND j.date BETWEEN ? AND ?) total
+      FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.store_id=? AND i.status='pending' AND i.date BETWEEN ? AND ? ${cat ? 'AND i.category=?' : ''} GROUP BY i.src, i.src_id HAVING n>=2 ORDER BY n DESC LIMIT 5`,
+      from, L.addDays(t, -1), s.id, from, L.addDays(t, -1), ...(cat ? [cat] : []));
+    for (const m of miss) issues.push({ level: m.n >= 3 ? 'high' : 'mid', type: '任务漏做', text: `「${m.title}」近 7 日漏做 ${m.n}/${m.total} 次`, scene: m.scene, scene_id: m.scene_id, title: m.title });
+    const lastPatrol = q1("SELECT * FROM patrols WHERE store_id=? AND status='done' ORDER BY done_at DESC LIMIT 1", s.id);
+    const planned = q1("SELECT * FROM patrols WHERE store_id=? AND status='planned' ORDER BY planned_date LIMIT 1", s.id);
+    const score = issues.reduce((a, i) => a + (i.level === 'high' ? 3 : 1), 0);
+    return { store: s, issues, score, last_patrol: lastPatrol, planned };
+  }).sort((a, b) => b.score - a.score);
+  res.json(out);
+});
+
+// ---------- patrols ----------
+app.get('/api/patrols', (req, res) => {
+  const sids = visibleStores(req.u);
+  if (!sids.length) return res.json([]);
+  res.json(q(`SELECT p.*, st.name store_name, u.name creator_name FROM patrols p JOIN stores st ON st.id=p.store_id LEFT JOIN users u ON u.id=p.created_by
+    WHERE p.store_id IN (${sids.map(() => '?').join(',')}) ORDER BY p.status='done', CASE WHEN p.status='done' THEN p.done_at END DESC, p.planned_date`, ...sids));
+});
+app.get('/api/patrols/:id', (req, res) => {
+  const p = q1('SELECT p.*, st.name store_name FROM patrols p JOIN stores st ON st.id=p.store_id WHERE p.id=?', req.params.id);
+  if (!p || !visibleStores(req.u).includes(p.store_id)) return deny(res);
+  const items = q('SELECT pi.*, s.name scene_name FROM patrol_items pi LEFT JOIN scenes s ON s.id=pi.scene_id WHERE patrol_id=? ORDER BY id', p.id);
+  const focus = q("SELECT id, title, active FROM flex_tasks WHERE ref=?", 'patrol:' + p.id);
+  res.json({ ...p, items, focus });
+});
+app.post('/api/patrols', (req, res) => {
+  if (req.u.level !== 'region_manager') return deny(res, '巡店计划由区域经理制定');
+  const { store_id, planned_date, reason } = req.body;
+  if (!store_id || !planned_date) return err(res, '请选择门店和巡店日期');
+  const id = Number(run("INSERT INTO patrols(store_id,planned_date,reason,status,created_by,created_at) VALUES(?,?,?,'planned',?,?)", store_id, planned_date, reason || '', req.u.id, L.nowStr()).lastInsertRowid);
+  const store = q1('SELECT name FROM stores WHERE id=?', store_id).name;
+  D.notify(D.storeManagers(store_id), 'patrol', '区域经理巡店计划', `${planned_date} 巡店 ${store}：${reason || '例行巡店'}`, '#/patrol');
+  D.audit(req.u.id, store_id, '加入巡店计划', `${planned_date} ${reason || ''}`);
+  res.json({ ok: true, id });
+});
+app.post('/api/patrols/:id/complete', (req, res) => {
+  const p = q1('SELECT * FROM patrols WHERE id=?', req.params.id);
+  if (!p || req.u.level !== 'region_manager') return deny(res);
+  const items = req.body.items || [];
+  const scenes = q('SELECT * FROM scenes');
+  D.tx(() => {
+    run('DELETE FROM patrol_items WHERE patrol_id=?', p.id);
+    for (const it of items) run('INSERT INTO patrol_items(patrol_id,scene_id,item,score,max,comment) VALUES(?,?,?,?,?,?)', p.id,
+      scenes.find(s => s.name === it.scene)?.id || null, it.item, Number(it.score) || 0, Number(it.max) || 0, it.comment || '');
+    const total = items.reduce((a, i) => a + (Number(i.score) || 0), 0);
+    const max = items.reduce((a, i) => a + (Number(i.max) || 0), 0) || 100;
+    run("UPDATE patrols SET status='done', score=?, summary=?, done_at=? WHERE id=?", Math.round(total * 100 / max), req.body.summary || '', L.nowStr(), p.id);
+  });
+  D.notify([...D.storeManagers(p.store_id), ...D.regionUsers(req.u.region_id, 'ops_manager')], 'patrol', '巡店报告已出', req.body.summary || '', '#/patrol/' + p.id);
+  D.audit(req.u.id, p.store_id, '完成巡店', req.body.summary || '');
+  res.json({ ok: true });
+});
+app.delete('/api/patrols/:id', (req, res) => {
+  const p = q1('SELECT * FROM patrols WHERE id=?', req.params.id);
+  if (!p || req.u.level !== 'region_manager' || p.status !== 'planned') return deny(res);
+  run('DELETE FROM patrols WHERE id=?', p.id);
+  D.audit(req.u.id, p.store_id, '取消巡店计划', p.planned_date);
+  res.json({ ok: true });
+});
+
+// ---------- notifications ----------
+app.get('/api/notifications', (req, res) => res.json(q('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', req.u.id)));
+app.post('/api/notifications/read', (req, res) => {
+  if (req.body.id) run('UPDATE notifications SET read=1 WHERE id=? AND user_id=?', req.body.id, req.u.id);
+  else run('UPDATE notifications SET read=1 WHERE user_id=?', req.u.id);
+  res.json({ ok: true });
+});
+app.post('/api/reminders/run', (req, res) => {
+  if (!['region_manager', 'store_manager'].includes(req.u.level)) return deny(res);
+  const n = runReminders(L.today(), L.nowHM(), visibleStores(req.u));
+  res.json({ ok: true, sent: n });
+});
+
+// ---------- settings / org ----------
+const onlyRM = (req, res, next) => (req.u.level === 'region_manager' ? next() : deny(res, '仅区域经理可修改'));
+app.get('/api/templates', (req, res) => res.json(q('SELECT t.*, r.name role_name, s.name scene_name FROM templates t LEFT JOIN roles r ON r.id=t.role_id LEFT JOIN scenes s ON s.id=t.scene_id ORDER BY s.sort, t.due_time')));
+app.post('/api/templates', onlyRM, (req, res) => {
+  const b = req.body;
+  if (!(b.title || '').trim() || !b.scene_id || !b.role_id || !b.due_time) return err(res, '请填写完整');
+  const vals = [b.scene_id, b.role_id, b.title.trim(), b.standard || '', b.due_time, b.freq || 'daily', b.freq_val || null, b.category || 'ops', b.need_photo ? 1 : 0, b.active === 0 ? 0 : 1];
+  if (b.id) run('UPDATE templates SET scene_id=?,role_id=?,title=?,standard=?,due_time=?,freq=?,freq_val=?,category=?,need_photo=?,active=? WHERE id=?', ...vals, b.id);
+  else run('INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo,active) VALUES(?,?,?,?,?,?,?,?,?,?)', ...vals);
+  if (b.id && b.active === 0) run("DELETE FROM instances WHERE src='tpl' AND src_id=? AND date>=? AND status='pending'", b.id, L.today());
+  D.audit(req.u.id, null, b.id ? '修改固定工作' : '新增固定工作', b.title);
+  res.json({ ok: true });
+});
+app.post('/api/roles', onlyRM, (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return err(res, '请输入岗位名称');
+  if (q1('SELECT 1 FROM roles WHERE name=?', name)) return err(res, '岗位已存在');
+  run("INSERT INTO roles(name,level,sort) VALUES(?, 'staff', ?)", name, (q1('SELECT MAX(sort) m FROM roles').m || 0) + 1);
+  D.audit(req.u.id, null, '新增岗位', name);
+  res.json({ ok: true });
+});
+app.post('/api/scenes', onlyRM, (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (req.body.id) { run('UPDATE scenes SET name=COALESCE(NULLIF(?,\'\'),name), active=? WHERE id=?', name, req.body.active === 0 ? 0 : 1, req.body.id); }
+  else {
+    if (!name) return err(res, '请输入场景名称');
+    run('INSERT INTO scenes(name,sort) VALUES(?,?)', name, (q1('SELECT MAX(sort) m FROM scenes').m || 0) + 1);
+  }
+  D.audit(req.u.id, null, req.body.id ? '修改场景' : '新增场景', name);
+  res.json({ ok: true });
+});
+app.post('/api/settings', onlyRM, (req, res) => {
+  if (Array.isArray(req.body.reminder_times)) D.setSetting('reminder_times', req.body.reminder_times.filter(t => /^\d{2}:\d{2}$/.test(t)).sort());
+  if (req.body.escalate_minutes !== undefined) D.setSetting('escalate_minutes', Math.max(0, Number(req.body.escalate_minutes) || 0));
+  if (Array.isArray(req.body.patrol_checklist)) D.setSetting('patrol_checklist', req.body.patrol_checklist);
+  D.audit(req.u.id, null, '修改设置', JSON.stringify(req.body).slice(0, 200));
+  res.json({ ok: true });
+});
+app.post('/api/users', (req, res) => {
+  const b = req.body;
+  if (b.id) {
+    const u = q1('SELECT * FROM users WHERE id=?', b.id);
+    if (!u || !canManage(req.u, u.store_id)) return deny(res);
+    run('UPDATE users SET name=COALESCE(?,name), role_id=COALESCE(?,role_id), active=COALESCE(?,active) WHERE id=?', b.name || null, b.role_id || null, b.active ?? null, u.id);
+    if (b.active === 0) D.refreshPending(u.store_id);
+    D.audit(req.u.id, u.store_id, b.active === 0 ? '停用人员' : '修改人员', u.name);
+    return res.json({ ok: true });
+  }
+  if (!canManage(req.u, b.store_id)) return deny(res);
+  if (!(b.name || '').trim() || !b.role_id) return err(res, '请填写姓名和岗位');
+  const role = q1('SELECT * FROM roles WHERE id=?', b.role_id);
+  if (!role || role.level !== 'staff') return err(res, '门店只能添加员工岗位');
+  run('INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES(?,?,?,?,?)', b.name.trim(), b.role_id, 1, b.store_id, b.phone || '');
+  D.audit(req.u.id, b.store_id, '新增人员', `${b.name}（${role.name}）`);
+  res.json({ ok: true });
+});
+app.get('/api/audit', (req, res) => {
+  const sids = visibleStores(req.u);
+  if (req.u.level === 'staff') return deny(res);
+  res.json(q(`SELECT a.*, u.name user_name, st.name store_name FROM audit a LEFT JOIN users u ON u.id=a.user_id LEFT JOIN stores st ON st.id=a.store_id
+    WHERE a.store_id IS NULL OR a.store_id IN (${sids.map(() => '?').join(',') || 'NULL'}) ORDER BY a.id DESC LIMIT 300`, ...sids));
+});
+
+// ---------- reminders & escalation ----------
+function runReminders(date, time, onlyStores) {
+  const sids = onlyStores || q('SELECT id FROM stores').map(s => s.id);
+  D.ensureInstances(date, sids);
+  let n = 0;
+  for (const sid of sids) {
+    const store = q1('SELECT name FROM stores WHERE id=?', sid).name;
+    const rows = q('SELECT * FROM instances WHERE store_id=? AND date=?', sid, date);
+    if (!rows.length) continue;
+    const byUser = {};
+    for (const r of rows) if (r.status === 'pending') (byUser[r.assignee_id] ||= []).push(r);
+    for (const [uid, list] of Object.entries(byUser)) {
+      const od = list.filter(r => r.due_time < time).length;
+      D.notify([Number(uid)], 'remind', `${time} 任务提醒：还有 ${list.length} 项未完成`, (od ? `其中 ${od} 项已超时。` : '') + list.slice(0, 4).map(r => `${r.due_time} ${r.title}`).join('；'), '#/my');
+      n++;
+    }
+    const done = rows.filter(r => r.status === 'done').length;
+    const od = rows.filter(r => r.status === 'pending' && r.due_time < time).length;
+    const unchecked = rows.filter(r => r.status === 'done' && !r.check_result).length;
+    D.notify(D.storeManagers(sid), 'remind', `${time} ${store} 完成情况：${done}/${rows.length}`, `超时未完成 ${od} 项，已完成待抽查 ${unchecked} 项。`, '#/tasks?store=' + sid);
+    n++;
+  }
+  return n;
+}
+function tick() {
+  try {
+    const date = L.today(), time = L.nowHM();
+    const times = D.getSetting('reminder_times', []);
+    if (times.includes(time) && !q1('SELECT 1 FROM reminder_log WHERE date=? AND time=?', date, time)) {
+      run('INSERT INTO reminder_log VALUES(?,?)', date, time);
+      runReminders(date, time);
+    }
+    D.ensureInstances(date);
+    const esc = D.getSetting('escalate_minutes', 30);
+    for (const it of q("SELECT i.*, st.name store_name, u.name uname FROM instances i JOIN stores st ON st.id=i.store_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.date=? AND i.status='pending' AND i.escalated=0", date)) {
+      if (L.addMinutes(it.due_time, esc) < time) {
+        run('UPDATE instances SET escalated=1 WHERE id=?', it.id);
+        D.notify(D.storeManagers(it.store_id), 'escalate', `超时升级：${it.title}`, `${it.store_name} ${it.uname || ''} 应于 ${it.due_time} 完成，已超时 ${esc} 分钟以上。`, '#/tasks?store=' + it.store_id);
+      }
+    }
+    for (const r of q("SELECT r.*, st.name store_name, st.region_id FROM rectifications r JOIN stores st ON st.id=r.store_id WHERE r.status='open' AND r.deadline<? AND r.escalated=0", date)) {
+      run('UPDATE rectifications SET escalated=1 WHERE id=?', r.id);
+      D.notify([...D.storeManagers(r.store_id), ...D.regionUsers(r.region_id, 'region_manager'), ...D.regionUsers(r.region_id, 'ops_manager')], 'escalate', `整改逾期：${r.store_name}`, `${r.task}（截止 ${r.deadline}）`, '#/rect');
+    }
+  } catch (e) { console.error('tick', e); }
+}
+tick();
+setInterval(tick, 30000);
+
+app.use((e, req, res, next) => { console.error(e); res.status(400).json({ error: e.message || '出错了' }); });
+app.get(/^(?!\/api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log('LinkTask on :' + PORT));
