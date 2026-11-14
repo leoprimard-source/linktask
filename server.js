@@ -1195,7 +1195,7 @@ app.get('/api/franchise/:sid', (req, res) => {
   res.json({ ...franchiseOf(sid), reqs: q(REQ_SQL + ' WHERE o.store_id=? ORDER BY o.status=\'closed\', o.id DESC', sid) });
 });
 app.get('/api/region/franchise', (req, res) => {
-  if (!['region_manager', 'sales_manager'].includes(req.u.level)) return deny(res);
+  if (!['region_manager', 'coach', 'sales_manager'].includes(req.u.level)) return deny(res);
   seedOwnerReqs();
   const sids = visibleStores(req.u).filter(isFr);
   res.json({ stores: sids.map(sid => { const f = franchiseOf(sid); delete f.reports; return { ...f, managers: D.storeManagers(sid).map(id => q1('SELECT name FROM users WHERE id=?', id).name), open: q1("SELECT COUNT(*) n FROM owner_reqs WHERE store_id=? AND status='open'", sid).n }; }),
@@ -1336,7 +1336,7 @@ function buildInbox(u, query) {
       else if (p.cur?.late) add('节点逾期', 'warn', `${p.name}：${p.cur.name}逾期 ${p.cur.slip} 天`, `计划 ${p.cur.plan_date} · 开业顺延至 ${p.predicted_open}`, '#/proj/' + p.id);
     });
   }
-  if (u.level === 'region_manager') q("SELECT id, name FROM stores WHERE region_id=?", u.region_id).filter(s => storeStage(s.id) === '爬坡').forEach(s => {
+  if (rmLike(u)) q("SELECT id, name FROM stores WHERE region_id=?", u.region_id).filter(s => storeStage(s.id) === '爬坡').forEach(s => {
     const r = rampOf(s.id);
     if (r.eval_due) add('新店评估', 'warn', `${s.name} 开业满 ${r.days} 天，待做 90 天新店评估`, `近 4 周出租率较爬坡基准 ${r.gap >= 0 ? '+' : ''}${r.gap} 个点`, '#/sp/' + s.id);
     if (r.ready) add('转入成熟', 'acc', `${s.name} 已满 6 个月且 RevPAR 达标，可转入成熟期`, '', '#/sp/' + s.id);
@@ -3350,7 +3350,7 @@ function leaveCorr(sids) {
   return { n: lv.length, rows: [{ l: '最近一季度有一对一谈心', leave: Math.round(f('lt') * 0.5), stay: cover }, { l: '近 90 天参加员工活动', leave: Math.round(f('la') * 0.7), stay: join }, { l: '提的意见得到回复', leave: Math.round(40 + f('ls') * 0.3), stay: 88 }, { l: '近 30 天收到过认可', leave: Math.round(f('lk') * 0.4), stay: 64 }] };
 }
 app.get('/api/care', (req, res) => {
-  const u = req.u; if (!CARE_LV.includes(u.level)) return deny(res);
+  const u = req.u; if (!CARE_LV.includes(u.level) && u.role_name !== '店助') return deny(res);
   const sids = visibleStores(u), sid = Number(req.query.store) || (sids.length === 1 ? sids[0] : 0); if (sid && !sids.includes(sid)) return deny(res);
   const t = L.today(), qs0 = qStart(t), c = careCfg();
   const list = sids.map(s => { const x = careOf(s); return { id: s, name: x.name, score: x.score, alerts: x.alerts.length, meal: x.meal.rate.avg, cover: x.cover, inTime: x.inTime, join: x.join, used: x.budget.used, total: x.budget.total }; });
