@@ -2174,6 +2174,38 @@ VIEWS.train = async () => {
   document.querySelectorAll('[data-mc]').forEach(b => b.onclick = () => { const [id, kk] = b.dataset.mc.split(':'); formModal(`${kk.slice(1)} 天带教验收`, '<label class="f"><span>验收意见</span><textarea name="note" placeholder="例如：可独立完成退房查房"></textarea></label>', f => act(() => api(`/mentors/${id}/check`, { k: kk, note: f.note }), '已验收')); });
 };
 
+{ const f0 = VIEWS.train; VIEWS.train = async () => {
+  await f0();
+  const k = qs().get('k') || '全部', d = isRegionLv() ? await api('/train/insights').catch(() => null) : null;
+  const top = document.createElement('div');
+  if (d && k === '全部') top.innerHTML = `${d.alerts.length ? `<div class="sec-t2">达标培训提醒</div><div class="ldr">${d.alerts.map(a => `<div class="iss-i"><span class="tag ${a.type === '上岗门槛' ? 'bad' : 'warn'}">${a.type}</span><span>${esc(a.text)}</span></div>`).join('')}</div>` : ''}
+    <div class="wgrid">${[['训后有效率', d.eff_rate ?? '-', '%'], ['人均学时', d.hours_per, '时'], ['培训费用', Math.round(d.cost / 1000) / 10, '万'], ['内训师', d.trainers.length, '人']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
+    ${d.topics.length ? `<div class="sec-t2">建议开班 · 从问题反推</div><div class="list">${d.topics.map(t => `<div class="task"><div class="b"><div class="ttl">${t.code ? 'No.' + esc(t.code) + ' ' : ''}${esc(t.item)}</div><div class="muted small">近 60 天不合格 ${t.n} 次</div></div>${S.me.level !== 'hr_manager' ? `<button class="btn sm" data-tp="${esc(t.item)}">开专题班</button>` : ''}</div>`).join('')}</div>` : ''}
+    <details class="tgrp"><summary>必修课与学分 · 内训师库 <i>展开</i></summary><div class="ldr">${Object.entries(d.credits.required).map(([r, cs]) => `<div class="iss-i"><span class="tag">${r}</span><span>必修：${cs.join('、')}</span></div>`).join('')}<div class="muted small">年度学分目标 ${d.credits.target} 分，每天培训计 4 分</div></div>
+      <div class="list">${d.trainers.map(t => `<div class="task"><div class="b"><div class="ttl">${esc(t.name)} <span class="muted small">${esc(t.role_name)}</span></div><div class="muted small">授课 ${t.classes} 班 · 带徒 ${t.as_mentor} 人 · 90 天结业 ${t.done90}${t.mentor_score ? ` · 徒弟评分 ${t.mentor_score}` : ''}</div></div></div>`).join('')}</div></details>
+    ${d.eff.length ? `<details class="tgrp"><summary>训后效果追踪 ${d.eff.length} 人 <i>展开</i></summary><div class="list">${d.eff.map(e => `<div class="task"><div class="b"><div class="ttl">${esc(e.name)} <span class="muted small">${esc(e.cname)}</span></div><div class="muted small">训前 ${e.before}% → 训后 ${e.after}%</div></div>${DIFF(e.after - e.before)}</div>`).join('')}</div></details>` : ''}`;
+  const tf = $('#main').querySelector('.tfil'); if (tf && top.innerHTML) tf.after(top);
+  document.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => formModal('开专题班', `<label class="f"><span>班级名称</span><input name="name" value="专题：${esc(b.dataset.tp)}"></label><div class="row" style="gap:8px"><label class="f" style="flex:1"><span>开始</span><input type="date" name="start" required></label><label class="f" style="flex:1"><span>结束</span><input type="date" name="end" required></label></div>`, f => act(() => api('/train/classes', { ...f, kind: '品牌认证', seats: 20 }), '已开班')));
+  document.querySelectorAll('[data-en]').forEach(b => { const s = document.createElement('button'); s.className = 'btn sm'; s.textContent = '建议报名'; s.style.margin = '6px 0 0 6px'; b.after(s);
+    s.onclick = async () => { const xs = await api('/train/suggest/' + b.dataset.en); modal('建议报名人员', `<div class="list">${xs.map(x => `<div class="task"><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)} · ${esc(x.store)}</span></div><div class="muted small">${esc(x.why)}</div></div><button class="btn primary sm" data-sg="${x.id}">报名</button></div>`).join('') || '<div class="empty">暂无建议人员</div>'}</div>`, m => m.querySelectorAll('[data-sg]').forEach(y => y.onclick = () => act(async () => { await api('/train/enroll', { class_id: Number(b.dataset.en), user_id: Number(y.dataset.sg) }); y.replaceWith(Object.assign(document.createElement('span'), { className: 'tag ok', textContent: '已报名' })); }, '已报名'))); }; });
+  if (k === '师徒带教') {
+    document.querySelectorAll('[data-mc]').forEach(b => { const nb = b.cloneNode(true); b.replaceWith(nb); nb.onclick = () => { const [id, kk] = nb.dataset.mc.split(':');
+      formModal(`${kk.slice(1)} 天带教验收 · 双方互评`, '<div class="row" style="gap:8px"><label class="f" style="flex:1"><span>师傅评徒弟（0-100）</span><input type="number" name="ms" min="0" max="100" required></label><label class="f" style="flex:1"><span>徒弟评师傅（0-100）</span><input type="number" name="ts" min="0" max="100" required></label></div><label class="f"><span>验收意见</span><textarea name="note"></textarea></label><p class="muted small">评分同时计入徒弟和师傅的画像。</p>',
+        f => act(() => api(`/mentors/${id}/check`, { k: kk, note: f.note, mentee_score: Number(f.ms), mentor_score: Number(f.ts) }), '已验收')); }; });
+    if (S.me.level === 'train_manager' || S.me.level === 'store_manager' || S.me.level === 'region_manager') {
+      const btn = document.createElement('button'); btn.className = 'btn primary sm'; btn.textContent = '指定带教师傅'; btn.style.marginBottom = '8px'; $('#main').querySelector('.tfil').after(btn);
+      btn.onclick = () => { const us = (S.meta.users || []).filter(u => u.level === 'staff');
+        formModal('指定带教师傅', `<label class="f"><span>新员工</span><select name="m" id="mte">${us.map(u => `<option value="${u.id}">${esc(u.name)} · ${esc(u.role_name)} · ${esc(storeName(u.store_id))}</option>`).join('')}</select></label><label class="f"><span>师傅（同部门、执行分高的优先）</span><select name="t" id="mtr"></select></label>`, f => act(() => api('/mentors', { mentee_id: Number(f.m), mentor_id: Number(f.t) }), '已指定，双方已收到提醒'));
+        const load = async () => { const xs = await api('/mentor-cands/' + $('#mte').value); $('#mtr').innerHTML = xs.map(x => `<option value="${x.id}">${esc(x.name)} · ${esc(x.role_name)}${x.score ? ' · 执行分 ' + x.score : ''} · ${esc(x.tier)}</option>`).join(''); };
+        $('#mte').onchange = load; load(); };
+    }
+  }
+}; }
+const isRegionLv = () => REGION_LV.includes(S.me.level);
+{ const f0 = VIEWS.hrp; VIEWS.hrp = async id => { await f0(id); const s = await api('/mentor-stats/' + id).catch(() => null); if (!s || !$('#main') || !(s.as_mentor || s.as_mentee)) return;
+  const box = document.createElement('div'); box.innerHTML = `<div class="sec-t2">师徒带教评价</div><div class="ldr"><div class="wgrid">${[['带徒', s.as_mentor, '人'], ['徒弟评分', s.mentor_score ?? '-', ''], ['90天结业', s.done90, '人'], ['被带教评分', s.mentee_score ?? '-', '']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div></div>`;
+  const foot = $('#main').querySelector('.foot'); foot ? foot.before(box) : $('#main').appendChild(box); }; }
+
 // 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）
 const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParams(location.search).get('feishu') === '1';
 if (IN_FEISHU) document.body.classList.add('in-feishu');

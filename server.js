@@ -1269,6 +1269,7 @@ app.get('/api/inbox', (req, res) => {
   }
   if (u.level === 'staff' && u.store_id) q("SELECT * FROM stocktakes WHERE assignee_id=? AND status='planned'", u.id).forEach(k => add('物料盘点', 'warn', `${k.date} 物料盘点`, '逐项清点库存，提交差异', '#/proc?store=' + u.store_id));
   if (['region_manager', 'ops_manager'].includes(u.level)) q(`SELECT r.*, s.name store FROM requisitions r JOIN stores s ON s.id=r.store_id WHERE r.status='open'`).forEach(r => add('物料申领', 'warn', `${r.store} 申领待审批`, JSON.parse(r.items).map(x => `${x.name} ${x.qty}${x.unit}`).join('、'), '#/proc'));
+  if (['train_manager', 'hr_manager', 'region_manager'].includes(u.level)) trainAlerts(u.region_id).slice(0, 4).forEach(a => add(a.type, a.type === '上岗门槛' ? 'bad' : 'warn', a.text, '', '#/train'));
   if (u.level === 'train_manager') {
     q('SELECT * FROM train_classes WHERE region_id=? AND start BETWEEN ? AND ?', u.region_id, t, L.addDays(t, 14)).forEach(c => add('即将开班', 'acc', `${c.start} ${c.name}`, `已报名 ${q1('SELECT COUNT(*) n FROM train_enroll WHERE class_id=?', c.id).n}/${c.seats}`, '#/train'));
     q("SELECT c.name, COUNT(*) n FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE c.end<? AND e.status='enrolled' GROUP BY c.id", t).forEach(c => add('待录成绩', 'warn', `${c.name} 有 ${c.n} 人待录入考核结果`, '', '#/train'));
@@ -1656,6 +1657,8 @@ app.post('/api/projects/:id/open', (req, res) => {
   if (!p || u.level !== 'region_manager' || p.region_id !== u.region_id || p.status !== 'active') return deny(res);
   const nodes = q('SELECT * FROM project_nodes WHERE project_id=? ORDER BY sort', p.id);
   if (nodes.filter(n => n.key !== 'open').some(n => !n.actual_date)) return err(res, '开业前节点尚未全部完成');
+  const smU = p.sm_name && q1(USER_SQL + " WHERE u.name=? AND r.level='store_manager'", p.sm_name);
+  if (smU && !smCertified(smU.id) && !(req.body || {}).force) return err(res, `店长 ${smU.name} 未完成店长班认证，不能接店`);
   const t = (req.body || {}).date || L.today();
   const sid = Number(run('INSERT INTO stores(region_id,name,code,address,brand,stype,open_date,rooms,tags) VALUES(?,?,?,?,?,?,?,?,?)', p.region_id, p.name, 'NEW' + p.id, p.city || '', p.brand, p.stype, t, p.rooms, '新开业').lastInsertRowid);
   run("UPDATE project_nodes SET actual_date=? WHERE project_id=? AND key='open'", t, p.id);
@@ -2016,10 +2019,72 @@ app.post('/api/train/result', (req, res) => {
 app.post('/api/mentors/:id/check', (req, res) => {
   const u = req.u, m = q1('SELECT m.*, a.store_id FROM mentors m JOIN users a ON a.id=m.mentee_id WHERE m.id=?', req.params.id), k = (req.body || {}).k;
   if (!m || !['d30', 'd60', 'd90'].includes(k) || !(m.mentor_id === u.id || canManage(u, m.store_id) || isTrain(u))) return deny(res);
-  const ch = JSON.parse(m.checks || '{}'); ch[k] = { at: L.today(), by: u.name, note: (req.body || {}).note || '' };
+  const ch = JSON.parse(m.checks || '{}'), b2 = req.body || {}; ch[k] = { at: L.today(), by: u.name, note: b2.note || '', mentee_score: Number(b2.mentee_score) || null, by_mentee: Number(b2.mentor_score) || null };
   run('UPDATE mentors SET checks=?, status=? WHERE id=?', JSON.stringify(ch), k === 'd90' ? 'done' : 'active', m.id);
   res.json({ ok: true });
 });
+// ---------- 培训增强 ----------
+const smCertified = uid => trainCert(uid, '全季店长认证') || trainCert(uid, '店长班');
+function trainAlerts(regionId) {
+  const out = [];
+  for (const u of q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level='store_manager'", regionId)) if (!smCertified(u.id)) out.push({ uid: u.id, name: u.name, type: '上岗门槛', text: `店长 ${u.name} 未完成店长班认证，按规定需完成后方可独立接店` });
+  const t = L.today();
+  for (const e of q("SELECT e.*, c.name cname, c.end, u.name FROM train_enroll e JOIN train_classes c ON c.id=e.class_id JOIN users u ON u.id=e.user_id WHERE e.status='certified' AND c.region_id=?", regionId)) {
+    const exp = L.addDays(e.end, 365); if (daysTo(exp) <= 60) out.push({ uid: e.user_id, name: e.name, type: '复训', text: `${e.name} 的「${e.cname}」认证 ${exp} 到期，需安排复训` });
+  }
+  return out;
+}
+app.get('/api/train/suggest/:cid', (req, res) => {
+  const c = q1('SELECT * FROM train_classes WHERE id=?', req.params.cid); if (!c || !isTrain(req.u) && req.u.level !== 'store_manager') return deny(res);
+  const sids = visibleStores(req.u), inC = new Set(q('SELECT user_id FROM train_enroll WHERE class_id=?', c.id).map(x => x.user_id));
+  const pool = q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${sids.join(',') || 'NULL'}) OR r.level='store_manager')`).filter(u => !inC.has(u.id));
+  let xs = [];
+  if (c.kind === '店长班') xs = [...pool.filter(u => u.level === 'store_manager' && !smCertified(u.id)).map(u => ({ u, why: '店长未认证，接店门槛' })),
+    ...pool.filter(u => ['店助', '前台经理', '客房经理'].includes(u.role_name)).map(u => ({ u, c: careerOf(u) })).filter(x => x.c.pct >= 60).sort((a, b) => b.c.pct - a.c.pct).map(x => ({ u: x.u, why: `储备店长达成度 ${x.c.pct}%` }))];
+  else if (c.kind === '经理班') xs = pool.filter(u => /高级$/.test(u.role_name)).map(u => ({ u, s: hrSummary(u) })).filter(x => x.s.tier === '可晋升').map(x => ({ u: x.u, why: '梯队「可晋升」' }));
+  else if (c.kind === '品牌认证') xs = pool.filter(u => u.level === 'staff' && !trainCert(u.id, c.cert || c.name)).slice(0, 12).map(u => ({ u, why: '尚未取得品牌认证' }));
+  else xs = pool.filter(u => u.level === 'staff' && profileOf(u).in_probation).map(u => ({ u, why: '试用期新员工' }));
+  const seen = new Set(); xs = xs.filter(x => !seen.has(x.u.id) && seen.add(x.u.id));
+  res.json(xs.slice(0, 12).map(x => ({ id: x.u.id, name: x.u.name, role_name: x.u.role_name, store: x.u.store_id ? sname(x.u.store_id) : '', why: x.why })));
+});
+app.get('/api/mentor-cands/:uid', (req, res) => {
+  const m = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!m || !(isTrain(req.u) || canManage(req.u, m.store_id))) return deny(res);
+  const dept = m.role_name.slice(0, 2);
+  res.json(q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' AND u.id!=?", m.store_id, m.id).map(u => ({ id: u.id, name: u.name, role_name: u.role_name, same: u.role_name.startsWith(dept), score: execScore(u.id)?.score ?? null, tier: hrSummary(u).tier }))
+    .filter(x => !/初级|PA/.test(x.role_name)).sort((a, b) => b.same - a.same || (b.score ?? 0) - (a.score ?? 0)).slice(0, 8));
+});
+app.post('/api/mentors', (req, res) => {
+  const b = req.body || {}, m = q1(USER_SQL + ' WHERE u.id=?', b.mentee_id), t = q1(USER_SQL + ' WHERE u.id=?', b.mentor_id);
+  if (!m || !t || t.store_id !== m.store_id || !(isTrain(req.u) || canManage(req.u, m.store_id))) return deny(res);
+  const cur = q1("SELECT * FROM mentors WHERE mentee_id=? AND status='active'", m.id);
+  if (cur) run('UPDATE mentors SET mentor_id=? WHERE id=?', t.id, cur.id); else run("INSERT INTO mentors(mentee_id,mentor_id,start,checks,status) VALUES(?,?,?,'{}','active')", m.id, t.id, profileOf(m).hire);
+  D.notify([t.id, m.id], 'train', `带教师傅：${t.name} → ${m.name}`, '按 30 / 60 / 90 天完成带教验收，双方互评计入画像', '#/train?k=%E5%B8%88%E5%BE%92%E5%B8%A6%E6%95%99');
+  res.json({ ok: true });
+});
+function mentorStats(uid) {
+  const as = q('SELECT * FROM mentors WHERE mentor_id=?', uid).map(m => JSON.parse(m.checks || '{}')), be = q('SELECT * FROM mentors WHERE mentee_id=?', uid).map(m => JSON.parse(m.checks || '{}'));
+  const avg = xs => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+  const s1 = as.flatMap(c => Object.values(c).map(x => x.by_mentee).filter(Boolean)), s2 = be.flatMap(c => Object.values(c).map(x => x.mentee_score).filter(Boolean));
+  return { as_mentor: as.length, mentor_score: avg(s1), done90: as.filter(c => c.d90).length, as_mentee: be.length, mentee_score: avg(s2) };
+}
+app.get('/api/mentor-stats/:uid', (req, res) => res.json(mentorStats(Number(req.params.uid))));
+function trainInsights(regionId) {
+  const t = L.today(), f60 = L.addDays(t, -60);
+  const topics = q(`SELECT pi.code, pi.item, COUNT(*) n FROM patrol_items pi JOIN patrols p ON p.id=pi.patrol_id JOIN stores s ON s.id=p.store_id WHERE pi.result='fail' AND s.region_id=? AND p.done_at>=? GROUP BY pi.code ORDER BY n DESC LIMIT 3`, regionId, f60)
+    .concat(q(`SELECT i.title item, COUNT(*) n FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.check_result='bad' AND s.region_id=? AND i.date>=? GROUP BY i.title ORDER BY n DESC LIMIT 3`, regionId, f60));
+  const eff = q("SELECT e.*, c.end, c.name cname FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE c.region_id=? AND c.end<=? AND e.status IN ('passed','certified')", regionId, L.addDays(t, -14)).map(e => {
+    const a = pstats(e.user_id, L.addDays(e.end, -45), L.addDays(e.end, -1)), b = pstats(e.user_id, L.addDays(e.end, 1), L.addDays(t, -1));
+    return { name: q1('SELECT name FROM users WHERE id=?', e.user_id).name, cname: e.cname, before: a.total ? a.pass ?? a.rate : null, after: b.total ? b.pass ?? b.rate : null };
+  }).filter(x => x.before && x.after);
+  const classes = q('SELECT c.*, (SELECT COUNT(*) FROM train_enroll WHERE class_id=c.id) n FROM train_classes c WHERE c.region_id=?', regionId);
+  const hours = classes.reduce((a, c) => a + (c.hours || dBetween(c.start, c.end) * 6 + 6) * c.n, 0), cost = classes.reduce((a, c) => a + (c.cost || c.n * 400), 0);
+  const staff = q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND u.region_id=? AND r.level IN ('staff','store_manager')", regionId).n;
+  const trainers = q('SELECT u.id, u.name, r.name role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id IN (SELECT trainer_id FROM train_classes WHERE region_id=? UNION SELECT mentor_id FROM mentors)', regionId).map(u => ({ ...u, classes: q1('SELECT COUNT(*) n FROM train_classes WHERE trainer_id=?', u.id).n, ...mentorStats(u.id) }));
+  return { topics, eff, eff_rate: eff.length ? Math.round(eff.filter(x => x.after > x.before).length * 100 / eff.length) : null, hours_per: staff ? Math.round(hours / staff * 10) / 10 : 0, cost, trainers, alerts: trainAlerts(regionId),
+    credits: { target: 24, required: { 店长: ['店长班', '品牌认证'], 店助: ['经理班', '品牌认证'], 前台经理: ['经理班', '品牌认证'], 客房经理: ['经理班', '品牌认证'], 员工: ['新员工入职', '品牌认证'] } } };
+}
+app.get('/api/train/insights', (req, res) => { if (!isRegion(req.u)) return deny(res); res.json(trainInsights(req.u.region_id)); });
+
 function seedProcTrain() {
   if (D.getSetting('pt_seeded', 0)) return;
   const t = L.today();
