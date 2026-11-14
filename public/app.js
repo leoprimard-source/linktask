@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'todo', 'appr', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
+const COMMON = ['home', 'work', 'me', 'notices', 'todo', 'appr', 'cal', 'dir', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -156,13 +156,13 @@ const ICON = {
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
 const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
-const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', todo: '任务', appr: '审批', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', todo: '任务', appr: '审批', cal: '日历', dir: '通讯录', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
 
 function shell(route, html) {
   const root = ['home', 'notices', 'work', 'todo', 'me'].includes(route);
   const tabs = [['home', '首页', 'home'], ['notices', '消息', 'notices'], ['todo', '任务', 'todo'], ['work', '工作台', 'work'], ['me', '我的', 'me']];
   const tabOn = ['my', 'my-rect', 'rect', 'must', 'task', 'appr'].includes(route) ? 'todo' : route;
-  const rootTitle = { home: '宏图', notices: '消息', todo: '任务', appr: '审批', work: '工作台', me: '我的' }[route];
+  const rootTitle = { home: '宏图', notices: '消息', todo: '任务', appr: '审批', cal: '日历', dir: '通讯录', work: '工作台', me: '我的' }[route];
   $('#app').innerHTML = `<div class="phone">
   <header class="appbar">${root ? '<img class="logo" src="/icon.svg" alt="">' : '<a class="back" id="back" href="javascript:void 0" aria-label="返回">‹</a>'}
     <b>${root ? rootTitle : esc(navLabel(route))}</b><span class="sp"></span>
@@ -374,6 +374,39 @@ VIEWS.appr = async () => {
     if (p.k === 'rect') formModal('退回整改', `<label class="f"><span>退回原因</span><textarea name="c" required></textarea></label><label class="f"><span>新的整改期限</span><input type="date" name="d" required value="${addDays(S.me.today, 2)}"></label>`, d => act(async () => { await api(`/rectifications/${p.r.id}/verify`, { pass: false, comment: d.c, deadline: d.d }); route(); }, '已退回'));
     else formModal('不采纳申诉', '<label class="f"><span>原因</span><textarea name="r" required></textarea></label>', d => act(async () => { await api(`/pay/appeal/${p.a.id}`, { status: 'rejected', reply: d.r }); route(); }, '已回复')); });
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => inboxAct(P_(b.dataset.go).x.act, P_(b.dataset.go).x, S.meta.stores.length === 1 ? S.meta.stores[0].id : 0));
+};
+VIEWS.cal = async () => {
+  const lv = S.me.level, P = qs(), day = /^\d{4}-\d{2}-\d{2}$/.test(P.get('d') || '') ? P.get('d') : S.me.today, mode = P.get('m') === 'w' ? 'w' : 'd';
+  const mon = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)), week = [...Array(7)].map((_, i) => addDays(mon, i));
+  const rh = ['staff', 'store_manager'].includes(lv) ? RHYTHM : MGR_RHYTHM[lv] || [];
+  const [wc, tasks] = await Promise.all([lv !== 'staff' && lv !== 'store_manager' ? api('/wcal?from=' + mon).catch(() => null) : null, Promise.all((mode === 'w' ? week : [day]).map(d => api('/my/tasks?date=' + d).catch(() => [])))]);
+  const ev = d => ((wc && wc.items) || []).filter(i => i.date === d), tk = d => tasks[mode === 'w' ? week.indexOf(d) : 0] || [];
+  const base = m => `#/cal?m=${m}&d=`;
+  const strip = `<div class="cstrip"><a href="${base(mode)}${addDays(mon, -7)}" class="cnav">‹</a>${week.map(d => `<a href="${base(mode)}${d}" class="${d === day ? 'on' : ''} ${d === S.me.today ? 'td' : ''}"><small>${WK[new Date(d + 'T00:00:00').getDay()]}</small><b>${Number(d.slice(8))}</b>${ev(d).length ? '<i></i>' : ''}</a>`).join('')}<a href="${base(mode)}${addDays(mon, 7)}" class="cnav">›</a></div>`;
+  const evRow = i => `<a class="cev" ${safeLink(i.link) ? `href="${esc(i.link)}"` : ''}><span class="tag acc">${esc(i.kind)}</span><span>${esc(i.title)}</span></a>`;
+  const tRow = t => `<a class="cblk task-b ${t.status === 'done' ? 'done' : ''}" href="#/task/${t.id}"><b>${esc(t.title)}</b><small>${t.status === 'done' ? '已完成' : t.status === 'missed' ? '逾期未完成' : '截止 ' + esc(t.due_time)}</small></a>`;
+  let body;
+  if (mode === 'd') {
+    const slots = [...rh.map(([tm, l]) => ({ tm, h: `<div class="cblk rh"><b>${esc(l)}</b><small>一天时间</small></div>` })), ...tk(day).map(t => ({ tm: t.due_time || '23:59', h: tRow(t) }))].sort((a, b) => a.tm.localeCompare(b.tm));
+    body = `${ev(day).length ? `<div class="sec-t2">全天</div><div class="fgrp">${ev(day).map(evRow).join('')}</div>` : ''}
+      <div class="sec-t2">${day === S.me.today ? '今天' : esc(day.slice(5))} · 周${WK[new Date(day + 'T00:00:00').getDay()]}</div>
+      <div class="ctl">${slots.length ? slots.map(x => `<div class="cslot"><span class="ctm">${esc(x.tm)}</span><div class="grow">${x.h}</div></div>`).join('') : '<div class="empty">这天没有安排</div>'}</div>`;
+  } else {
+    body = `<div class="fgrp">${week.map(d => { const e = ev(d), t = tk(d), od = t.filter(x => x.status === 'missed').length;
+      return `<a class="cwk ${d === S.me.today ? 'td' : ''}" href="${base('d')}${d}"><span class="cwd"><small>周${WK[new Date(d + 'T00:00:00').getDay()]}</small><b>${Number(d.slice(8))}</b></span><span class="grow">${e.slice(0, 3).map(i => `<span class="cwi"><i class="tag acc">${esc(i.kind)}</i>${esc(i.title)}</span>`).join('')}${e.length > 3 ? `<span class="muted small">还有 ${e.length - 3} 项</span>` : ''}
+        ${t.length ? `<span class="muted small">我的任务 ${t.filter(x => x.status === 'done').length}/${t.length}${od ? ` · <em style="color:var(--bad);font-style:normal">逾期 ${od}</em>` : ''}</span>` : ''}${!e.length && !t.length ? '<span class="muted small">无安排</span>' : ''}</span><span class="chev">›</span></a>`; }).join('')}</div>`;
+  }
+  $('#main').innerHTML = `<div class="row between" style="margin-bottom:8px"><b style="font-size:17px">${esc(day.slice(0, 7).replace('-', ' 年 '))} 月</b><span class="row" style="gap:8px">${day !== S.me.today ? `<a class="btn sm" href="${base(mode)}${S.me.today}">今天</a>` : ''}<span class="fseg" style="margin:0;width:112px"><a href="${base('d')}${day}" class="${mode === 'd' ? 'on' : ''}">日</a><a href="${base('w')}${day}" class="${mode === 'w' ? 'on' : ''}">周</a></span></span></div>
+    ${strip}${body}${lv !== 'staff' && lv !== 'store_manager' ? '<p class="small" style="margin-top:12px"><a href="#/wcal">新增巡店、辅导等事项，去工作日历 ›</a></p>' : ''}`;
+};
+VIEWS.dir = async () => {
+  const us = await api('/users'), k = (qs().get('q') || '').trim(), mgr = S.me.level !== 'staff';
+  const gs = {}; us.forEach(u => { const g = ['staff', 'store_manager'].includes(u.level) ? (u.stores || []).join('、') || '门店' : '区域管理'; (gs[g] ||= []).push(u); });
+  const row = u => { const can = u.id === S.me.id || (mgr && ['staff', 'store_manager'].includes(u.level));
+    return `<a class="drow" ${can ? `href="#/person/${u.id}"` : ''}><span class="cav" style="background:${TILE_COLORS[u.id % TILE_COLORS.length]};width:40px;height:40px;border-radius:50%;font-size:15px">${esc(u.name.slice(0, 1))}</span><span class="grow"><b>${esc(u.name)}</b>${u.id === S.me.id ? ' <span class="tag">我</span>' : ''}<small>${esc(u.role_name)} · ${esc((u.stores || []).join('、'))}</small></span>${can ? '<span class="chev">›</span>' : ''}</a>`; };
+  const render = kw => { const ks = Object.keys(gs); const html = ks.map(g => { const xs = gs[g].filter(u => !kw || (u.name + u.role_name + (u.stores || []).join('')).includes(kw)); return xs.length ? `<div class="fgrp-h">${esc(g)}<b>${xs.length}</b></div><div class="fgrp">${xs.map(row).join('')}</div>` : ''; }).join(''); return html || '<div class="empty">没有找到相关人员</div>'; };
+  $('#main').innerHTML = `<input class="fsearch" id="ds" placeholder="搜索姓名、岗位、门店" autocomplete="off" style="width:100%" value="${esc(k)}"><div id="dl">${render(k)}</div>`;
+  $('#ds').oninput = e => { $('#dl').innerHTML = render(e.target.value.trim()); };
 };
 VIEWS.my = async () => { const r = await myTasks('#/my'); $('#main').innerHTML = r.html; bindMy(r.list); };
 function completeModal(t) { location.hash = '#/task/' + t.id; }
@@ -1149,7 +1182,8 @@ VIEWS.work = async () => {
   const secs = []; let cur = null;
   for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else if (S.me.level === 'staff' || !NAV_DA[k] || da(NAV_DA[k])) cur.items.push([k, l]); else if (k === 'pay') cur.items.push([k, '我的绩效与薪酬']); }
   const all = secs.flatMap(sc => sc.items), byK = Object.fromEntries(all);
-  if (S.me.level !== 'staff' && !byK.wcal) { secs.unshift({ t: '日程', items: [['wcal', '工作日历']] }); all.unshift(['wcal', '工作日历']); byK.wcal = '工作日历'; }
+  const tools = [['cal', '日历'], ['dir', '通讯录'], ...(S.me.level !== 'staff' && !byK.wcal ? [['wcal', '工作日历']] : [])];
+  secs.unshift({ t: '日程与协作', items: tools }); all.unshift(...tools); tools.forEach(([k, l]) => { byK[k] = l; });
   const fk = 'lt_fav_' + S.me.id; let fav; try { fav = JSON.parse(localStorage[fk]); } catch (e) { fav = null; }
   fav = (Array.isArray(fav) ? fav : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
   const ed = !!S.workEdit, col = k => TILE_COLORS[[...k].reduce((a, c) => a + c.charCodeAt(0), 0) % TILE_COLORS.length];
