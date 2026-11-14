@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS talks(id INTEGER PRIMARY KEY, user_id INTEGER, by INT
 CREATE TABLE IF NOT EXISTS hc_plan(store_id INTEGER, pos TEXT, n INTEGER, PRIMARY KEY(store_id, pos));
 CREATE TABLE IF NOT EXISTS hr_moves(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, name TEXT, role TEXT, pos TEXT, kind TEXT, date TEXT, hire TEXT, reason TEXT, voluntary INTEGER, note TEXT, src TEXT, to_store INTEGER, to_pos TEXT, by INTEGER);
 CREATE TABLE IF NOT EXISTS recruit(id INTEGER PRIMARY KEY, store_id INTEGER, pos TEXT, n INTEGER, stage TEXT, channel TEXT, opened TEXT, filled TEXT, cand TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS meal_menu(store_id INTEGER, week TEXT, body TEXT, by INTEGER, at TEXT, PRIMARY KEY(store_id, week));
+CREATE TABLE IF NOT EXISTS meal_rate(user_id INTEGER, ym TEXT, store_id INTEGER, score INTEGER, comment TEXT, PRIMARY KEY(user_id, ym));
+CREATE TABLE IF NOT EXISTS care_act(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, date TEXT, n_join INTEGER, n_total INTEGER, cost INTEGER, photo TEXT, note TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS care_log(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, kind TEXT, date TEXT, note TEXT, follow TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS suggest(id INTEGER PRIMARY KEY, store_id INTEGER, cat TEXT, body TEXT, at TEXT, reply TEXT, reply_at TEXT, reply_by INTEGER);
+CREATE TABLE IF NOT EXISTS dorm_check(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, ok INTEGER, issues TEXT, photo TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS hardship(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, kind TEXT, amount INTEGER, reason TEXT, status TEXT, note TEXT, hr_by INTEGER, at TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS welfare(user_id INTEGER, item TEXT, year TEXT, done_at TEXT, by INTEGER, PRIMARY KEY(user_id, item, year));
+CREATE TABLE IF NOT EXISTS kudos(id INTEGER PRIMARY KEY, store_id INTEGER, to_user INTEGER, from_user INTEGER, from_kind TEXT, text TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS care_star(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, ym TEXT, reason TEXT, status TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS voice_fix(id INTEGER PRIMARY KEY, store_id INTEGER, theme TEXT, action TEXT, status TEXT, due TEXT, result TEXT, done_at TEXT, by INTEGER, at TEXT);
 CREATE TABLE IF NOT EXISTS hq_notices(id INTEGER PRIMARY KEY, title TEXT, body TEXT, kind TEXT, by INTEGER, at TEXT);
 CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, store_id INTEGER, src TEXT, level TEXT, guest TEXT, room TEXT, body TEXT, staff_id INTEGER, owner_id INTEGER, status TEXT, due_at TEXT, created_by INTEGER, created_at TEXT, handle_note TEXT, handled_at TEXT, comp_amt INTEGER DEFAULT 0, comp_kind TEXT, comp_status TEXT DEFAULT 'none', comp_by INTEGER, cb_score INTEGER, cb_note TEXT, closed_at TEXT);
 CREATE TABLE IF NOT EXISTS safety_plans(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, cycle INTEGER, last_date TEXT, next_date TEXT);
