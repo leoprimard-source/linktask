@@ -239,6 +239,49 @@ VIEWS.notices = async () => {
 };
 
 // ---------- my tasks (staff + anyone) ----------
+// ---------- 任务分组折叠 + 说明问号 ----------
+const KINDS = [['消防安全', /消防|烟感|温感|报警|监控|燃气|液化气|应急|疏散|消火栓|灭火|安全/], ['食品餐饮', /早餐|厨|食品|留样|餐具|出品|菜|食材|餐厅/], ['设施设备', /设备|空调|电梯|照明|维修|水电|锅炉|配电|机房|网络|灯|电视|门锁|热水|管道|工程/], ['清洁卫生', /清洁|卫生|5S|整洁|干净|污渍|异味|垃圾|消毒|毛发|灰尘/], ['宾客服务', /宾客|客人|入住|退房|礼仪|仪容|服务|交接|预订|欢迎|迎来送往|投诉|点评|晨会|巡视/], ['客房房务', /客房|查房|做房|房间|OK ?房|楼层/], ['物品备品', /布草|易耗品|备品|物品|库存|迷你吧|仓库|用品|物资/], ['证照制度', /证|合同|制度|培训|台账|记录|档案|公示/]];
+function kindOf(t) {
+  for (const [k, re] of KINDS) if (re.test(t.title || '')) return k;
+  for (const [k, re] of KINDS) if (re.test(t.standard || '')) return k;
+  return '其他';
+}
+const qm = t => (t.standard ? ((S.stdMap ||= {})[t.id] = t, `<button type="button" class="qm" data-std="${t.id}" aria-label="查看说明">?</button>`) : '');
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-std]'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const t = (S.stdMap || {})[b.dataset.std]; if (!t) return;
+  modal(esc(t.title), `${t.code ? `<p class="muted small">条款 ${esc(t.code)}${t.tag ? ' · ' + esc(t.tag) : ''}${t.m ? ' · ' + esc(t.m) : ''}</p>` : ''}<div class="stdtxt">${esc(t.standard).replace(/\s*(\d{1,2})\.(?!\d)/g, '\n$1.').trim()}</div>`);
+}, true);
+function taskBoard(list, row, key, opts = {}) {
+  S.tf ||= {};
+  const F = [['all', '全部', () => true], ['todo', '待完成', t => t.status !== 'done'], ['od', '超时', t => t.overdue], ['photo', '需拍照', t => t.need_photo], ['std', '品牌标准', t => t.code]];
+  if (opts.mine) F.splice(1, 0, ['mine', '我的', t => t.assignee_id === S.me.id]);
+  const f = F.some(x => x[0] === S.tf[key]) ? S.tf[key] : 'all';
+  const fl = list.filter(F.find(x => x[0] === f)[2]);
+  const secs = [['od', '已超时', fl.filter(t => t.overdue)], ['todo', '待完成', fl.filter(t => t.status !== 'done' && !t.overdue)], ['done', '已完成', fl.filter(t => t.status === 'done')]];
+  return `<div class="tfil" data-tf="${key}">${F.map(([k, l, fn]) => `<a data-f="${k}" class="${f === k ? 'on' : ''}">${l}<small>${list.filter(fn).length}</small></a>`).join('')}</div>
+  ${secs.filter(x => x[2].length).map(([sk, sl, ts]) => {
+    let inner;
+    if (ts.length <= 6) inner = `<div class="tgrp flat"><div class="tgb">${ts.map(row).join('')}</div></div>`;
+    else {
+      const kinds = {}; ts.forEach(t => (kinds[kindOf(t)] ||= []).push(t));
+      let ks = Object.entries(kinds);
+      if (ks.length > 3) { const single = ks.filter(x => x[1].length === 1 && x[0] !== '其他'); if (single.length > 1) { ks = ks.filter(x => !single.includes(x)); const o = ks.find(x => x[0] === '其他'); const rest = single.flatMap(x => x[1]); o ? o[1].push(...rest) : ks.push(['其他', rest]); } }
+      ks.sort((a, b) => (a[0] === '其他') - (b[0] === '其他') || b[1].length - a[1].length);
+      inner = ks.map(([k, xs], i) => { const id = `${key}:${sk}:${k}`, open = S.open[id] ?? (sk === 'od' || (sk === 'todo' && i === 0));
+        return `<details class="tgrp" data-k="${esc(id)}" ${open ? 'open' : ''}><summary><span>${k}</span><em>${xs.length} 项</em></summary><div class="tgb">${xs.map(row).join('')}</div></details>`; }).join('');
+    }
+    const id = `${key}:${sk}`;
+    return sk === 'done' ? `<details class="tsec done tgrp0" data-k="${id}" ${S.open[id] ? 'open' : ''}><summary class="tsec-h">${sl}<b>${ts.length}</b><i>${S.open[id] ? '收起' : '展开'}</i></summary>${inner}</details>`
+      : `<div class="tsec ${sk}"><div class="tsec-h">${sl}<b>${ts.length}</b></div>${inner}</div>`;
+  }).join('') || '<div class="empty">没有符合条件的任务</div>'}`;
+}
+function bindBoard() {
+  document.querySelectorAll('.tfil a').forEach(a => a.onclick = () => { S.tf[a.parentNode.dataset.tf] = a.dataset.f; route(); });
+  document.querySelectorAll('details.tgrp,details.tsec').forEach(d => d.ontoggle = () => { S.open[d.dataset.k] = d.open; const i = d.querySelector(':scope>summary>i'); if (i) i.textContent = d.open ? '收起' : '展开'; });
+}
+
 VIEWS.my = async () => {
   const p = qs();
   const date = p.get('date') || S.me.today;
@@ -255,15 +298,15 @@ VIEWS.my = async () => {
     <div class="card kpi"><div class="l">超时未完成</div><div class="v" style="color:${od ? 'var(--bad)' : 'inherit'}">${od}</div></div>
     <div class="card kpi"><div class="l">待整改</div><div class="v"><a href="#/my-rect">${rects.length}</a></div></div>
   </div>
-  ${list.length ? Object.entries(byScene).map(([sc, ts]) => `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc)}<span class="muted small" style="font-weight:400">${ts.filter(t => t.status === 'done').length}/${ts.length}</span></div>
-    ${ts.map(t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
-      <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
-      <div class="muted small">${esc(t.standard)}</div>
-      <div class="row small" style="margin-top:4px">${statusTag(t)} ${checkTag(t)} ${t.check_comment ? `<span class="muted">店长：${esc(t.check_comment)}</span>` : ''}</div></div>
-      <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`).join('')}</div>`).join('')
+  ${list.length ? taskBoard(list, t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
+      <div class="ttl">${esc(t.title)}${qm(t)}</div>
+      <div class="tsub">${esc(t.scene_name || '')} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''} ${statusTag(t)} ${checkTag(t)}</div>
+      ${t.check_comment ? `<div class="muted small">店长：${esc(t.check_comment)}</div>` : ''}</div>
+      <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`, 'my')
     : '<div class="list"><div class="empty">今天没有分配给你的任务</div></div>'}`;
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeModal(list.find(t => t.id === Number(b.dataset.done))));
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'));
+  bindBoard();
 };
 function completeModal(t) { location.hash = '#/task/' + t.id; }
 function completeModalOld(t, after) {
@@ -853,8 +896,8 @@ VIEWS.home = async () => {
   const gKey = n => tab + ':' + n;
   const taskRow = t => `<div class="trow ${t.status === 'done' ? 'done' : ''}">
     <div class="tm">${tab === 'day' ? '' : `<small>${esc(t.date.slice(5))}</small>`}${esc(t.due_time)}</div>
-    <div class="tb"><div class="tt">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
-      <div class="ts">${mine ? esc(t.standard || '') : `${esc(t.assignee_name || '未分配')} · ${esc(t.assignee_role || '')}`}</div>
+    <div class="tb"><div class="tt">${esc(t.title)}${qm(t)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
+      <div class="ts">${mine ? esc(t.scene_name || '') : `${esc(t.assignee_name || '未分配')} · ${esc(t.assignee_role || '')}`}</div>
       <div class="tg">${statusTag(t)} ${checkTag(t)}</div></div>
     <div class="ta">${t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? `<button class="btn primary sm" data-done="${t.id}">完成</button>` : ''}
       ${manage && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}
@@ -1026,13 +1069,13 @@ VIEWS.group = async () => {
   const btn = t => (t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || TEAM(t)) ? ['去完成', 'go'] : TEAM(t) && t.status === 'done' && !t.check_result ? [t.m === 'M2' ? '去复查' : '去抽查', 'go'] : ['查看', 'view']);
   $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(g)}${pl ? ` · ${esc(pl)}` : ''}</div><div class="bp-body">
     <h2 class="bp-t">任务列表 (${ts.filter(t => t.status === 'done').length}/${ts.length})</h2>
-    ${ts.map(t => { const [l, k] = btn(t); return `<div class="gcard ${t.status === 'done' ? 'done' : ''} ${t.overdue ? 'od' : ''}" data-id="${t.id}">
-      <div class="gt">「${esc(g)}」-${esc(t.title)}</div>
-      <div class="gl">${icon('clock')}建议完成时间：${md2(t.date)} ${esc(t.due_time)}</div>
-      <div class="gl">${icon('hour')}任务截止时间：${md2(t.date)} 23:59</div>
-      <div class="gtags">${stdTags(t)} ${statusTag(t)} ${checkTag(t)}<span class="muted small">${esc(t.assignee_name || '')}</span></div>
-      <span class="gbtn ${k}">${l} →</span></div>`; }).join('') || '<div class="empty">没有任务</div>'}</div></div>`;
+    ${ts.length ? taskBoard(ts, t => { const [l, k] = btn(t); return `<div class="gcard ${t.status === 'done' ? 'done' : ''} ${t.overdue ? 'od' : ''}" data-id="${t.id}">
+      <div class="gt">${esc(t.title)}${qm(t)}</div>
+      <div class="gl">${icon('clock')}建议 ${md2(t.date)} ${esc(t.due_time)}<span class="gsep">·</span>截止 23:59<span class="gsep">·</span>${esc(t.assignee_name || '未分配')}</div>
+      <div class="gtags">${stdTags(t)} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''} ${statusTag(t)} ${checkTag(t)}</div>
+      <span class="gbtn ${k}">${l} →</span></div>`; }, 'grp', { mine: S.me.level !== 'staff' }) : '<div class="empty">没有任务</div>'}</div></div>`;
   document.querySelectorAll('.gcard').forEach(el => el.onclick = () => { location.hash = '#/task/' + el.dataset.id; });
+  bindBoard();
 };
 
 // ---------- 任务处理页（AI 助手 + 内部系统） ----------
