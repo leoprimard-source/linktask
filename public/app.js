@@ -122,22 +122,22 @@ const NAV = {
   staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['engage', '敬业度调研'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
-    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
-  coach: [['sec', '教练'], ['coach', '本周辅导'], ['wcal', '工作日历'], ['engage', '敬业度与留任'], ['sec', '门店'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['hq', '总部视角'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
+  coach: [['sec', '教练'], ['coach', '本周辅导'], ['wcal', '工作日历'], ['engage', '敬业度与留任'], ['hrm', '人事指标'], ['sec', '门店'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['hq', '总部视角'], ['hrm', '人事指标'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  hr_manager: [['sec', '人事'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  hr_manager: [['sec', '人事'], ['hrm', '人事指标'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['hrm', '人事指标'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
-  region_manager: [['sec', '全局'], ['dash', '区域看板'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
+  region_manager: [['sec', '全局'], ['dash', '区域看板'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部中心', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -1618,6 +1618,7 @@ VIEWS.home = async () => {
   else await staffHome();
   if (region) loadYi();
   if (lv === 'store_manager' && pl === 'ops') loadCockpit(sid);
+  if (pl === 'ren' && ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'store_manager'].includes(lv)) hrmCard(lv === 'store_manager' ? sid : 0);
   loadInbox(sid);
 };
 async function loadYi() {
@@ -2284,9 +2285,11 @@ async function handoffModal(uid) {
     <div class="ldr">${Object.entries(d.items).filter(([, v]) => v.length).map(([k, v]) => `<div class="iss-i"><span class="tag">${L2[k]} ${v.length}</span><span class="muted small">${v.slice(0, 3).map(x => esc(x.title)).join('、')}${v.length > 3 ? ' 等' : ''}</span></div>`).join('') || '<div class="muted small">无未完成工作</div>'}</div>
     <label class="f"><span>类型</span><select name="mode" id="hm"><option value="leave">离职</option><option value="transfer">调岗到其他门店</option></select></label>
     <label class="f" id="hs" style="display:none"><span>调入门店</span><select name="store_id">${d.stores.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
+    <div id="hlv"><label class="f"><span>离职原因</span><select name="reason">${['薪酬待遇', '排班与工作强度', '管理方式', '发展空间', '个人原因', '试用期不合格', '违纪辞退'].map(r => `<option>${r}</option>`).join('')}</select></label>
+    <label class="f"><span>类型</span><select name="voluntary"><option value="1">主动离职</option><option value="0">被动离职</option></select></label><label class="f"><span>离职面谈记录</span><textarea name="note" placeholder="员工的真实离职原因、对门店的建议"></textarea></label></div>
     <label class="f"><span>接手人</span><select name="to">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select></label>`,
     f => act(async () => { await api('/handoff/' + uid, { ...f, to: Number(f.to), store_id: Number(f.store_id) }); await loadMeta(); }, '已交接'));
-  $('#hm').onchange = () => { $('#hs').style.display = $('#hm').value === 'transfer' ? '' : 'none'; };
+  $('#hm').onchange = () => { const tr = $('#hm').value === 'transfer'; $('#hs').style.display = tr ? '' : 'none'; $('#hlv').style.display = tr ? 'none' : ''; };
 }
 
 // ---------- 客诉闭环 ----------
@@ -2432,6 +2435,48 @@ VIEWS.hq = async () => {
   <div class="sec-t2">跨区域储备店长（可晋升）</div><div class="list">${d.pool.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.name)} <span class="muted small">${esc(p.role_name)}</span></div><div class="muted small">${esc(p.region || '')} · ${esc(p.store)}</div></div><span class="tag ${p.cert ? 'ok' : ''}">${p.cert ? '已认证' : '待店长班'}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>
   <div class="sec-t2">总部下发</div><div class="list">${d.notices.map(n => `<div class="task"><div class="b"><div class="ttl"><span class="tag acc">${esc(n.kind)}</span> ${esc(n.title)}</div><div class="muted small">${esc(n.body || '')} · ${esc(n.at.slice(0, 10))}</div></div></div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
   if ($('#nhq')) $('#nhq').onclick = () => formModal('下发政策 / 标准', '<label class="f"><span>类型</span><select name="kind"><option>政策</option><option>标准</option><option>通知</option></select></label><label class="f"><span>标题</span><input name="title" required></label><label class="f"><span>内容</span><textarea name="body"></textarea></label>', x => act(() => api('/hq/notice', x), '已下发到各区域和门店'));
+};
+
+// ---------- 人事指标 ----------
+const kp = (l, v, u, bad) => `<a class="${bad ? 'bad' : ''}"><b>${v ?? '-'}<small>${u}</small></b><span>${l}</span></a>`;
+const hbar = (rows, tot) => rows.map(x => `<div class="cap"><div class="row between small"><span>${esc(x.l)}</span><span>${x.n}</span></div>${pbar(tot ? x.n * 100 / tot : 0)}</div>`).join('');
+const hkpis = (A, th) => [kp('编制', A.P, '人'), kp('在岗', A.act, '人'), kp('满编率', A.fill, '%', A.fill < th.fill), kp('缺编', A.gaps, '人', A.gaps > 0), kp('月离职率', A.m_rate, '%', A.m_rate > th.month), kp('年化离职率', A.y_rate, '%'),
+  kp('90 天流失', A.early_rate, '%', A.early_rate > th.early), kp('主动离职', A.vol_rate, '%'), kp('关键岗离职', A.key_rate, '%')].join('');
+async function hrmCard(sid) {
+  const d = await api('/hrm' + (sid ? '?store=' + sid : '')), A = d.sel || d.sum; if ($('#hrmc')) return;
+  const h = `<a class="yic" id="hrmc" href="#/hrm${d.sel ? '?store=' + d.sel.id : ''}" style="display:block;color:inherit;text-decoration:none"><div class="row between"><b>人事指标</b><span class="muted small">编制 · 离职 · 招聘 · 合规 ›</span></div>
+    <div class="rkpi">${[['满编率', A.fill, '%', A.fill < d.th.fill], ['缺编', A.gaps, '人', A.gaps > 0], ['月离职率', A.m_rate, '%', A.m_rate > d.th.month]].map(([l, v, u, b]) => `<div class="k ${b ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
+    ${A.alerts.length ? `<div class="small" style="color:var(--bad)">${A.alerts.length} 项预警：${esc([...new Set(A.alerts.map(a => a.type))].join('、'))}</div>` : '<div class="muted small">暂无人事预警</div>'}</a>`;
+  const t = $('#main .pltabs') || $('#main .storebar'); t ? t.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+}
+VIEWS.hrm = async () => {
+  const sid = Number(qs().get('store')) || 0, d = await api('/hrm' + (sid ? '?store=' + sid : '')), s = d.sel, A = s || d.sum, th = d.th;
+  const st = A.structure, tot = st.tenure.reduce((a, x) => a + x.n, 0), rsn = A.reasons.reduce((a, x) => a + x.n, 0);
+  $('#main').innerHTML = `<div class="pghd row between"><b>人事指标 · ${esc(s ? s.name : S.me.region_name || '全部门店')}</b>${d.can_rec ? '<button class="btn primary sm" id="nrc">发起招聘</button>' : ''}</div>
+  <p class="muted small" style="margin-top:-6px">近 12 个月口径。历史离职、招聘和兼职人数为模拟数据；现在办理的离职交接会实时计入。</p>
+  ${d.stores.length > 1 ? `<div class="tfil"><a class="${s ? '' : 'on'}" href="#/hrm">全部</a>${d.stores.map(x => `<a class="${s && s.id === x.id ? 'on' : ''}" href="#/hrm?store=${x.id}">${esc(x.name.replace(/^.{2}/, ''))}</a>`).join('')}</div>` : ''}
+  <section class="yic"><div class="rkpi">${hkpis(A, th)}</div><p class="muted small">月离职率 = 近 30 天离职 ÷ 在岗；90 天流失 = 入职 90 天内离职 ÷ 近 12 个月入职；关键岗位为店长、店助、前台经理、客房经理。</p></section>
+  ${A.alerts.length ? `<div class="sec-t2">人事预警</div><div class="list">${A.alerts.map(a => `<a class="task" href="#/hrm?store=${a.sid || s?.id || ''}"><div class="b"><div class="ttl"><span class="tag ${a.lv}">${esc(a.type)}</span> ${a.store ? esc(a.store) + '：' : ''}${esc(a.text)}</div></div></a>`).join('')}</div>` : ''}
+  ${s ? `<div class="sec-t2">编制明细 · ${s.rooms} 间房</div><div class="list">${s.plan.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.pos)}${p.key ? ' <span class="tag acc">关键</span>' : ''}${p.shared ? ' <span class="tag">兼管</span>' : ''}</div><div class="muted small">编制 ${p.plan}${p.plan !== p.std ? `（标准 ${p.std}）` : ''} · 在岗 ${p.act}${p.gap && p.key ? ` · 已空缺 ${p.vac_days} 天` : ''}</div></div>
+    <div class="row" style="gap:6px;flex:none">${p.gap ? `<span class="tag ${p.key ? 'bad' : 'warn'}">缺 ${p.gap}</span>` : p.act > p.plan ? '<span class="tag">超编</span>' : '<span class="tag ok">满编</span>'}${d.can_plan ? `<button class="btn sm" data-hp="${p.pos}" data-n="${p.plan}">调整</button>` : ''}</div></div>`).join('')}</div>
+    <p class="muted small">标准编制按房量自动计算，人事经理可以按店调整。</p>` : `<div class="sec-t2">人事与经营对照</div><div class="list">${d.link.map(x => `<a class="task" href="#/hrm?store=${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="tag ${x.grade <= 'B' ? 'ok' : 'warn'}">画像 ${x.grade} · ${x.total}</span></div><div class="muted small">满编 ${x.fill}% · 年化离职 ${x.y_rate}% · 90 天流失 ${x.early_rate}% · 团队人才 ${x.team} · 近 30 天客诉 ${x.cp30}</div></div><span class="tag ${x.stab >= 80 ? 'ok' : x.stab >= 60 ? 'warn' : 'bad'}">稳定 ${x.stab}</span></a>`).join('')}</div>
+    <p class="muted small">「稳定」是团队稳定性分，占店长季度考核的 15%，也用于店长能力诊断的「团队」项。</p>`}
+  <div class="sec-t2">招聘进度</div><div class="list">${A.recruit.map(r => `<div class="task"><div class="b"><div class="ttl">${r.store ? esc(r.store) + ' · ' : ''}${esc(r.pos)} ${r.n} 人</div><div class="muted small">${esc(r.channel)} · ${esc(r.opened)} 发起${r.cand ? ' · 候选人 ' + esc(r.cand) : ''}</div></div>
+    <div class="row" style="gap:6px;flex:none"><span class="tag acc">${esc(r.stage)}</span>${d.can_rec ? `<button class="btn sm" data-rc="${r.id}" data-st="${r.stage}">推进</button>` : ''}</div></div>`).join('') || '<div class="empty">没有在招岗位</div>'}</div>
+  <p class="muted small">近 12 个月到岗 ${A.filled ?? A.channels?.reduce((a, c) => a + c.n, 0) ?? 0} 人，平均到岗 ${A.fill_days ?? '-'} 天。</p>
+  ${A.channels ? `<div class="ldr">${A.channels.map(c => `<div class="row between small" style="padding:3px 0"><span>${c.l}</span><span>到岗 ${c.n} 人 · 平均 ${c.days ?? '-'} 天 · 90 天留存 ${c.keep}%</span></div>`).join('')}<div class="muted small">90 天留存为模拟数据</div></div>` : ''}
+  <div class="sec-t2">离职分析</div><section class="yic">${hbar(A.reasons, rsn) || '<span class="muted small">近 12 个月无离职</span>'}
+    <p class="small" style="margin-top:8px">离职成本：近 12 个月 <b>${A.cost.toLocaleString()}</b> 元，平均每人 ${A.cost_per ? A.cost_per.toLocaleString() : '-'} 元。</p><p class="muted small">估算 = 招聘 ${d.cost_def.recruit} 元 + 入职培训 ${d.cost_def.train} 元 + 空岗期间按日薪 50% 计损失 + 新人爬坡期按月薪 30% 计损失。</p></section>
+  <div class="list">${d.moves.map(m => `<div class="task"><div class="b"><div class="ttl">${esc(m.name)} <span class="muted small">${esc(m.role)}${s ? '' : ' · ' + esc(m.store)}</span></div><div class="muted small">${esc(m.date)} 离职 · ${esc(m.reason || '-')} · ${m.voluntary ? '主动' : '被动'}${m.hire && (Date.parse(m.date) - Date.parse(m.hire)) / 864e5 <= 90 ? ' · 入职 90 天内' : ''}</div>${m.note ? `<div class="muted small">面谈：${esc(m.note)}</div>` : ''}</div>${d.can_rec && !m.note ? `<button class="btn sm" data-ex="${m.id}">离职面谈</button>` : ''}</div>`).join('')}</div>
+  <div class="sec-t2">内部流动</div><div class="ldr small">${s ? `晋升 ${s.flow.promote} 人 · 调出 ${s.flow.tout} 人 · 调入 ${s.flow.tin} 人` : `晋升 ${A.flow.promote} 人（晋升率 ${A.flow.promote_rate}%） · 跨店调动 ${A.flow.tout} 人<br>近 12 个月任命店长 ${A.flow.sm_appoint} 人，其中内部培养 ${A.flow.sm_internal} 人（储备店长到岗率 ${A.flow.sm_internal_rate ?? '-'}%）`}</div>
+  <div class="sec-t2">人员结构</div><section class="yic"><b class="small">工龄</b>${hbar(st.tenure, tot)}<b class="small">年龄</b>${hbar(st.age, tot)}<b class="small">学历</b>${hbar(st.edu, tot)}<p class="muted small">另有兼职 ${st.pt} 人（模拟），外包 ${st.out} 人（PA、保安）。</p></section>
+  <div class="sec-t2">用工合规</div><div class="list">${A.comp.map(c => `<a class="task" href="#/hrp/${c.uid}"><div class="b"><div class="ttl"><span class="tag ${c.lv}">${esc(c.type)}</span> ${esc(c.who)}${c.store ? ' <span class="muted small">' + esc(c.store) + '</span>' : ''}</div><div class="muted small">${esc(c.text)}</div></div></a>`).join('') || '<div class="empty">暂无合规风险</div>'}</div>`;
+  const sOpt = s ? `<input type="hidden" name="store_id" value="${s.id}">` : `<label class="f"><span>门店</span><select name="store_id">${d.stores.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>`;
+  if ($('#nrc')) $('#nrc').onclick = () => formModal('发起招聘', `${sOpt}<label class="f"><span>岗位</span><select name="pos">${d.pos.map(p => `<option>${p}</option>`).join('')}</select></label><label class="f"><span>人数</span><input type="number" name="n" value="1" min="1"></label><label class="f"><span>渠道</span><select name="channel">${d.channels.map(c => `<option>${c}</option>`).join('')}</select></label>`, x => act(() => api('/hrm/recruit', { ...x, store_id: Number(x.store_id) }), '已发起'));
+  document.querySelectorAll('[data-hp]').forEach(b => b.onclick = () => formModal('调整编制 · ' + b.dataset.hp, `<label class="f"><span>编制人数</span><input type="number" name="n" min="0" value="${b.dataset.n}"></label>`, x => act(() => api('/hrm/plan', { store_id: s.id, pos: b.dataset.hp, n: Number(x.n) }), '已调整')));
+  const NX = { 待招: '面试', 面试: '待入职', 待入职: '已到岗' };
+  document.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => formModal('推进招聘', `<label class="f"><span>下一步</span><select name="stage"><option>${NX[b.dataset.st]}</option><option>已取消</option></select></label><label class="f"><span>候选人（可选）</span><input name="cand"></label>`, x => act(() => api('/hrm/recruit/' + b.dataset.rc, x), '已更新')));
+  document.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => formModal('离职面谈', `<label class="f"><span>离职原因</span><select name="reason">${d.exit_reasons.map(r => `<option>${r}</option>`).join('')}</select></label><label class="f"><span>类型</span><select name="voluntary"><option value="1">主动离职</option><option value="0">被动离职</option></select></label><label class="f"><span>面谈记录</span><textarea name="note" required></textarea></label>`, x => act(() => api('/hrm/exit/' + b.dataset.ex, { ...x, voluntary: Number(x.voluntary) }), '已记录')));
 };
 
 // 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）

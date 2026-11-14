@@ -736,7 +736,7 @@ function profileOf(u) {
   history[0].from = hire;
   const certs = (CERTS[u.role_name] || ['健康证']).map((c, i) => ({ name: c, expire: L.addDays(t, Math.floor(h('c' + i) * 420) - 25) }));
   const probation_end = L.addDays(hire, 90);
-  return { hire, tenure: Math.round(days / 36.5) / 10, probation_end, in_probation: probation_end >= t, edu: EDU[Math.floor(h('edu') * EDU.length)], age: 21 + Math.floor(h('age') * (senior ? 20 : 18)),
+  return { hire, tenure: Math.round(days / 36.5) / 10, probation_end, in_probation: probation_end >= t, edu: EDU[Math.floor(hx('edu' + u.id) * EDU.length)], age: 21 + Math.floor(hx('age' + u.id) * (senior ? 20 : 18)),
     gender: h('g') > 0.5 ? '女' : '男', phone: u.phone, certs, history };
 }
 const monthsBack = n => { const t = L.today(); const out = []; let m = t.slice(0, 8) + '01'; for (let i = 0; i < n; i++) { out.unshift(m); m = L.addDays(m, -1).slice(0, 8) + '01'; } return out; };
@@ -1295,6 +1295,7 @@ app.get('/api/inbox', (req, res) => {
       if (x.reno) add('改造提醒', 'acc', `${x.name}：${x.reno.text}`, '', '#/sp/' + x.id);
     });
   }
+  if (['hr_manager', 'region_manager', 'coach', 'store_manager'].includes(u.level)) (u.level === 'store_manager' ? [sid] : sids).filter(Boolean).forEach(s => hrStats(s).alerts.filter(a => a.lv === 'bad' || u.level !== 'store_manager').slice(0, 2).forEach(a => add(a.type, a.lv, `${sname(s)}：${a.text}`, '', '#/hrm?store=' + s)));
   res.json(out);
 });
 
@@ -2140,8 +2141,8 @@ function smAssess(u) {
   const sc = sids.map(s => storeScore(s).total), avg = Math.round(sc.reduce((a, b) => a + b, 0) / sc.length);
   const pr = sids.map(s => procOf(s)).filter(p => p.rate != null), proc = pr.length ? Math.round(pr.reduce((a, p) => a + Math.min(100, p.rate * 100 / p.target), 0) / pr.length) : 100;
   const bench = q(USER_SQL + ` WHERE u.active=1 AND u.store_id IN (${sids.join(',')})`).filter(x => hrSummary(x).tier === '可晋升').length;
-  const score = Math.round(avg * 0.6 + proc * 0.25 + Math.min(100, bench * 25) * 0.15), g = score >= 90 ? 'S' : score >= 85 ? 'A' : score >= 78 ? 'B' : score >= 70 ? 'C' : 'D';
-  return { score, grade: g, coef: { S: 1.5, A: 1.2, B: 1, C: 0.8, D: 0.5 }[g], parts: [{ l: '门店画像均分', v: avg, w: 60 }, { l: '统购达成', v: proc, w: 25 }, { l: '人才储备', v: Math.min(100, bench * 25), w: 15, note: `可晋升 ${bench} 人` }] };
+  const stab = stabOf(sids), score = Math.round(avg * 0.5 + proc * 0.2 + Math.min(100, bench * 25) * 0.15 + stab * 0.15), g = score >= 90 ? 'S' : score >= 85 ? 'A' : score >= 78 ? 'B' : score >= 70 ? 'C' : 'D';
+  return { score, grade: g, coef: { S: 1.5, A: 1.2, B: 1, C: 0.8, D: 0.5 }[g], parts: [{ l: '门店画像均分', v: avg, w: 50 }, { l: '统购达成', v: proc, w: 20 }, { l: '人才储备', v: Math.min(100, bench * 25), w: 15, note: `可晋升 ${bench} 人` }, { l: '团队稳定', v: stab, w: 15, note: '满编率、离职率、新人流失、关键岗空缺' }] };
 }
 function payOf(u) {
   const ym = L.today().slice(0, 7), base = BASE_PAY[u.role_name] || 4500;
@@ -2212,6 +2213,9 @@ app.post('/api/handoff/:uid', (req, res) => {
     run("UPDATE repairs SET assignee_id=? WHERE assignee_id=? AND status IN ('open','accepted')", to.id, x.id);
     if (b.mode === 'leave') run('UPDATE users SET active=0 WHERE id=?', x.id); else run('UPDATE users SET store_id=? WHERE id=?', Number(b.store_id), x.id);
   });
+  const pfx = profileOf(x);
+  run('INSERT INTO hr_moves(store_id,user_id,name,role,pos,kind,date,hire,reason,voluntary,note,to_store,by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', x.store_id, x.id, x.name, x.role_name, posOf(x.role_name), b.mode, t, pfx.hire,
+    b.mode === 'leave' ? (EXIT_R.includes(b.reason) ? b.reason : '个人原因') : null, b.mode === 'leave' ? (String(b.voluntary) === '0' ? 0 : 1) : null, b.note || '', b.mode === 'transfer' ? Number(b.store_id) : null, req.u.id);
   const n = Object.values(it).reduce((a, v) => a + v.length, 0), what = b.mode === 'leave' ? '离职' : '调岗至 ' + sname(Number(b.store_id));
   D.notify([to.id], 'assign', `${x.name} ${what}，${n} 项工作已交接给你`, Object.entries({ tasks: '任务', rects: '整改', scenes: '场景', templates: '清单', mentees: '徒弟', takes: '盘点', repairs: '报修' }).filter(([k]) => it[k].length).map(([k, l]) => `${l} ${it[k].length}`).join('、'), '#/my');
   D.audit(req.u.id, x.store_id, '人员' + (b.mode === 'leave' ? '离职交接' : '调岗交接'), `${x.name} → ${to.name}，${n} 项`);
@@ -2405,7 +2409,7 @@ function smDiag(uid) {
   const avg = k => Math.round(mine.reduce((a, x) => a + x.dims[k], 0) / mine.length);
   const pr = sids.map(procOf).filter(p => p.rate != null), procA = pr.length ? pr.reduce((a, p) => a + Math.min(100, p.rate * 100 / p.target), 0) / pr.length : 100;
   const lab = sids.map(laborOf), labA = lab.reduce((a, l) => a + clamp(100 - Math.max(0, l.cost_rate - 8) * 5 - Math.max(0, l.ot_total / l.staff - 20) * 2), 0) / lab.length;
-  const val = { biz: avg('biz'), brand: avg('brand'), team: avg('team'), ops: avg('ops'), guest: avg('guest'), cost: clamp(Math.round(procA * 0.6 + labA * 0.4)) };
+  const val = { biz: avg('biz'), brand: avg('brand'), team: Math.round(avg('team') * 0.5 + stabOf(sids) * 0.5), ops: avg('ops'), guest: avg('guest'), cost: clamp(Math.round(procA * 0.6 + labA * 0.4)) };
   const best = k => k === 'cost' ? null : all.filter(x => !sids.includes(x.id)).sort((a, b) => b.dims[k] - a.dims[k])[0];
   const caps = CAP.map(([k, l, course, act]) => { const v = val[k], p1 = clamp(Math.round(v + (hx('dg1' + uid + k) - 0.6) * 10)), p2 = clamp(Math.round(p1 + (hx('dg2' + uid + k) - 0.6) * 10)), b = best(k);
     return { k, l, v, trend: [p2, p1, v], course, act, bench: b && b.dims[k] > v ? { id: b.id, name: b.name, v: b.dims[k] } : null }; });
@@ -2762,4 +2766,149 @@ setInterval(tick, 30000);
 app.use((e, req, res, next) => { console.error(e); res.status(400).json({ error: e.message || '出错了' }); });
 app.get(/^(?!\/api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 const PORT = Number(process.env.PORT) || 3000;
+// ---------- 人事指标：编制 / 满编率 / 离职率 / 招聘 / 流动 / 合规（历史离职、招聘、兼职为模拟数据） ----------
+const HC_KEY = ['店长', '店助', '前台经理', '客房经理'];
+const HC_POS = ['店长', '店助', '前台经理', '前台', '客房经理', '客房', '餐厅', '工程', 'PA', '保安'];
+const posOf = r => (/^前台(高级|中级|初级)$/.test(r) ? '前台' : /^客房(高级|中级|初级)$/.test(r) ? '客房' : r === '餐厅厨师' ? '餐厅' : r);
+const HC_TH = { fill: 90, vac: 15, month: 5, early: 30 };
+const EXIT_R = ['薪酬待遇', '排班与工作强度', '管理方式', '发展空间', '个人原因', '试用期不合格', '违纪辞退'];
+const REC_CH = ['内推', '门店招聘', '招聘平台'], REC_ST = ['待招', '面试', '待入职', '已到岗'];
+const LEAVE_COST = { recruit: 600, train: 1200, ramp: 0.3, vacancy: 0.5 };
+const HRM_LV = ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'hq', 'store_manager'];
+function hcStd(sid) {
+  const rooms = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms || 150;
+  return { 店长: 1, 店助: rooms >= 200 ? 2 : 1, 前台经理: 1, 前台: rooms >= 180 ? 4 : 3, 客房经理: 1, 客房: rooms >= 180 ? 5 : rooms >= 150 ? 4 : 3, 餐厅: 1, 工程: 1, PA: 1, 保安: 1 };
+}
+const contractEnd = hire => { let e = L.addDays(hire, 1095); const t = L.today(); while (e < t) e = L.addDays(e, 1095); return e; };
+const r1 = n => Math.round(n * 10) / 10;
+function storePeople(sid) {
+  const sm = q('SELECT us.user_id id FROM user_stores us JOIN users u ON u.id=us.user_id WHERE us.store_id=? AND u.active=1', sid).map(x => q1(USER_SQL + ' WHERE u.id=?', x.id));
+  const us = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff'", sid);
+  return [...sm.map(x => ({ ...x, pos: '店长' })), ...us.map(x => ({ ...x, pos: posOf(x.role_name) }))];
+}
+function leaveCost(m, fillDays) { const b = BASE_PAY[m.role] || 4500; return Math.round(LEAVE_COST.recruit + LEAVE_COST.train + (fillDays || 21) * b / 30 * LEAVE_COST.vacancy + b * LEAVE_COST.ramp); }
+function hrStats(sid) {
+  const t = L.today(), y1 = L.addDays(t, -365), m1 = L.addDays(t, -30), std = hcStd(sid);
+  const ov = Object.fromEntries(q('SELECT pos, n FROM hc_plan WHERE store_id=?', sid).map(x => [x.pos, x.n]));
+  const people = storePeople(sid), act = people.length;
+  const mv = q('SELECT * FROM hr_moves WHERE store_id=? AND date>=? ORDER BY date DESC, id DESC', sid, y1), lv = mv.filter(m => m.kind === 'leave');
+  const plan = HC_POS.map(p => { const n = ov[p] ?? std[p], a = people.filter(x => x.pos === p).length, last = lv.find(m => m.pos === p);
+    return { pos: p, key: HC_KEY.includes(p), std: std[p], plan: n, act: a, gap: Math.max(0, n - a), vac_days: n > a ? (last ? dBetween(last.date, t) : 30) : 0,
+      shared: p === '店长' && people.some(x => x.pos === '店长' && smStores(x.id).length > 1) }; });
+  const P = plan.reduce((a, x) => a + x.plan, 0), gaps = plan.reduce((a, x) => a + x.gap, 0);
+  const pf = people.map(x => ({ x, p: profileOf(x) }));
+  const hires = pf.filter(o => o.p.hire >= y1).length + q("SELECT COALESCE(SUM(n),0) n FROM recruit WHERE store_id=? AND stage='已到岗' AND filled>=?", sid, y1)[0].n;
+  const early = lv.filter(m => m.hire && dBetween(m.hire, m.date) <= 90).length, keyLv = lv.filter(m => HC_KEY.includes(m.pos)).length;
+  const m_leave = lv.filter(m => m.date >= m1).length, vol = lv.filter(m => m.voluntary).length, base = Math.max(1, act);
+  const rec = q('SELECT * FROM recruit WHERE store_id=? ORDER BY id DESC', sid), open = rec.filter(r => !['已到岗', '已取消'].includes(r.stage));
+  const filled = rec.filter(r => r.stage === '已到岗' && r.filled >= y1), fillDays = filled.length ? Math.round(filled.reduce((a, r) => a + dBetween(r.opened, r.filled), 0) / filled.length) : null;
+  const dy = o => dBetween(o.p.hire, t);
+  const structure = {
+    tenure: [['不满 3 个月', 0, 90], ['3-12 个月', 90, 365], ['1-3 年', 365, 1095], ['3 年以上', 1095, 1e9]].map(([l, a, b]) => ({ l, n: pf.filter(o => dy(o) >= a && dy(o) < b).length })),
+    age: [['25 岁以下', 0, 25], ['25-34 岁', 25, 35], ['35-44 岁', 35, 45], ['45 岁以上', 45, 200]].map(([l, a, b]) => ({ l, n: pf.filter(o => o.p.age >= a && o.p.age < b).length })),
+    edu: ['高中', '中专', '大专', '本科'].map(l => ({ l, n: pf.filter(o => o.p.edu === l).length })),
+    pt: Math.round(act * (0.08 + hx('pt' + sid) * 0.12)), out: people.filter(x => ['PA', '保安'].includes(x.pos)).length };
+  const comp = [], lab = laborOf(sid);
+  for (const o of pf) {
+    const w = { who: o.x.name, uid: o.x.id }, ce = contractEnd(o.p.hire);
+    if (ce <= L.addDays(t, 60)) comp.push({ ...w, type: '合同到期', lv: ce <= L.addDays(t, 15) ? 'bad' : 'warn', text: `劳动合同 ${ce} 到期，需续签或办理终止` });
+    const hc = o.p.certs.find(c => c.name === '健康证');
+    if (hc && hc.expire <= L.addDays(t, 30)) comp.push({ ...w, type: '健康证', lv: hc.expire < t ? 'bad' : 'warn', text: hc.expire < t ? `健康证已于 ${hc.expire} 过期，补办前不得上岗` : `健康证 ${hc.expire} 到期，需提前复检` });
+    if (o.p.in_probation && o.p.probation_end <= L.addDays(t, 15)) comp.push({ ...w, type: '试用期', lv: 'warn', text: `试用期 ${o.p.probation_end} 到期，需完成转正评估` });
+  }
+  lab.ot.filter(o => o.ot > 36).forEach(o => comp.push({ who: people.find(x => x.id === o.id)?.name || o.name, uid: o.id, type: '超时加班', lv: 'bad', text: `本月加班 ${o.ot} 小时，超过每月 36 小时法定上限` }));
+  const fill = Math.round(act * 100 / P), y_rate = r1(lv.length * 100 / base), m_rate = r1(m_leave * 100 / base), early_rate = hires ? Math.round(early * 100 / hires) : 0;
+  const keyVac = plan.filter(x => x.key && x.gap), costs = lv.map(m => leaveCost(m, fillDays)), cost = costs.reduce((a, b) => a + b, 0);
+  const stab = clamp(100 - Math.max(0, y_rate - 30) * 0.8 - Math.max(0, early_rate - 20) * 0.6 - Math.max(0, 100 - fill) * 0.8 - keyVac.length * 8);
+  const alerts = [];
+  if (fill < HC_TH.fill) alerts.push({ lv: 'warn', type: '满编率低', text: `满编率 ${fill}%，缺 ${gaps} 人（${plan.filter(x => x.gap).map(x => x.pos + ' ' + x.gap).join('、')}）` });
+  keyVac.filter(x => x.vac_days > HC_TH.vac).forEach(x => alerts.push({ lv: 'bad', type: '关键岗位空缺', text: `${x.pos}空缺 ${x.vac_days} 天` }));
+  if (m_rate > HC_TH.month) alerts.push({ lv: 'bad', type: '月离职率高', text: `近 30 天离职 ${m_leave} 人，离职率 ${m_rate}%` });
+  if (early_rate > HC_TH.early) alerts.push({ lv: 'warn', type: '新人流失高', text: `近 12 个月新人 90 天内流失率 ${early_rate}%` });
+  const cb = comp.filter(c => c.lv === 'bad'); if (cb.length) alerts.push({ lv: 'warn', type: '用工合规', text: `${cb.length} 项合规风险：${[...new Set(cb.map(c => c.type))].join('、')}` });
+  return { id: sid, name: sname(sid), rooms: q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms, plan, P, act, fill, gaps, key_vac: keyVac, hires, leaves: lv.length, m_leave, m_rate, y_rate, early, early_rate,
+    vol, vol_rate: lv.length ? Math.round(vol * 100 / lv.length) : null, key_leave: keyLv, key_rate: r1(keyLv * 100 / Math.max(1, people.filter(x => HC_KEY.includes(x.pos)).length)),
+    reasons: EXIT_R.map(r => ({ l: r, n: lv.filter(m => m.reason === r).length })).filter(x => x.n), structure,
+    recruit: open, fill_days: fillDays, filled: filled.length, flow: { promote: mv.filter(m => m.kind === 'promote').length, tout: mv.filter(m => m.kind === 'transfer').length, tin: q1("SELECT COUNT(*) n FROM hr_moves WHERE to_store=? AND kind='transfer' AND date>=?", sid, y1).n },
+    cost, cost_per: costs.length ? Math.round(cost / costs.length) : null, comp, stab, alerts };
+}
+function hrAgg(all, sids) {
+  const t = L.today(), y1 = L.addDays(t, -365), S = k => all.reduce((a, x) => a + (x[k] || 0), 0), act = Math.max(1, S('act')), hires = S('hires'), leaves = S('leaves');
+  const merge = k => { const o = {}; all.forEach(x => x.structure[k].forEach(z => { o[z.l] = (o[z.l] || 0) + z.n; })); return Object.entries(o).map(([l, n]) => ({ l, n })); };
+  const rs = {}; all.forEach(x => x.reasons.forEach(z => { rs[z.l] = (rs[z.l] || 0) + z.n; }));
+  const rec = sids.length ? q(`SELECT * FROM recruit WHERE store_id IN (${sids.join(',')}) AND stage='已到岗' AND filled>=?`, y1) : [];
+  const channels = REC_CH.map(c => { const r = rec.filter(x => x.channel === c); return { l: c, n: r.length, days: r.length ? Math.round(r.reduce((a, x) => a + dBetween(x.opened, x.filled), 0) / r.length) : null, keep: Math.round({ 内推: 91, 门店招聘: 84, 招聘平台: 73 }[c] + (hx('kp' + c + sids.join()) - 0.5) * 6) }; });
+  const ap = sids.length ? q(`SELECT * FROM hr_moves WHERE kind='appoint' AND store_id IN (${sids.join(',')}) AND date>=?`, y1) : [];
+  const fd = all.filter(x => x.fill_days != null);
+  return { P: S('P'), act: S('act'), fill: Math.round(S('act') * 100 / Math.max(1, S('P'))), gaps: S('gaps'), hires, leaves, m_leave: S('m_leave'), m_rate: r1(S('m_leave') * 100 / act), y_rate: r1(leaves * 100 / act),
+    early: S('early'), early_rate: hires ? Math.round(S('early') * 100 / hires) : 0, vol_rate: leaves ? Math.round(S('vol') * 100 / leaves) : null, key_leave: S('key_leave'),
+    key_rate: r1(S('key_leave') * 100 / Math.max(1, all.reduce((a, x) => a + x.plan.filter(p => p.key).reduce((b, p) => b + p.act, 0), 0))),
+    reasons: Object.entries(rs).map(([l, n]) => ({ l, n })).sort((a, b) => b.n - a.n), structure: { tenure: merge('tenure'), age: merge('age'), edu: merge('edu'), pt: all.reduce((a, x) => a + x.structure.pt, 0), out: all.reduce((a, x) => a + x.structure.out, 0) },
+    recruit: all.flatMap(x => x.recruit.map(r => ({ ...r, store: x.name }))), fill_days: fd.length ? Math.round(fd.reduce((a, x) => a + x.fill_days, 0) / fd.length) : null, channels,
+    flow: { promote: all.reduce((a, x) => a + x.flow.promote, 0), tout: all.reduce((a, x) => a + x.flow.tout, 0), tin: all.reduce((a, x) => a + x.flow.tin, 0), promote_rate: r1(all.reduce((a, x) => a + x.flow.promote, 0) * 100 / act),
+      sm_appoint: ap.length, sm_internal: ap.filter(x => x.src === 'internal').length, sm_internal_rate: ap.length ? Math.round(ap.filter(x => x.src === 'internal').length * 100 / ap.length) : null },
+    cost: S('cost'), cost_per: leaves ? Math.round(S('cost') / leaves) : null, comp: all.flatMap(x => x.comp.map(c => ({ ...c, store: x.name }))),
+    key_vac: all.flatMap(x => x.key_vac.map(k => ({ ...k, store: x.name, sid: x.id }))), stab: all.length ? Math.round(all.reduce((a, x) => a + x.stab, 0) / all.length) : null,
+    alerts: all.flatMap(x => x.alerts.map(a => ({ ...a, store: x.name, sid: x.id }))) };
+}
+const stabOf = sids => (sids.length ? Math.round(sids.reduce((a, s) => a + hrStats(s).stab, 0) / sids.length) : 100);
+app.get('/api/hrm', (req, res) => {
+  const u = req.u; if (!HRM_LV.includes(u.level)) return deny(res);
+  const sids = visibleStores(u), sid = Number(req.query.store) || 0; if (sid && !sids.includes(sid)) return deny(res);
+  const all = sids.map(hrStats), sel = sid ? all.find(x => x.id === sid) : sids.length === 1 ? all[0] : null, t = L.today();
+  const link = all.map(x => { const sc = storeScore(x.id); return { id: x.id, name: x.name, grade: sc.grade, total: sc.total, team: sc.dims.team, cp30: q1('SELECT COUNT(*) n FROM complaints WHERE store_id=? AND created_at>=?', x.id, L.addDays(t, -30)).n, fill: x.fill, y_rate: x.y_rate, early_rate: x.early_rate, stab: x.stab }; });
+  const ms = sel ? [sel.id] : sids;
+  const moves = ms.length ? q(`SELECT m.*, s.name store FROM hr_moves m LEFT JOIN stores s ON s.id=m.store_id WHERE m.kind='leave' AND m.store_id IN (${ms.join(',')}) AND m.date>=? ORDER BY m.date DESC LIMIT 20`, L.addDays(t, -365)) : [];
+  res.json({ sum: hrAgg(all, sids), stores: all.map(x => ({ id: x.id, name: x.name })), link, sel, moves, th: HC_TH, cost_def: LEAVE_COST, can_plan: canHR(u), can_rec: canHR(u) || u.level === 'store_manager',
+    exit_reasons: EXIT_R, channels: REC_CH, pos: HC_POS, sim: true });
+});
+app.post('/api/hrm/plan', (req, res) => {
+  const b = req.body || {}, sid = Number(b.store_id), n = Number(b.n);
+  if (!canHR(req.u) || !visibleStores(req.u).includes(sid)) return deny(res); if (!HC_POS.includes(b.pos) || !(n >= 0 && n <= 30)) return err(res, '请填写编制人数');
+  run('INSERT INTO hc_plan(store_id,pos,n) VALUES(?,?,?) ON CONFLICT(store_id,pos) DO UPDATE SET n=excluded.n', sid, b.pos, Math.round(n));
+  D.audit(req.u.id, sid, '调整编制', `${b.pos} ${Math.round(n)} 人`); res.json({ ok: true });
+});
+const canRec = (u, sid) => visibleStores(u).includes(sid) && (canHR(u) || u.level === 'store_manager');
+app.post('/api/hrm/recruit', (req, res) => {
+  const b = req.body || {}, sid = Number(b.store_id); if (!canRec(req.u, sid)) return deny(res); if (!HC_POS.includes(b.pos)) return err(res, '请选择岗位');
+  run("INSERT INTO recruit(store_id,pos,n,stage,channel,opened,by) VALUES(?,?,?,'待招',?,?,?)", sid, b.pos, Math.max(1, Number(b.n) || 1), REC_CH.includes(b.channel) ? b.channel : '招聘平台', L.today(), req.u.id);
+  if (req.u.level === 'store_manager') D.notify(D.regionUsers(regionOfStore(sid), 'hr_manager'), 'hr', `${sname(sid)} 发起招聘：${b.pos}`, '', '#/hrm?store=' + sid);
+  res.json({ ok: true });
+});
+app.post('/api/hrm/recruit/:id', (req, res) => {
+  const r = q1('SELECT * FROM recruit WHERE id=?', req.params.id), b = req.body || {}; if (!r || !canRec(req.u, r.store_id)) return deny(res);
+  if (![...REC_ST, '已取消'].includes(b.stage)) return err(res, '状态不正确');
+  run('UPDATE recruit SET stage=?, cand=COALESCE(?,cand), filled=? WHERE id=?', b.stage, b.cand || null, b.stage === '已到岗' ? L.today() : null, r.id); res.json({ ok: true });
+});
+app.post('/api/hrm/exit/:id', (req, res) => {
+  const m = q1('SELECT * FROM hr_moves WHERE id=?', req.params.id), b = req.body || {}; if (!m || !(canHR(req.u) || canManage(req.u, m.store_id))) return deny(res);
+  run('UPDATE hr_moves SET reason=COALESCE(?,reason), voluntary=COALESCE(?,voluntary), note=? WHERE id=?', EXIT_R.includes(b.reason) ? b.reason : null, b.voluntary == null ? null : Number(b.voluntary), b.note || '', m.id); res.json({ ok: true });
+});
+const NM = '张王李赵刘陈杨黄周吴徐孙马朱胡郭何林罗高', GN = ['婷', '杰', '敏', '强', '丽', '磊', '静', '鹏', '雪', '浩', '芳', '涛', '琳', '宇', '倩', '凯'];
+function seedHR() {
+  if (D.getSetting('hr_seeded', 0)) return;
+  const t = L.today(), ROLE = ['前台初级', '前台初级', '前台中级', '客房初级', '客房初级', '客房中级', '客房高级', 'PA', '保安', '餐厅厨师', '前台高级', '工程'];
+  D.tx(() => {
+    for (const s of q('SELECT id FROM stores')) {
+      const sid = s.id, n = 4 + Math.floor(hx('hl' + sid) * 4) + (sid === 3 ? 3 : 0);
+      for (let i = 0; i < n; i++) {
+        const k = 'hm' + sid + '-' + i, date = sid === 3 && i < 1 ? L.addDays(t, -6) : L.addDays(t, -Math.floor(12 + hx(k + 'd') * 345));
+        const role = ROLE[Math.floor(hx(k + 'r') * ROLE.length)], short = hx(k + 's') < 0.22, hire = L.addDays(date, -(short ? 18 + Math.floor(hx(k + 'h') * 65) : 120 + Math.floor(hx(k + 'h') * 700)));
+        const pass = short && hx(k + 'p') < 0.3, rr = hx(k + 'x'), reason = pass ? '试用期不合格' : rr < 0.04 ? '违纪辞退' : EXIT_R[Math.floor(hx(k + 'y') * 5)];
+        const note = hx(k + 'n') < 0.55 ? { 薪酬待遇: '同区域竞品前台月薪高 500 元', 排班与工作强度: '连续夜班多，休息不规律', 管理方式: '觉得批评多、表扬少', 发展空间: '一年多没有晋升机会', 个人原因: '回老家照顾家人', 试用期不合格: '多次查房不合格', 违纪辞退: '私收现金' }[reason] : '';
+        run("INSERT INTO hr_moves(store_id,name,role,pos,kind,date,hire,reason,voluntary,note) VALUES(?,?,?,?,'leave',?,?,?,?,?)", sid, NM[Math.floor(hx(k + 'a') * NM.length)] + GN[Math.floor(hx(k + 'b') * GN.length)], role, posOf(role), date, hire, reason, ['试用期不合格', '违纪辞退'].includes(reason) ? 0 : 1, note);
+        if (hx(k + 'f') < 0.85) { const op = L.addDays(date, -2), fd = L.addDays(op, 8 + Math.floor(hx(k + 'g') * 34)); if (fd < t) run("INSERT INTO recruit(store_id,pos,n,stage,channel,opened,filled,cand) VALUES(?,?,1,'已到岗',?,?,?,?)", sid, posOf(role), REC_CH[Math.floor(hx(k + 'c') * 3)], op, fd, NM[Math.floor(hx(k + 'e') * NM.length)] + GN[Math.floor(hx(k + 'q') * GN.length)]); }
+      }
+      if (sid === 3) run("INSERT INTO hr_moves(store_id,name,role,pos,kind,date,hire,reason,voluntary,note) VALUES(3,'郑凯','店助','店助','leave',?,?,'发展空间',1,'外部品牌给了店长岗位')", L.addDays(t, -22), L.addDays(t, -900));
+      for (let i = 0; i < 1 + Math.floor(hx('pr' + sid) * 3); i++) run("INSERT INTO hr_moves(store_id,name,role,pos,kind,date,to_pos) VALUES(?,?,?,?,'promote',?,?)", sid, NM[Math.floor(hx('pn' + sid + i) * NM.length)] + GN[i + sid], '前台中级', '前台', L.addDays(t, -Math.floor(20 + hx('pd' + sid + i) * 300)), '前台高级');
+      if (sid !== 4) run("INSERT INTO hr_moves(store_id,name,role,pos,kind,date,to_store) VALUES(?,?,'客房中级','客房','transfer',?,?)", sid, '韩' + GN[sid + 5], L.addDays(t, -Math.floor(40 + hx('tr' + sid) * 200)), sid === 3 ? 1 : sid + 1);
+      const std = hcStd(sid), pp = storePeople(sid);
+      HC_POS.forEach(p => { const g = std[p] - pp.filter(x => x.pos === p).length; if (g > 0) run('INSERT INTO recruit(store_id,pos,n,stage,channel,opened) VALUES(?,?,?,?,?,?)', sid, p, g, ['待招', '面试', '待入职'][Math.floor(hx('rc' + sid + p) * 3)], REC_CH[Math.floor(hx('rh' + sid + p) * 3)], L.addDays(t, -Math.floor(4 + hx('ro' + sid + p) * 22))); });
+    }
+    [[4, 'external', -40], [1, 'internal', -200], [3, 'internal', -310]].forEach(([sid, src, d]) => run("INSERT INTO hr_moves(store_id,name,role,pos,kind,date,src) VALUES(?,?,'店长','店长','appoint',?,?)", sid, sid === 4 ? '顾磊' : sid === 1 ? '陈峰' : '刘洋', L.addDays(t, d), src));
+    D.setSetting('hr_seeded', 1);
+  });
+}
+seedHR();
+
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));

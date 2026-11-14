@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS cal_events(id INTEGER PRIMARY KEY, region_id INTEGER,
 CREATE TABLE IF NOT EXISTS survey_resp(id INTEGER PRIMARY KEY, store_id INTEGER, q TEXT, a1 INTEGER, a2 INTEGER, a3 INTEGER, a4 INTEGER, a5 INTEGER, comment TEXT, at TEXT);
 CREATE TABLE IF NOT EXISTS survey_done(user_id INTEGER, q TEXT, PRIMARY KEY(user_id, q));
 CREATE TABLE IF NOT EXISTS talks(id INTEGER PRIMARY KEY, user_id INTEGER, by INTEGER, date TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS hc_plan(store_id INTEGER, pos TEXT, n INTEGER, PRIMARY KEY(store_id, pos));
+CREATE TABLE IF NOT EXISTS hr_moves(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, name TEXT, role TEXT, pos TEXT, kind TEXT, date TEXT, hire TEXT, reason TEXT, voluntary INTEGER, note TEXT, src TEXT, to_store INTEGER, to_pos TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS recruit(id INTEGER PRIMARY KEY, store_id INTEGER, pos TEXT, n INTEGER, stage TEXT, channel TEXT, opened TEXT, filled TEXT, cand TEXT, by INTEGER);
 CREATE TABLE IF NOT EXISTS hq_notices(id INTEGER PRIMARY KEY, title TEXT, body TEXT, kind TEXT, by INTEGER, at TEXT);
 CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, store_id INTEGER, src TEXT, level TEXT, guest TEXT, room TEXT, body TEXT, staff_id INTEGER, owner_id INTEGER, status TEXT, due_at TEXT, created_by INTEGER, created_at TEXT, handle_note TEXT, handled_at TEXT, comp_amt INTEGER DEFAULT 0, comp_kind TEXT, comp_status TEXT DEFAULT 'none', comp_by INTEGER, cb_score INTEGER, cb_note TEXT, closed_at TEXT);
 CREATE TABLE IF NOT EXISTS safety_plans(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, cycle INTEGER, last_date TEXT, next_date TEXT);
