@@ -54,6 +54,9 @@ for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'co
 }
 const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
 try { db.prepare("UPDATE stores SET stype='加盟店' WHERE id=3 AND stype='直营店'").run(); } catch { /* fresh db */ }
+db.exec("CREATE TABLE IF NOT EXISTS store_plans(id INTEGER PRIMARY KEY, store_id INTEGER, dim TEXT, title TEXT, base INTEGER, target INTEGER, owner_id INTEGER, due TEXT, status TEXT DEFAULT 'open', progress INTEGER DEFAULT 0, updates TEXT, result TEXT, created_by INTEGER, created_at TEXT, closed_at TEXT)");
+try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */ }
+for (const [id, t] of [[1, '标杆复制'], [2, '店长兼管'], [3, '重点帮扶,改造规划']]) db.prepare('UPDATE stores SET tags=? WHERE id=? AND tags IS NULL').run(t, id);
 for (const [id, v] of Object.entries(STORE_INFO)) try { db.prepare('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=? AND brand IS NULL').run(...v, Number(id)); } catch { /* fresh db */ }
 
 

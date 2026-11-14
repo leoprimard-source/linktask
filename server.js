@@ -992,18 +992,78 @@ function storeScore(sid) {
   const trend = [5, 4, 3, 2, 1].map(i => Math.round(total + (hash(i + 'sg' + sid) - 0.5) * 8)).concat(total).map(v => ({ v, g: sgrade(v) }));
   return { id: sid, name: sname(sid), dims: d, total, grade: sgrade(total), axes: { biz: bx, ops: ox }, type, type_tag: STORE_TYPES[type][0], tactic: STORE_TYPES[type][1], weak, why, trend };
 }
+const TAG_OPTS = ['新开业', '店长交接期', '店长兼管', '重点帮扶', '改造中', '改造规划', '标杆复制'];
+const tagsOf = sid => (q1('SELECT tags FROM stores WHERE id=?', sid)?.tags || '').split(',').filter(Boolean);
+const GRADES = 'SABCD';
+function renoOf(sid) {
+  const i = storeInfo(sid), since = i.renovate || i.open_date;
+  const yrs = Math.round((Date.parse(L.today()) - Date.parse(since)) / 864e5 / 36.5) / 10;
+  return yrs >= 4 ? { years: yrs, text: `${i.renovate ? '距上次改造' : '开业至今'} ${yrs} 年，建议规划改造${i.owner ? '，并纳入业主沟通事项' : ''}` } : null;
+}
+const plansOf = sid => q("SELECT p.*, u.name owner FROM store_plans p LEFT JOIN users u ON u.id=p.owner_id WHERE p.store_id=? ORDER BY p.status!='open', p.id DESC", sid).map(p => ({ ...p, updates: JSON.parse(p.updates || '[]') }));
+function regionScores(regionId) {
+  const all = q('SELECT id FROM stores WHERE region_id=?', regionId).map(s => storeScore(s.id)).sort((a, b) => b.total - a.total);
+  const avg = { total: Math.round(all.reduce((a, x) => a + x.total, 0) / (all.length || 1)) };
+  STORE_DIMS.forEach(([k]) => { avg[k] = Math.round(all.reduce((a, x) => a + x.dims[k], 0) / (all.length || 1)); });
+  all.forEach((x, i) => {
+    x.rank = i + 1; x.of = all.length;
+    const peers = all.filter(y => y.type === x.type); x.peer_rank = peers.indexOf(x) + 1; x.peers = peers.length;
+    x.tags = tagsOf(x.id); x.reno = renoOf(x.id); x.plans = plansOf(x.id);
+    const [pv, cur] = x.trend.slice(-2).map(t => t.g);
+    x.drop = GRADES.indexOf(cur) > GRADES.indexOf(pv) ? { from: pv, to: cur } : null;
+    x.dim_trend = {}; x.declines = [];
+    STORE_DIMS.forEach(([k, l]) => {
+      const v = x.dims[k], m1 = clamp(v + (hash(k + x.id + 'm1') - 0.42) * 8), m2 = clamp(m1 + (hash(k + x.id + 'm2') - 0.42) * 8);
+      x.dim_trend[k] = [m2, m1, v];
+      if (m2 > m1 && m1 > v) x.declines.push(l);
+    });
+  });
+  return { all, avg };
+}
+const regionOfStore = sid => q1('SELECT region_id FROM stores WHERE id=?', sid).region_id;
 app.get('/api/store/:sid/profile', (req, res) => {
   const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
-  const all = visibleStores(req.u).length > 1 || isRegion(req.u) ? q('SELECT id FROM stores WHERE region_id=?', q1('SELECT region_id FROM stores WHERE id=?', sid).region_id).map(s => storeScore(s.id)) : [storeScore(sid)];
-  all.sort((a, b) => b.total - a.total);
-  const me = all.find(x => x.id === sid); me.rank = all.indexOf(me) + 1; me.of = all.length;
-  res.json({ info: storeInfo(sid), score: me, licenses: licensesOf(sid), dim_def: STORE_DIMS, types: STORE_TYPES });
+  const { all, avg } = regionScores(regionOfStore(sid));
+  res.json({ info: storeInfo(sid), score: all.find(x => x.id === sid), avg, licenses: licensesOf(sid), dim_def: STORE_DIMS, types: STORE_TYPES, tag_opts: TAG_OPTS });
 });
 app.get('/api/region/stores', (req, res) => {
   if (!isRegion(req.u)) return deny(res);
-  const xs = visibleStores(req.u).map(storeScore).sort((a, b) => b.total - a.total);
-  xs.forEach((x, i) => { x.rank = i + 1; x.info = storeInfo(x.id); });
-  res.json({ stores: xs, types: STORE_TYPES, dim_def: STORE_DIMS });
+  const vs = visibleStores(req.u), { all, avg } = regionScores(req.u.region_id);
+  const xs = all.filter(x => vs.includes(x.id)); xs.forEach(x => { x.info = storeInfo(x.id); });
+  res.json({ stores: xs, avg, types: STORE_TYPES, dim_def: STORE_DIMS, tag_opts: TAG_OPTS });
+});
+app.post('/api/store/:sid/tags', (req, res) => {
+  const sid = Number(req.params.sid); if (req.u.level !== 'region_manager' || !canSee(req.u, sid)) return deny(res);
+  const tags = (req.body.tags || []).filter(t => TAG_OPTS.includes(t));
+  run('UPDATE stores SET tags=? WHERE id=?', tags.join(','), sid);
+  D.audit(req.u.id, sid, '门店标签', tags.join('、') || '清空');
+  res.json({ ok: true });
+});
+app.post('/api/store-plans', (req, res) => {
+  const b = req.body, sid = Number(b.store_id);
+  if (req.u.level !== 'region_manager' || !canSee(req.u, sid)) return deny(res);
+  const dim = STORE_DIMS.find(d => d[0] === b.dim); if (!dim) return err(res, '请选择提升维度');
+  if (!(b.title || '').trim() || !b.owner_id || !b.due) return err(res, '请填写计划内容、负责人和截止日期');
+  const base = storeScore(sid).dims[dim[0]];
+  const id = Number(run('INSERT INTO store_plans(store_id,dim,title,base,target,owner_id,due,updates,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)', sid, dim[0], b.title.trim(), base, Math.min(100, Number(b.target) || base + 8), Number(b.owner_id), b.due, '[]', req.u.id, L.nowStr()).lastInsertRowid);
+  D.notify([...new Set([Number(b.owner_id), ...D.storeManagers(sid)])], 'plan', `${sname(sid)} 门店提升计划：${dim[1]}`, `${b.title.trim()}（目标 ${Math.min(100, Number(b.target) || base + 8)} 分，${b.due} 前）`, '#/sp/' + sid);
+  D.audit(req.u.id, sid, '制定提升计划', dim[1] + '：' + b.title.trim());
+  res.json({ ok: true, id });
+});
+app.post('/api/store-plans/:id/:op', (req, res) => {
+  const p = q1('SELECT * FROM store_plans WHERE id=?', req.params.id); if (!p || !canSee(req.u, p.store_id)) return deny(res);
+  const b = req.body;
+  if (req.params.op === 'progress' && p.status === 'open' && (canManage(req.u, p.store_id) || p.owner_id === req.u.id)) {
+    const pr = Math.max(0, Math.min(100, Number(b.progress) || 0)), ups = JSON.parse(p.updates || '[]');
+    ups.push({ at: L.nowStr(), by: req.u.name, progress: pr, note: (b.note || '').trim() });
+    run('UPDATE store_plans SET progress=?, updates=? WHERE id=?', pr, JSON.stringify(ups), p.id);
+    D.notify(D.regionUsers(req.u.region_id, 'region_manager').filter(x => x !== req.u.id), 'plan', `${sname(p.store_id)} 提升计划进度 ${pr}%`, p.title + (b.note ? '：' + b.note : ''), '#/sp/' + p.store_id);
+  } else if (req.params.op === 'close' && p.status === 'open' && req.u.level === 'region_manager') {
+    const now = storeScore(p.store_id).dims[p.dim], st = now >= p.target ? 'done' : 'fail';
+    run('UPDATE store_plans SET status=?, result=?, closed_at=? WHERE id=?', st, `结项得分 ${now}（起点 ${p.base}，目标 ${p.target}）${b.note ? '；' + b.note : ''}`, L.nowStr(), p.id);
+    D.notify(D.storeManagers(p.store_id), 'plan', `提升计划已结项：${st === 'done' ? '达成' : '未达成'}`, p.title, '#/sp/' + p.store_id);
+  } else return deny(res);
+  res.json({ ok: true });
 });
 app.get('/api/store/:sid/biz', (req, res) => {
   const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
@@ -1071,7 +1131,7 @@ app.post('/api/owner-reqs/:id/:op', (req, res) => {
         o.store_id, sc, '【业主沟通会】' + o.title, `区域经理安排：${b.reply.trim()}\n会后上传会议纪要照片，并在诉求中更新结果。`, sm[0], 'once', null, b.meeting, b.meeting, '15:00', 1, 'flex', req.u.id, L.nowStr(), null);
       if (b.meeting <= L.today()) D.ensureInstances(L.today(), [o.store_id]);
     }
-    D.notify(sm, 'owner', `区域经理已回复业主诉求：${o.title}`, b.reply + (b.meeting ? `（${b.meeting} 召开业主沟通会）` : ''), '#/home?pl=fr');
+    D.notify(sm, 'owner', `区域经理已回复业主诉求：${o.title}`, b.reply + (b.meeting ? `（${b.meeting} 召开业主沟通会）` : ''), '#/frs/' + o.store_id);
     D.audit(req.u.id, o.store_id, '回复业主诉求', o.title);
   } else if (op === 'close' && canManage(req.u, o.store_id)) {
     run("UPDATE owner_reqs SET status='closed', closed_at=? WHERE id=?", L.nowStr(), o.id);
@@ -1131,7 +1191,7 @@ app.get('/api/inbox', (req, res) => {
     if (rv) add('待复查', 'warn', `整改已提交待复查 ${rv} 项`, '', '#/rect');
     q("SELECT * FROM patrols WHERE store_id=? AND status='planned' ORDER BY planned_date LIMIT 1", sid).forEach(p => add('巡店', 'acc', `区域经理 ${p.planned_date} 巡店`, p.reason || '例行巡店', '#/patrol/' + p.id));
     licensesOf(sid).filter(x => x.status !== 'ok').slice(0, 2).forEach(x => add('证照', x.status, `${x.name}${x.days < 0 ? '已过期' : x.days + ' 天后到期'}`, '到期日 ' + x.expire, '#/home?pl=biz&store=' + sid));
-    if (isFr(sid)) { seedOwnerReqs(); q("SELECT * FROM owner_reqs WHERE store_id=? AND status='replied'", sid).forEach(o => add('区域回复', 'acc', o.title, '区域经理已回复，确认后关闭', '#/home?pl=fr&store=' + sid)); }
+    if (isFr(sid)) { seedOwnerReqs(); q("SELECT * FROM owner_reqs WHERE store_id=? AND status='replied'", sid).forEach(o => add('区域回复', 'acc', o.title, '区域经理已回复，确认后关闭', '#/frs/' + sid)); }
     q("SELECT h.*, m.name FROM hr_suggest h JOIN users m ON m.id=h.user_id WHERE h.store_id=? AND h.status!='open' AND h.replied_at>=?", sid, L.addDays(t, -7) + ' 00:00').forEach(h => add('人事回复', h.status === 'approved' ? 'ok' : 'warn', `${h.name} ${h.kind}建议${h.status === 'approved' ? '已同意' : '被退回'}`, h.reply || '', '#/home?pl=ren&store=' + sid));
     q("SELECT * FROM reports WHERE store_id=? AND status='reviewed' AND reviewed_at>=?", sid, L.addDays(t, -7) + ' 00:00').forEach(r => add('周报批复', 'ok', `周报 ${r.period} 已批复`, r.comment, '#/report/' + r.id));
     const lw = q1('SELECT MAX(created_at) at FROM reports WHERE store_id=?', sid).at;
@@ -1157,6 +1217,19 @@ app.get('/api/inbox', (req, res) => {
     if (hi.length) add('人员预警', 'bad', `${hi.length} 人有高风险预警`, hi.slice(0, 3).map(x => x.name).join('、'), '#/home?pl=ren');
     q("SELECT h.*, m.name, m2.name creator, s.name store FROM hr_suggest h JOIN users m ON m.id=h.user_id JOIN users m2 ON m2.id=h.created_by LEFT JOIN stores s ON s.id=h.store_id WHERE h.status='open' ORDER BY h.id DESC").forEach(h => add(h.kind + '建议', 'warn', `${h.store} ${h.name}`, `${h.creator}：${h.note}`, '#/hrp/' + h.user_id, 'sugg:' + h.id));
     q("SELECT title, body FROM notifications WHERE user_id=? AND kind='focus' AND read=0 ORDER BY id DESC LIMIT 3", u.id).forEach(n => add('指派跟进', 'warn', n.title, n.body, '#/notices'));
+  }
+  if (u.level === 'store_manager' && sid) {
+    const sc = regionScores(regionOfStore(sid)).all.find(x => x.id === sid);
+    sc.plans.filter(p => p.status === 'open').forEach(p => add('提升计划', p.due < t ? 'bad' : 'warn', p.title, `目标 ${p.target} 分 · ${p.due} 截止 · 进度 ${p.progress}%`, '#/home?pl=shop&store=' + sid));
+    if (sc.drop) add('等级下降', 'bad', `门店画像 ${sc.drop.from} → ${sc.drop.to}`, '短板：' + sc.weak.map(w => w.l).join('、'), '#/home?pl=shop&store=' + sid);
+  }
+  if (u.level === 'region_manager') {
+    regionScores(u.region_id).all.forEach(x => {
+      if (x.drop) add('等级下降', 'bad', `${x.name}：门店画像 ${x.drop.from} → ${x.drop.to}`, '短板：' + x.weak.map(w => w.l).join('、'), '#/sp/' + x.id);
+      if (x.declines.length) add('连续下滑', 'warn', `${x.name}：${x.declines.join('、')} 连续 2 个月下滑`, '', '#/sp/' + x.id);
+      x.plans.filter(p => p.status === 'open' && p.due <= L.addDays(t, 3)).forEach(p => add('提升计划', p.due < t ? 'bad' : 'warn', `${x.name}：${p.title}`, `${p.due} ${p.due < t ? '已到期，待结项' : '即将到期'} · 进度 ${p.progress}%`, '#/sp/' + x.id));
+      if (x.reno) add('改造提醒', 'acc', `${x.name}：${x.reno.text}`, '', '#/sp/' + x.id);
+    });
   }
   res.json(out);
 });
