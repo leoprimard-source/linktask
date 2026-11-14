@@ -49,7 +49,7 @@ app.use('/api', (req, res, next) => {
   if (pii && pay) return next();
   const uid = req.u.id;
   res.json = body => res.type('json').send(JSON.stringify(body, function (k, v) {
-    if (!pii && k === 'phone' && this.id !== uid) return maskPhone(v);
+    if (!pii && k === 'phone' && this.id !== uid && v !== req.u.phone) return maskPhone(v);
     if (!pay && k === 'comm') { const o = this.id ?? this.me?.id; if (o != null && o !== uid) return undefined; }
     return v;
   }));
