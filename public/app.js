@@ -608,14 +608,13 @@ VIEWS.dash = async () => {
   $('#main').innerHTML = `<div class="row between"><h1>${sales ? '区域销售看板' : '区域运营看板'}</h1>
     <div class="tabs" style="margin:0">${[7, 14].map(n => `<a href="#/dash?days=${n}" class="${days === n ? 'on' : ''}">近 ${n} 日</a>`).join('')}</div></div>
   ${S.me.category ? `<p class="muted small" style="margin-top:-6px">你的权限：只看${sales ? '销售' : '运营'}类工作。</p>` : ''}
-  <div class="tbl"><table><tr><th>门店</th><th>店长</th><th style="min-width:130px">今日完成率</th><th class="n">今日超时</th><th style="min-width:130px">近 ${days} 日完成率</th><th class="n">迟交</th><th class="n">抽查合格率</th><th class="n">整改未闭环</th><th class="n">整改逾期</th><th class="n">重点跟踪</th></tr>
-  ${d.today.map(s => { const p = d.period.find(x => x.id === s.id); return `<tr class="click" onclick="location.hash='#/tasks?store=${s.id}'"><td><b>${esc(s.name)}</b></td><td>${esc(s.managers.join('、'))}</td>
-    <td>${rateBar(s.rate)}</td><td class="n mono" style="${s.overdue ? 'color:var(--bad)' : ''}">${s.overdue}</td><td>${rateBar(p.rate)}</td><td class="n mono">${p.late}</td>
-    <td class="n mono">${p.pass_rate ?? '-'}${p.pass_rate !== null ? '%' : ''}</td><td class="n mono">${p.rect_open}</td><td class="n mono" style="${p.rect_late ? 'color:var(--bad)' : ''}">${p.rect_late}</td>
-    <td class="n mono">${p.focus_total ? p.focus_done + '/' + p.focus_total : '-'}</td></tr>`; }).join('')}</table></div>
+  <div class="dcards">${d.today.map(s => { const p = d.period.find(x => x.id === s.id); return `<a class="dcard" href="#/tasks?store=${s.id}"><div class="dc-h"><b>${esc(s.name)}</b><span class="muted small">店长 ${esc(s.managers.join('、'))}</span><i>›</i></div>
+    <div class="dbars"><div><span>今日完成率</span>${rateBar(s.rate)}</div><div><span>近 ${days} 日完成率</span>${rateBar(p.rate)}</div></div>
+    <div class="dkv">${[['今日超时', s.overdue, s.overdue], ['迟交', p.late], ['抽查合格率', p.pass_rate == null ? '-' : p.pass_rate + '%'], ['整改未闭环', p.rect_open], ['整改逾期', p.rect_late, p.rect_late], ['重点跟踪', p.focus_total ? p.focus_done + '/' + p.focus_total : '-']]
+      .map(([l, v, b]) => `<div class="${b ? 'bad' : ''}"><b>${v}</b><span>${l}</span></div>`).join('')}</div></a>`; }).join('')}</div>
   <div class="grid g2" style="margin-top:12px">
     <div class="card"><h3>区域每日完成率</h3><div class="chart">${d.trend.map(t => `<div class="c"><span>${t.rate ?? '-'}</span><i style="height:${(t.rate || 0) * 0.8 / max * 100}%;${t.rate !== null && t.rate < 85 ? 'background:var(--warn)' : ''}"></i><span>${t.date.slice(5)}</span></div>`).join('')}</div></div>
-    <div class="card"><h3>各场景完成情况</h3>${d.scenes.filter(s => s.total).map(s => `<div class="row" style="margin:6px 0;flex-wrap:nowrap"><span style="width:44px">${esc(s.name)}</span><div style="flex:1">${rateBar(s.rate)}</div><span class="small muted" style="width:80px;text-align:right">不合格 ${s.bad || 0}</span></div>`).join('') || '<div class="empty">无数据</div>'}</div>
+    <div class="card"><h3>各场景完成情况</h3>${d.scenes.filter(s => s.total).map(s => `<div class="row" style="margin:6px 0;flex-wrap:nowrap"><span class="lbl">${esc(s.name)}</span><div style="flex:1;min-width:0">${rateBar(s.rate)}</div><span class="small muted nw">不合格 ${s.bad || 0}</span></div>`).join('') || '<div class="empty">无数据</div>'}</div>
     <div class="card"><h3>执行之星（完成率前 5）</h3>${peopleRows(top)}</div>
     <div class="card"><h3>需要关注（完成率后 5）</h3>${peopleRows(bottom)}</div>
   </div>`;
