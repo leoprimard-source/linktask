@@ -12,7 +12,7 @@ app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '
 app.use(express.static(path.join(__dirname, 'public')));
 
 const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
-const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', store_manager: '店长', staff: '员工' };
+const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', coach: '教练', hq: '总部运营', store_manager: '店长', staff: '员工' };
 
 app.get('/api/users', (req, res) => {
   const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
@@ -31,7 +31,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager'].includes(u.level);
+const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'].includes(u.level);
 function visibleStores(u) {
   if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
@@ -2392,6 +2392,205 @@ function seedBatchB() {
   });
 }
 seedBatchB();
+
+// ---------- 第三批：教练 / 店长驾驶舱 / 多店 / 90 天上手 / 能力诊断 / 工作日历 / 敬业度 / 总部 ----------
+const smStores = uid => q('SELECT store_id FROM user_stores WHERE user_id=?', uid).map(x => x.store_id);
+const smList = rid => q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level='store_manager' ORDER BY u.id", rid);
+const isCoach = u => ['coach', 'region_manager', 'hq'].includes(u.level);
+const CAP = [['biz', '经营', '店长班 · 收益与预算管理', '每周一起看经营周报，定出房价与渠道动作'], ['brand', '标准', '品牌认证复训', '陪同做一次快速巡检，现场讲解清零项'], ['team', '团队', '经理班 · 团队与梯队', '一起梳理梯队，确定 1 名可培养的储备'],
+  ['ops', '执行', '店长班 · 班次节奏', '检查固定工作清单的抽查记录，纠正一个班次'], ['guest', '客诉', '店长班 · 宾客关系', '复盘近 30 天客诉，确定 2 条服务改进'], ['cost', '成本', '店长班 · 成本与采购', '对照统购率和人工成本率，确定一项降本动作']];
+function smDiag(uid) {
+  const sids = smStores(uid); if (!sids.length) return null;
+  const all = regionScores(regionOfStore(sids[0])).all, mine = all.filter(x => sids.includes(x.id)); if (!mine.length) return null;
+  const avg = k => Math.round(mine.reduce((a, x) => a + x.dims[k], 0) / mine.length);
+  const pr = sids.map(procOf).filter(p => p.rate != null), procA = pr.length ? pr.reduce((a, p) => a + Math.min(100, p.rate * 100 / p.target), 0) / pr.length : 100;
+  const lab = sids.map(laborOf), labA = lab.reduce((a, l) => a + clamp(100 - Math.max(0, l.cost_rate - 8) * 5 - Math.max(0, l.ot_total / l.staff - 20) * 2), 0) / lab.length;
+  const val = { biz: avg('biz'), brand: avg('brand'), team: avg('team'), ops: avg('ops'), guest: avg('guest'), cost: clamp(Math.round(procA * 0.6 + labA * 0.4)) };
+  const best = k => k === 'cost' ? null : all.filter(x => !sids.includes(x.id)).sort((a, b) => b.dims[k] - a.dims[k])[0];
+  const caps = CAP.map(([k, l, course, act]) => { const v = val[k], p1 = clamp(Math.round(v + (hx('dg1' + uid + k) - 0.6) * 10)), p2 = clamp(Math.round(p1 + (hx('dg2' + uid + k) - 0.6) * 10)), b = best(k);
+    return { k, l, v, trend: [p2, p1, v], course, act, bench: b && b.dims[k] > v ? { id: b.id, name: b.name, v: b.dims[k] } : null }; });
+  const weak = [...caps].sort((a, b) => a.v - b.v).filter((c, i) => i === 0 || c.v < 80).slice(0, 2);
+  return { sids, caps, weak: weak.map(w => w.k), total: Math.round(caps.reduce((a, c) => a + c.v, 0) / caps.length) };
+}
+app.get('/api/diag/:uid', (req, res) => {
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || x.level !== 'store_manager') return err(res, '仅适用于店长');
+  if (!(x.id === req.u.id || isRegion(req.u))) return deny(res);
+  res.json({ user: { id: x.id, name: x.name }, ...smDiag(x.id), sim: true });
+});
+const CK_W = { 客诉回访: 3, 客诉: 3, 安全: 3, 上岗门槛: 3, 超时: 2, 整改: 2, 补偿审批: 3, 离职预警: 2 };
+const CK_ACT = { 待接班: '确认接班，未完成的问题安排到人', 物料盘点: '指派店助今天完成盘点', 周报: '一键提交周报', 待点评: '逐条点评，给做得好的员工点肯定', 提升计划: '更新提升计划进度', 离职预警: '安排一次一对一谈话' };
+app.get('/api/cockpit', async (req, res) => {
+  const u = req.u; if (u.level !== 'store_manager') return deny(res);
+  const sids = visibleStores(u), sid = Number(req.query.store) || sids[0];
+  const ib = await (await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/inbox?store=${sid}`, { headers: { 'x-user-id': String(u.id) } })).json();
+  const items = (Array.isArray(ib) ? ib : []).map(x => ({ ...x, w: ({ bad: 3, warn: 2, acc: 1 }[x.lv] || 1) * 2 + (Object.entries(CK_W).find(([k]) => (x.tag || '').includes(k))?.[1] || 0), how: CK_ACT[x.tag] || (x.lv === 'bad' ? '今天必须处理' : '今天内处理') })).sort((a, b) => b.w - a.w).slice(0, 3);
+  const dg = smDiag(u.id), wk = dg && dg.caps.find(c => c.k === dg.weak[0]);
+  if (wk && items.length < 3) items.push({ tag: '能力提升', lv: 'acc', title: `本月短板：${wk.l}（${wk.v} 分）`, how: wk.act, link: '#/diag?uid=' + u.id });
+  const multi = sids.length > 1 ? sids.map(s => multiOf(s)) : null;
+  res.json({ items, multi, onboard: q1('SELECT 1 FROM onboard_plan WHERE user_id=?', u.id) ? obOf(u.id).pct : null });
+});
+function multiOf(sid) {
+  const sc = storeScore(sid), t = L.today();
+  const rl = q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status!='closed' AND deadline<?", sid, t).n;
+  const cp = q("SELECT * FROM complaints WHERE store_id=? AND status!='closed'", sid).map(cpOf), cl = cp.filter(c => c.late).length, sl = safeOf(sid).filter(p => p.late).length;
+  const od = q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND status='pending' AND due_time<?", sid, t, L.nowHM()).n;
+  const asg = q1("SELECT u.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND r.name='店助' AND u.active=1", sid)?.name;
+  const lv = rl >= 3 || cl || sl || sc.grade === 'D' ? 'bad' : rl || cp.length || od > 3 || sc.grade === 'C' ? 'warn' : 'ok';
+  const why = [rl && `整改逾期 ${rl}`, cl && `客诉超时 ${cl}`, sl && `安全逾期 ${sl}`, cp.length && !cl && `客诉处理中 ${cp.length}`, od && `任务超时 ${od}`].filter(Boolean);
+  return { id: sid, name: sname(sid), grade: sc.grade, total: sc.total, lv, why, assistant: asg || null };
+}
+const OB_STEPS = [['d1', '第 1 周', '熟悉门店档案、画像与证照', 7, '#/home?pl=shop'], ['d2', '第 1 周', '与核心员工逐一面谈，认识团队', 7, '#/team'], ['d3', '第 1 周', '检查安全计划与特种设备年检', 7, '#/safety'],
+  ['w1', '第 2-4 周', '掌握班次节奏与固定工作清单', 28, '#/tasks'], ['w2', '第 2-4 周', '独立完成一次快速巡检', 28, '#/patrol'], ['w3', '第 2-4 周', '主持值班交接班', 28, '#/shift'], ['w4', '第 2-4 周', '独立处理一次客诉全流程', 28, '#/complaints'],
+  ['m1', '第 2-3 月', '独立完成一次月度经营复盘', 60, '#/home?pl=biz'], ['m2', '第 2-3 月', '针对画像短板制定提升计划', 75, '#/diag'], ['m3', '第 2-3 月', '取得店长班认证', 90, '#/train']];
+function obOf(uid) {
+  const pl = q1('SELECT * FROM onboard_plan WHERE user_id=?', uid); if (!pl) return null;
+  const rows = Object.fromEntries(q('SELECT o.*, u.name ok_name FROM onboard o LEFT JOIN users u ON u.id=o.ok_by WHERE o.user_id=?', uid).map(r => [r.step, r])), t = L.today();
+  const steps = OB_STEPS.map(([k, phase, title, d, link]) => { const r = rows[k] || {}, due = L.addDays(pl.start, d), done = k === 'm3' ? (smCertified(uid) ? r.done_at || t : null) : r.done_at;
+    return { k, phase, title, link: k === 'm2' ? '#/diag?uid=' + uid : link, due, done_at: done || null, note: r.note || '', ok_at: r.ok_at || (k === 'm3' && done ? done : null), ok_name: r.ok_name || (k === 'm3' && done ? '培训认证' : null), late: !done && due < t }; });
+  const ok = steps.filter(s => s.ok_at).length;
+  return { start: pl.start, day: dBetween(pl.start, t) + 1, coach: q1('SELECT name FROM users WHERE id=?', pl.coach_id)?.name, coach_id: pl.coach_id, steps, pct: Math.round(ok * 100 / steps.length), wait: steps.filter(s => s.done_at && !s.ok_at).length };
+}
+app.get('/api/onboard/:uid', (req, res) => {
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x) return deny(res);
+  if (!(x.id === req.u.id || isRegion(req.u))) return deny(res);
+  const o = obOf(x.id); res.json(o ? { user: { id: x.id, name: x.name }, ...o, can_ok: isCoach(req.u) || req.u.id === o.coach_id, me: x.id === req.u.id } : { user: { id: x.id, name: x.name }, none: true });
+});
+app.post('/api/onboard/:uid/:k', (req, res) => {
+  const uid = Number(req.params.uid), k = req.params.k, o = obOf(uid); if (!o || !OB_STEPS.find(s => s[0] === k) || k === 'm3') return err(res, '该项不可操作');
+  const s = o.steps.find(x => x.k === k);
+  if (req.body.op === 'done') { if (req.u.id !== uid) return deny(res);
+    run('INSERT INTO onboard(user_id,step,done_at,note) VALUES(?,?,?,?) ON CONFLICT(user_id,step) DO UPDATE SET done_at=excluded.done_at, note=excluded.note', uid, k, L.today(), req.body.note || '');
+    if (o.coach_id) D.notify([o.coach_id], 'onboard', `${q1('SELECT name FROM users WHERE id=?', uid).name} 完成「${s.title}」，待验收`, req.body.note || '', '#/onboard?uid=' + uid);
+  } else if (req.body.op === 'ok') { if (!(isCoach(req.u) || req.u.id === o.coach_id)) return deny(res); if (!s.done_at) return err(res, '店长尚未完成');
+    run('UPDATE onboard SET ok_by=?, ok_at=? WHERE user_id=? AND step=?', req.u.id, L.today(), uid, k); D.notify([uid], 'onboard', `「${s.title}」已验收`, '', '#/onboard?uid=' + uid);
+  } else return err(res, '操作无效');
+  D.audit(req.u.id, null, '90 天上手', `${uid} ${k} ${req.body.op}`); res.json({ ok: true });
+});
+app.get('/api/coach', (req, res) => {
+  if (!isCoach(req.u)) return deny(res);
+  const rid = req.u.region_id, t = L.today();
+  const sms = smList(rid).map(m => { const dg = smDiag(m.id), ob = obOf(m.id), last = q1('SELECT * FROM coach_logs WHERE sm_id=? ORDER BY date DESC, id DESC LIMIT 1', m.id), ms = smStores(m.id).map(multiOf);
+    const todo = [...(dg ? dg.caps.filter(c => dg.weak.includes(c.k)).map(c => `${c.l} ${c.v} 分：${c.act}`) : []), ...(ob && ob.wait ? [`90 天上手：${ob.wait} 项待验收`] : []), ...(!smCertified(m.id) ? ['未取得店长班认证，安排报名'] : [])];
+    const pri = (ms.some(s => s.lv === 'bad') ? 3 : 0) + (dg ? (80 - Math.min(80, dg.total)) / 5 : 0) + (ob ? 2 : 0) + (!last || dBetween(last.date, t) > 14 ? 1 : 0);
+    return { id: m.id, name: m.name, stores: ms, diag: dg && { total: dg.total, weak: dg.caps.filter(c => dg.weak.includes(c.k)).map(c => ({ k: c.k, l: c.l, v: c.v })) }, onboard: ob && { pct: ob.pct, day: ob.day, wait: ob.wait }, cert: !!smCertified(m.id), last, todo, pri };
+  }).sort((a, b) => b.pri - a.pri);
+  const exc = [];
+  visibleStores(req.u).forEach(sid => { const n = sname(sid);
+    q("SELECT * FROM complaints WHERE store_id=? AND comp_status='pending'", sid).forEach(c => exc.push({ lv: 'warn', tag: '补偿审批', title: `${n}：${c.body}`, sub: `补偿 ¥${c.comp_amt}`, link: '#/complaints' }));
+    q("SELECT * FROM complaints WHERE store_id=? AND status!='closed' AND level='重大'", sid).forEach(c => exc.push({ lv: 'bad', tag: '重大客诉', title: `${n}：${c.body}`, sub: '', link: '#/complaints' }));
+    const sl = safeOf(sid).filter(p => p.late); if (sl.length) exc.push({ lv: 'bad', tag: '安全逾期', title: `${n}：${sl.map(p => p.kind).join('、')}`, sub: '系统已提醒店长', link: '#/safety?store=' + sid });
+    const rl = q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status!='closed' AND deadline<?", sid, L.addDays(t, -3)).n; if (rl) exc.push({ lv: 'warn', tag: '整改久拖', title: `${n}：${rl} 条整改逾期超过 3 天`, sub: '自动提醒无效，需要介入', link: '#/rect' });
+  });
+  res.json({ sms, exc, logs: q('SELECT l.*, u.name sm_name FROM coach_logs l JOIN users u ON u.id=l.sm_id WHERE l.coach_id=? ORDER BY l.date DESC, l.id DESC LIMIT 10', req.u.id), auto: ['任务提醒与超时升级', '整改到期提醒与复查安排', '统购率、库存与盘点预警', '证照、安全计划到期提醒', '新店长上手进度提醒'] });
+});
+app.post('/api/coach/log', (req, res) => {
+  if (!isCoach(req.u)) return deny(res); const b = req.body, sm = q1(USER_SQL + ' WHERE u.id=?', b.sm_id);
+  if (!sm || sm.level !== 'store_manager' || !(b.topic || '').trim()) return err(res, '请选择店长并填写辅导主题');
+  run('INSERT INTO coach_logs(sm_id,coach_id,date,topic,note,next) VALUES(?,?,?,?,?,?)', sm.id, req.u.id, L.today(), b.topic, b.note || '', b.next || '');
+  D.notify([sm.id], 'coach', `${req.u.name} 的辅导记录：${b.topic}`, b.next ? '下一步：' + b.next : '', '#/diag?uid=' + sm.id); res.json({ ok: true });
+});
+app.get('/api/wcal', (req, res) => {
+  if (!isRegion(req.u)) return deny(res);
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : L.addDays(L.today(), -((new Date(L.today()).getDay() + 6) % 7)), to = L.addDays(from, 13), rid = req.u.region_id, sids = visibleStores(req.u), ph = sids.map(() => '?').join(','), xs = [];
+  const add = (date, kind, title, link) => xs.push({ date, kind, title, link });
+  q(`SELECT * FROM patrols WHERE store_id IN (${ph}) AND status='planned' AND planned_date BETWEEN ? AND ?`, ...sids, from, to).forEach(p => add(p.planned_date, p.kind === 'mystery' ? '神秘访客' : '巡店', sname(p.store_id) + (p.reason ? ' · ' + p.reason : ''), '#/patrol'));
+  q('SELECT * FROM train_classes WHERE region_id=? AND start BETWEEN ? AND ?', rid, from, to).forEach(c => add(c.start, '开班', c.name, '#/train'));
+  q(`SELECT n.*, p.name pname FROM project_nodes n JOIN projects p ON p.id=n.project_id WHERE n.actual_date IS NULL AND n.plan_date BETWEEN ? AND ?`, from, to).forEach(n => add(n.plan_date, '项目节点', `${n.pname} · ${n.name}`, '#/project/' + n.project_id));
+  sids.forEach(s => safeOf(s).filter(p => p.next_date >= from && p.next_date <= to && p.cycle > 1).forEach(p => add(p.next_date, '安全', `${sname(s)} · ${p.kind}`, '#/safety?store=' + s)));
+  smList(rid).forEach(m => { const o = obOf(m.id); if (o) o.steps.filter(s => !s.ok_at && s.due >= from && s.due <= to).forEach(s => add(s.due, '上手验收', `${m.name} · ${s.title}`, '#/onboard?uid=' + m.id)); });
+  q('SELECT * FROM coach_logs WHERE coach_id=? AND date BETWEEN ? AND ?', req.u.id, from, to).forEach(l => add(l.date, '辅导', l.topic, '#/coach'));
+  q('SELECT * FROM cal_events WHERE region_id=? AND date BETWEEN ? AND ?', rid, from, to).forEach(e => add(e.date, e.kind, (e.store_id ? sname(e.store_id) + ' · ' : '') + e.title, ''));
+  res.json({ from, to, items: xs.sort((a, b) => a.date.localeCompare(b.date)), kinds: ['业主沟通会', '区域例会', '门店走访', '其他'] });
+});
+app.post('/api/wcal', (req, res) => {
+  if (!isRegion(req.u)) return deny(res); const b = req.body;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '') || !(b.title || '').trim()) return err(res, '请填写日期和事项');
+  run('INSERT INTO cal_events(region_id,date,kind,title,store_id,by) VALUES(?,?,?,?,?,?)', req.u.region_id, b.date, b.kind || '其他', b.title, Number(b.store_id) || null, req.u.id); res.json({ ok: true });
+});
+const EG_Q = ['我清楚自己每天要做什么', '我的付出能得到认可', '店长关心我的成长', '我愿意推荐朋友来这里工作', '一年后我仍打算在这里工作'];
+const quarter = d => d.slice(0, 4) + '-Q' + (Math.floor((Number(d.slice(5, 7)) - 1) / 3) + 1);
+const prevQ = qq => { const [y, n] = [Number(qq.slice(0, 4)), Number(qq.slice(-1))]; return n > 1 ? `${y}-Q${n - 1}` : `${y - 1}-Q4`; };
+function egStats(sid, qq) {
+  const rs = q('SELECT * FROM survey_resp WHERE store_id=? AND q=?', sid, qq); if (!rs.length) return { n: 0 };
+  const avg = EG_Q.map((_, i) => Math.round(rs.reduce((a, r) => a + r['a' + (i + 1)], 0) / rs.length * 10) / 10), pro = rs.filter(r => r.a4 >= 5).length, det = rs.filter(r => r.a4 <= 3).length;
+  return { n: rs.length, avg, total: Math.round(avg.reduce((a, b) => a + b, 0) / avg.length * 10) / 10, enps: Math.round((pro - det) * 100 / rs.length), comments: rs.filter(r => r.comment).map(r => r.comment).slice(-5) };
+}
+function riskOf(sid) {
+  const t = L.today(), eg = egStats(sid, quarter(t)), ot = Object.fromEntries(laborOf(sid).ot.map(o => [o.id, o.ot]));
+  return q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff'", sid).map(u => {
+    const ex = execScore(u.id), cur = pstats(u.id, L.addDays(t, -30), L.addDays(t, -1)), pv = pstats(u.id, L.addDays(t, -60), L.addDays(t, -31)), why = []; let s = 0;
+    if (ex && ex.score < 70) { s += 30; why.push(`执行分 ${ex.score}`); }
+    if (cur.rate != null && pv.rate != null && pv.rate - cur.rate >= 8) { s += 25; why.push(`完成率下滑 ${pv.rate - cur.rate} 个点`); }
+    const lv = q1('SELECT COUNT(*) n FROM leaves WHERE user_id=? AND date>=?', u.id, L.addDays(t, -30)).n; if (lv >= 3) { s += 20; why.push(`近 30 天请假 ${lv} 天`); }
+    if ((ot[u.id] || 0) > 24) { s += 20; why.push(`月加班 ${ot[u.id]} 小时`); }
+    if (q1("SELECT 1 FROM pay_appeals WHERE user_id=? AND status='rejected'", u.id)) { s += 15; why.push('绩效申诉未通过'); }
+    if (eg.n && eg.avg[4] < 3.6) { s += 10; why.push('门店留任意愿偏低'); }
+    if (hx('rk' + u.id) > 0.86) { s += 25; why.push('近期多次调班（模拟）'); }
+    const tk = q1('SELECT * FROM talks WHERE user_id=? ORDER BY date DESC LIMIT 1', u.id);
+    return { id: u.id, name: u.name, role_name: u.role_name, score: s, level: s >= 40 ? '高' : s >= 20 ? '中' : '低', why, talk: tk && dBetween(tk.date, t) <= 30 ? tk : null };
+  }).filter(x => x.score >= 20).sort((a, b) => b.score - a.score);
+}
+app.get('/api/engage', (req, res) => {
+  const u = req.u, sids = visibleStores(u), sid = Number(req.query.store) || sids[0]; if (!sids.includes(sid)) return deny(res);
+  const qq = quarter(L.today()), mgr = u.level !== 'staff' || !!LEADS[u.role_name];
+  res.json({ store: sname(sid), q: qq, questions: EG_Q, done: !!q1('SELECT 1 FROM survey_done WHERE user_id=? AND q=?', u.id, qq), can_fill: ['staff', 'store_manager'].includes(u.level),
+    cur: mgr ? egStats(sid, qq) : null, prev: mgr ? egStats(sid, prevQ(qq)) : null, staff: q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND u.store_id=? AND r.level='staff'", sid).n,
+    risk: u.level === 'store_manager' || isRegion(u) ? riskOf(sid) : null, region: isRegion(u) ? sids.map(s => ({ id: s, name: sname(s), ...egStats(s, qq), risk: riskOf(s).filter(r => r.level === '高').length })) : null });
+});
+app.post('/api/engage', (req, res) => {
+  const u = req.u, qq = quarter(L.today()), a = (req.body.answers || []).map(Number), sid = u.store_id || visibleStores(u)[0];
+  if (!['staff', 'store_manager'].includes(u.level) || !sid) return deny(res);
+  if (a.length !== 5 || a.some(v => !(v >= 1 && v <= 5))) return err(res, '请回答全部 5 题');
+  if (q1('SELECT 1 FROM survey_done WHERE user_id=? AND q=?', u.id, qq)) return err(res, '本季度已填写');
+  D.tx(() => { run('INSERT INTO survey_done(user_id,q) VALUES(?,?)', u.id, qq); run('INSERT INTO survey_resp(store_id,q,a1,a2,a3,a4,a5,comment,at) VALUES(?,?,?,?,?,?,?,?,?)', sid, qq, ...a, (req.body.comment || '').slice(0, 200), L.today()); });
+  res.json({ ok: true });
+});
+app.post('/api/engage/talk', (req, res) => {
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.body.uid); if (!x || !canManage(req.u, x.store_id) && !isCoach(req.u)) return deny(res);
+  if (!(req.body.note || '').trim()) return err(res, '请填写谈话记录');
+  run('INSERT INTO talks(user_id,by,date,note) VALUES(?,?,?,?)', x.id, req.u.id, L.today(), req.body.note); D.audit(req.u.id, x.store_id, '留任谈话', x.name); res.json({ ok: true });
+});
+app.get('/api/hq', (req, res) => {
+  if (!['hq', 'region_manager'].includes(req.u.level)) return deny(res);
+  const regs = q('SELECT * FROM regions').map(r => { const sc = regionScores(r.id).all, sids = sc.map(x => x.id), pr = sids.map(procOf).filter(p => p.rate != null);
+    return { id: r.id, name: r.name, stores: sc.length, avg: sc.length ? Math.round(sc.reduce((a, x) => a + x.total, 0) / sc.length) : null, grades: [...GRADES].map(g => sc.filter(x => x.grade === g).length),
+      proc: pr.length ? Math.round(pr.reduce((a, p) => a + p.rate, 0) / pr.length) : null, cp30: sids.length ? q1(`SELECT COUNT(*) n FROM complaints WHERE store_id IN (${sids.join(',')}) AND created_at>=?`, L.addDays(L.today(), -30)).n : 0,
+      sm: smList(r.id).length, coach: q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.region_id=? AND r.level='coach' AND u.active=1", r.id).n, sim: false }; });
+  const SIM = [['华南一区', 6, 84, [1, 2, 2, 1, 0], 81, 9, 5, 1], ['华北一区', 5, 79, [0, 1, 2, 1, 1], 76, 14, 5, 0]].map(([name, stores, avg, grades, proc, cp30, sm, coach], i) => ({ id: -1 - i, name, stores, avg, grades, proc, cp30, sm, coach, sim: true }));
+  const all = [...regs, ...SIM].sort((a, b) => (b.avg || 0) - (a.avg || 0)).map((x, i) => ({ ...x, rank: i + 1, ratio: x.coach ? Math.round(x.stores / x.coach * 10) / 10 : null }));
+  const pool = q(USER_SQL + " WHERE u.active=1 AND r.level='staff' AND (r.name='店助' OR r.name LIKE '%经理')").map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store_id ? sname(x.store_id) : '', region: q1('SELECT name FROM regions WHERE id=?', x.region_id)?.name, tier: hrSummary(x).tier, cert: !!smCertified(x.id) })).filter(x => x.tier === '可晋升');
+  res.json({ grades: [...GRADES], regions: all, pool, notices: q('SELECT n.*, u.name by_name FROM hq_notices n LEFT JOIN users u ON u.id=n.by ORDER BY n.id DESC LIMIT 10'), can_post: req.u.level === 'hq' });
+});
+app.post('/api/hq/notice', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res); const b = req.body; if (!(b.title || '').trim()) return err(res, '请填写标题');
+  run('INSERT INTO hq_notices(title,body,kind,by,at) VALUES(?,?,?,?,?)', b.title, b.body || '', b.kind || '政策', req.u.id, L.nowStr());
+  const ids = q("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level NOT IN ('staff','hq')").map(x => x.id);
+  D.notify(ids, 'hq', `总部${b.kind || '政策'}：${b.title}`, b.body || '', '#/notices'); res.json({ ok: true, n: ids.length });
+});
+function seedBatchC() {
+  if (D.getSetting('bc_seeded', 0)) return;
+  const t = L.today();
+  D.tx(() => {
+    for (const [rn, lv, nm, ph] of [['教练', 'coach', '周宁', '13761205561'], ['总部运营', 'hq', '林海', '13761205562']]) {
+      if (!q1('SELECT 1 FROM roles WHERE name=?', rn)) run('INSERT INTO roles(name,level,sort) VALUES(?,?,2)', rn, lv);
+      run('INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES(?,(SELECT id FROM roles WHERE name=?),1,NULL,?)', nm, rn, ph);
+    }
+    const coach = q1("SELECT id FROM users WHERE name='周宁'").id, gl = q1("SELECT id FROM users WHERE name='顾磊'")?.id;
+    if (gl) { run('INSERT OR IGNORE INTO onboard_plan(user_id,start,coach_id) VALUES(?,?,?)', gl, L.addDays(t, -40), coach);
+      [['d1', -36, '已看完档案和证照'], ['d2', -34, '面谈 11 人'], ['d3', -33, ''], ['w1', -20, ''], ['w3', -12, '连续一周主持早班交接'], ['w2', -3, '快速巡检 1 次，发现 3 项']].forEach(([k, d, n], i) =>
+        run('INSERT OR IGNORE INTO onboard(user_id,step,done_at,note,ok_by,ok_at) VALUES(?,?,?,?,?,?)', gl, k, L.addDays(t, d), n, i < 5 ? coach : null, i < 5 ? L.addDays(t, d + 2) : null)); }
+    const sm1 = q1("SELECT id FROM users WHERE name='刘洋'")?.id;
+    if (sm1) run('INSERT INTO coach_logs(sm_id,coach_id,date,topic,note,next) VALUES(?,?,?,?,?,?)', sm1, coach, L.addDays(t, -9), '统购率偏低', '布草和早餐原料仍有本地采购', '两周内切换统购供应商');
+    const qq = quarter(t), pq = prevQ(qq);
+    for (const s of q('SELECT id FROM stores')) for (const [qx, base] of [[pq, 0.1], [qq, 0]]) for (let i = 0; i < 6 + Math.floor(hx('eg' + s.id + qx) * 5); i++) {
+      const lo = s.id === 3 ? 2.6 : 3.2, a = [1, 2, 3, 4, 5].map(j => Math.max(1, Math.min(5, Math.round(lo + base * 5 + hx('ea' + s.id + qx + i + j) * 2.4))));
+      run('INSERT INTO survey_resp(store_id,q,a1,a2,a3,a4,a5,comment,at) VALUES(?,?,?,?,?,?,?,?,?)', s.id, qx, ...a, i === 0 ? (s.id === 3 ? '夜班人手太紧，经常加班' : '希望多一些技能培训') : '', qx === qq ? L.addDays(t, -i) : L.addDays(t, -95));
+    }
+    run('INSERT INTO hq_notices(title,body,kind,by,at) VALUES(?,?,?,?,?)', '2026 年冬季消防专项检查', '各区域 12 月 15 日前完成全员消防演练并上传照片', '标准', q1("SELECT id FROM users WHERE name='林海'").id, L.addDays(t, -2) + ' 10:00');
+  });
+  D.setSetting('bc_seeded', 1);
+}
+seedBatchC();
 
 // ---------- 易 X 角色模块 ----------
 const YI_ROLE = { dev_manager: ['dev'], build_manager: ['build'], train_manager: ['train'], hr_manager: ['hr'], region_manager: ['dev', 'build', 'train', 'hr'] };

@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS requisitions(id INTEGER PRIMARY KEY, store_id INTEGER
 CREATE TABLE IF NOT EXISTS stocktakes(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, status TEXT, assignee_id INTEGER, items TEXT, created_by INTEGER, created_at TEXT, done_by INTEGER, done_at TEXT);
 CREATE TABLE IF NOT EXISTS train_classes(id INTEGER PRIMARY KEY, region_id INTEGER, name TEXT, kind TEXT, cert TEXT, start TEXT, end TEXT, seats INTEGER, trainer_id INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS train_enroll(id INTEGER PRIMARY KEY, class_id INTEGER, user_id INTEGER, status TEXT, score INTEGER, created_at TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS onboard_plan(user_id INTEGER PRIMARY KEY, start TEXT, coach_id INTEGER);
+CREATE TABLE IF NOT EXISTS onboard(user_id INTEGER, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, step));
+CREATE TABLE IF NOT EXISTS coach_logs(id INTEGER PRIMARY KEY, sm_id INTEGER, coach_id INTEGER, date TEXT, topic TEXT, note TEXT, next TEXT);
+CREATE TABLE IF NOT EXISTS cal_events(id INTEGER PRIMARY KEY, region_id INTEGER, date TEXT, kind TEXT, title TEXT, store_id INTEGER, by INTEGER);
+CREATE TABLE IF NOT EXISTS survey_resp(id INTEGER PRIMARY KEY, store_id INTEGER, q TEXT, a1 INTEGER, a2 INTEGER, a3 INTEGER, a4 INTEGER, a5 INTEGER, comment TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS survey_done(user_id INTEGER, q TEXT, PRIMARY KEY(user_id, q));
+CREATE TABLE IF NOT EXISTS talks(id INTEGER PRIMARY KEY, user_id INTEGER, by INTEGER, date TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS hq_notices(id INTEGER PRIMARY KEY, title TEXT, body TEXT, kind TEXT, by INTEGER, at TEXT);
 CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, store_id INTEGER, src TEXT, level TEXT, guest TEXT, room TEXT, body TEXT, staff_id INTEGER, owner_id INTEGER, status TEXT, due_at TEXT, created_by INTEGER, created_at TEXT, handle_note TEXT, handled_at TEXT, comp_amt INTEGER DEFAULT 0, comp_kind TEXT, comp_status TEXT DEFAULT 'none', comp_by INTEGER, cb_score INTEGER, cb_note TEXT, closed_at TEXT);
 CREATE TABLE IF NOT EXISTS safety_plans(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, cycle INTEGER, last_date TEXT, next_date TEXT);
 CREATE TABLE IF NOT EXISTS safety_logs(id INTEGER PRIMARY KEY, plan_id INTEGER, store_id INTEGER, date TEXT, by INTEGER, result TEXT, note TEXT, photo TEXT);
