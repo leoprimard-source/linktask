@@ -145,9 +145,10 @@ function coverFor(userId, date, storeId) {
   if (!lv) return userId;
   return lv.cover_user_id || storeManagers(storeId)[0] || userId;
 }
+const monthDay = (date, v) => L.dom(date) === Math.min(Number(v), new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7), 0)).getUTCDate());
 function tplDue(t, date) {
   if (t.freq === 'weekly') return L.weekday(date) === Number(t.freq_val);
-  if (t.freq === 'monthly') return L.dom(date) === Number(t.freq_val);
+  if (t.freq === 'monthly') return monthDay(date, t.freq_val);
   return true;
 }
 function flexDue(f, date) {
@@ -155,13 +156,17 @@ function flexDue(f, date) {
   if (f.end_date && date > f.end_date) return false;
   if (f.recur === 'once') return date === f.start_date;
   if (f.recur === 'weekly') return L.weekday(date) === Number(f.recur_val);
-  if (f.recur === 'monthly') return L.dom(date) === Number(f.recur_val);
+  if (f.recur === 'monthly') return monthDay(date, f.recur_val);
   return true;
 }
 
 const insInst = () => db.prepare(`INSERT OR IGNORE INTO instances(store_id,date,src,src_id,scene_id,title,standard,category,origin,assignee_id,orig_assignee_id,due_time,need_photo)
   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 function ensureInstances(date, storeIds) {
+  ensureInstances0(date, storeIds);
+  if (date < L.today()) run("UPDATE instances SET status='missed' WHERE status='pending' AND date=?", date);
+}
+function ensureInstances0(date, storeIds) {
   if (date > L.addDays(L.today(), 30)) return;
   const stores = storeIds && storeIds.length ? storeIds : q('SELECT id FROM stores').map(s => s.id);
   const tpls = q('SELECT t.* FROM templates t JOIN scenes s ON s.id=t.scene_id WHERE t.active=1 AND s.active=1');

@@ -88,6 +88,7 @@ function statusTag(it) {
     const late = it.done_at && it.done_at.slice(11, 16) > it.due_time;
     return `<span class="tag ok">已完成 ${esc((it.done_at || '').slice(11, 16))}</span>${late ? ' <span class="tag warn">迟交</span>' : ''}`;
   }
+  if (it.status === 'missed') return '<span class="tag bad">逾期未完成</span>';
   return it.overdue ? '<span class="tag bad">超时未完成</span>' : '<span class="tag">待完成</span>';
 }
 function checkTag(it) {
@@ -2475,8 +2476,8 @@ VIEWS.hrm = async () => {
   ${A.alerts.length ? `<div class="sec-t2">人事预警</div><div class="list">${A.alerts.map(a => `<a class="task" href="#/hrm?store=${a.sid || s?.id || ''}"><div class="b"><div class="ttl"><span class="tag ${a.lv}">${esc(a.type)}</span> ${a.store ? esc(a.store) + '：' : ''}${esc(a.text)}</div></div></a>`).join('')}</div>` : ''}
   ${s ? `<div class="sec-t2">编制明细 · ${s.rooms} 间房</div><div class="list">${s.plan.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.pos)}${p.key ? ' <span class="tag acc">关键</span>' : ''}${p.shared ? ' <span class="tag">兼管</span>' : ''}</div><div class="muted small">编制 ${p.plan}${p.plan !== p.std ? `（标准 ${p.std}）` : ''} · 在岗 ${p.act}${p.gap && p.key ? ` · 已空缺 ${p.vac_days} 天` : ''}</div></div>
     <div class="row" style="gap:6px;flex:none">${p.gap ? `<span class="tag ${p.key ? 'bad' : 'warn'}">缺 ${p.gap}</span>` : p.act > p.plan ? '<span class="tag">超编</span>' : '<span class="tag ok">满编</span>'}${d.can_plan ? `<button class="btn sm" data-hp="${p.pos}" data-n="${p.plan}">调整</button>` : ''}</div></div>`).join('')}</div>
-    <p class="muted small">标准编制按房量自动计算，人事经理可以按店调整。</p>` : `<div class="sec-t2">人事与经营对照</div><div class="list">${d.link.map(x => `<a class="task" href="#/hrm?store=${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="tag ${x.grade <= 'B' ? 'ok' : 'warn'}">画像 ${x.grade} · ${x.total}</span></div><div class="muted small">满编 ${x.fill}% · 年化离职 ${x.y_rate}% · 90 天流失 ${x.early_rate}% · 团队人才 ${x.team} · 近 30 天客诉 ${x.cp30}</div></div><span class="tag ${x.stab >= 80 ? 'ok' : x.stab >= 60 ? 'warn' : 'bad'}">稳定 ${x.stab}</span></a>`).join('')}</div>
-    <p class="muted small">「稳定」是团队稳定性分，占店长季度考核的 15%，也用于店长能力诊断的「团队」项。</p>`}
+    <p class="muted small">标准编制按房量自动计算，人事经理可以按店调整。</p>` : `<div class="sec-t2">人事与经营对照</div><div class="list">${d.link.map(x => `<a class="task" href="#/hrm?store=${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="tag ${x.grade <= 'B' ? 'ok' : 'warn'}">画像 ${x.grade} · ${x.total}</span></div><div class="muted small">满编 ${x.fill}% · 年化离职 ${x.y_rate}% · 90 天流失 ${x.early_rate}% · 团队人才 ${x.team} · 近 30 天客诉 ${x.cp30}</div></div><span class="tag ${x.tstab >= 80 ? 'ok' : x.tstab >= 60 ? 'warn' : 'bad'}">人事稳定 ${x.stab} · 团队稳定 ${x.tstab}</span></a>`).join('')}</div>
+    <p class="muted small">团队稳定 = 人事稳定 × 60% + 员工美好分 × 40%，占店长季度考核的 15%，也用于店长能力诊断的「团队」项。</p>`}
   <div class="sec-t2">招聘进度</div><div class="list">${A.recruit.map(r => `<div class="task"><div class="b"><div class="ttl">${r.store ? esc(r.store) + ' · ' : ''}${esc(r.pos)} ${r.n} 人</div><div class="muted small">${esc(r.channel)} · ${esc(r.opened)} 发起${r.cand ? ' · 候选人 ' + esc(r.cand) : ''}</div></div>
     <div class="row" style="gap:6px;flex:none"><span class="tag acc">${esc(r.stage)}</span>${d.can_rec ? `<button class="btn sm" data-rc="${r.id}" data-st="${r.stage}">推进</button>` : ''}</div></div>`).join('') || '<div class="empty">没有在招岗位</div>'}</div>
   <p class="muted small">近 12 个月到岗 ${A.filled ?? A.channels?.reduce((a, c) => a + c.n, 0) ?? 0} 人，平均到岗 ${A.fill_days ?? '-'} 天。</p>

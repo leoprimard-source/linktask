@@ -34,15 +34,22 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-const DA_CATS = [['biz', '经营数据', '营收、利润、预算与门店经营报表'], ['pay', '薪酬绩效', '他人的工资、绩效单、奖金与申诉'], ['hr', '人事档案', '他人的个人档案、执行分明细、晋升路径、门店人员名单'], ['hrm', '人事指标', '编制、满编率、离职率、招聘、离职成本'], ['care', '员工关怀与帮扶', '关怀记录、困难帮扶、福利台账、员工声音'], ['risk', '离职预警', '离职风险名单与原因'], ['diag', '店长诊断与上手', '店长能力诊断、90 天上手进度'], ['mentor', '带教统计', '他人的带教记录与统计']];
+const DA_CATS = [['biz', '经营数据', '营收、利润、预算与门店经营报表'], ['pay', '薪酬绩效', '他人的工资、绩效单、奖金与申诉'], ['hr', '人事档案', '他人的个人档案、执行分明细、晋升路径、门店人员名单'], ['hrm', '人事指标', '编制、满编率、离职率、招聘、离职成本'], ['care', '员工关怀与帮扶', '关怀记录、困难帮扶、福利台账、员工声音'], ['risk', '离职预警', '离职风险名单与原因'], ['diag', '店长诊断与上手', '店长能力诊断、90 天上手进度'], ['mentor', '带教统计', '他人的带教记录与统计'], ['pii', '联系方式', '他人的手机号等个人联系方式，未授权时打码显示']];
 const DA_ROLES = [['region_manager', '区域经理'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
-const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor'], assistant: ['biz', 'hr', 'mentor'], lead: ['hr', 'mentor'], staff: [] };
+const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii'], lead: ['hr', 'mentor'], staff: [] };
 let DA_CACHE = null;
 const daAuth = () => DA_CACHE || (DA_CACHE = { ...DA_DEF, ...D.getSetting('data_auth', {}) });
 const daKey = u => u.level !== 'staff' ? u.level : u.role_name === '店助' ? 'assistant' : LEADS[u.role_name] ? 'lead' : 'staff';
 const daCan = (u, k) => (daAuth()[daKey(u)] || []).includes(k);
 const DA_ROUTES = [[/^\/(region\/biz|store\/\d+\/biz)(\/|$)/, 'biz'], [/^\/pay\/(\d+)$/, 'pay', 1], [/^\/pay-board$/, 'pay'], [/^\/(hr\/people|region\/people|store\/\d+\/people)$/, 'hr'], [/^\/(hr\/person|person|exec|career)\/(\d+)$/, 'hr', 2],
   [/^\/hrm$/, 'hrm'], [/^\/care$/, 'care'], [/^\/(diag|onboard)\/(\d+)$/, 'diag', 2], [/^\/mentor-stats\/(\d+)$/, 'mentor', 1]];
+const maskPhone = v => typeof v === 'string' && v.length > 6 ? v.slice(0, 3) + '****' + v.slice(-4) : v;
+app.use('/api', (req, res, next) => {
+  if (daCan(req.u, 'pii')) return next();
+  const uid = req.u.id;
+  res.json = body => res.type('json').send(JSON.stringify(body, function (k, v) { return k === 'phone' && this.id !== uid ? maskPhone(v) : v; }));
+  next();
+});
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET') return next();
   for (const [re, k, gi] of DA_ROUTES) {
@@ -112,7 +119,7 @@ function pillarOf(r) {
 }
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
-  return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
+  return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
     covered: r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
 }
 
@@ -182,6 +189,8 @@ app.post('/api/instances/:id/complete', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it) return err(res, '任务不存在');
   if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id)) return deny(res, '只能完成分配给自己的任务');
+  if (it.status === 'missed' || (it.status === 'pending' && it.date < L.today())) return err(res, '该任务已逾期未完成，不能补做');
+  if (it.status === 'done') return err(res, '任务已完成');
   const photo = savePhoto(req.body.photo) || it.photo;
   if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
   const tpl = it.src === 'tpl' ? q1('SELECT need_value FROM templates WHERE id=?', it.src_id) : null;
@@ -195,6 +204,7 @@ app.post('/api/instances/:id/undo', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it || (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res);
   if (it.check_result) return err(res, '已抽查的任务不能撤回');
+  if (it.status !== 'done' || it.date < L.today()) return err(res, '只能撤回今天已完成的任务');
   run("UPDATE instances SET status='pending', done_at=NULL WHERE id=?", it.id);
   D.audit(req.u.id, it.store_id, '撤回完成', it.title);
   res.json({ ok: true });
@@ -638,7 +648,7 @@ app.get('/api/brief', (req, res) => {
     if (unchecked && !sc.cat) items.push({ level: 'acc', title: `今日 ${unchecked} 项已完成待抽查`, body: '建议随机抽查 3-5 项，合格的给予肯定，不合格的写明原因并安排整改。', link: '#/desk' });
   }
   const zero = q(`SELECT i.title, tp.code FROM instances i JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id WHERE i.date BETWEEN ? AND ? AND tp.tag='清零项'
-    AND ((i.status='pending' AND i.date<?) OR i.check_result='bad')${sc.w}`, from, to, t, ...sc.p);
+    AND ((i.status IN ('pending','missed') AND i.date<?) OR i.check_result='bad')${sc.w}`, from, to, t, ...sc.p);
   if (zero.length) items.unshift({ level: 'bad', title: `清零项未达标 ${zero.length} 项`, body: `品牌审计第 ${zero.slice(0, 3).map(z => z.code).join('、')} 条「${zero[0].title}」${zero.length > 1 ? '等' : ''}${label}未完成或抽查不合格，审计中触发即整店清零，请优先处理。`, link: '#/standards?tag=' + encodeURIComponent('清零项') });
   if (!sc.mine && !sc.cat) {
     const rv = q1(`SELECT COUNT(*) n FROM instances i JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id WHERE i.date BETWEEN ? AND ? AND tp.m='M2' AND i.status='done' AND i.check_result IS NULL${sc.w}`, L.addDays(t, -2), t, ...sc.p).n;
@@ -705,7 +715,7 @@ function storeStats0(sids, from, to, cat) {
     const p = [sid, from, to];
     let c = '';
     if (cat) { c = ' AND category=?'; p.push(cat); }
-    const s = q1(`SELECT COUNT(*) total, SUM(status='done') done, SUM(status='pending' AND (date<? OR (date=? AND due_time<?))) overdue,
+    const s = q1(`SELECT COUNT(*) total, SUM(status='done') done, SUM(status='missed' OR (status='pending' AND (date<? OR (date=? AND due_time<?)))) overdue,
       SUM(check_result IS NOT NULL) checked, SUM(check_result='good') good, SUM(check_result='bad') bad,
       SUM(origin='focus') focus_total, SUM(origin='focus' AND status='done') focus_done,
       SUM(status='done' AND substr(done_at,12,5)>due_time) late
@@ -759,7 +769,7 @@ app.get('/api/issues', (req, res) => {
       GROUP BY i.src, i.src_id HAVING n>=2`, s.id, L.addDays(t, -14), ...(cat ? [cat] : []));
     for (const r of rep) issues.push({ level: 'high', type: '问题重复出现', text: `「${r.title}」14 日内不合格 ${r.n} 次`, scene: r.scene, title: r.title });
     const miss = q(`SELECT i.title, s.name scene, i.scene_id, COUNT(*) n, (SELECT COUNT(*) FROM instances j WHERE j.src=i.src AND j.src_id=i.src_id AND j.store_id=i.store_id AND j.date BETWEEN ? AND ?) total
-      FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.store_id=? AND i.status='pending' AND i.date BETWEEN ? AND ? ${cat ? 'AND i.category=?' : ''} GROUP BY i.src, i.src_id HAVING n>=2 ORDER BY n DESC LIMIT 5`,
+      FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.store_id=? AND i.status IN ('pending','missed') AND i.date BETWEEN ? AND ? ${cat ? 'AND i.category=?' : ''} GROUP BY i.src, i.src_id HAVING n>=2 ORDER BY n DESC LIMIT 5`,
       from, L.addDays(t, -1), s.id, from, L.addDays(t, -1), ...(cat ? [cat] : []));
     for (const m of miss) issues.push({ level: m.n >= 3 ? 'high' : 'mid', type: '任务漏做', text: `「${m.title}」近 7 日漏做 ${m.n}/${m.total} 次`, scene: m.scene, scene_id: m.scene_id, title: m.title });
     const lastPatrol = q1("SELECT * FROM patrols WHERE store_id=? AND status='done' AND COALESCE(kind,'patrol')='patrol' ORDER BY done_at DESC LIMIT 1", s.id);
@@ -2206,7 +2216,7 @@ function smAssess(u) {
   const pr = sids.map(s => procOf(s)).filter(p => p.rate != null), proc = pr.length ? Math.round(pr.reduce((a, p) => a + Math.min(100, p.rate * 100 / p.target), 0) / pr.length) : 100;
   const bench = q(USER_SQL + ` WHERE u.active=1 AND u.store_id IN (${sids.join(',')})`).filter(x => hrSummary(x).tier === '可晋升').length;
   const stab = stabOf(sids), score = Math.round(avg * 0.5 + proc * 0.2 + Math.min(100, bench * 25) * 0.15 + stab * 0.15), g = score >= 90 ? 'S' : score >= 85 ? 'A' : score >= 78 ? 'B' : score >= 70 ? 'C' : 'D';
-  return { score, grade: g, coef: { S: 1.5, A: 1.2, B: 1, C: 0.8, D: 0.5 }[g], parts: [{ l: '门店画像均分', v: avg, w: 50 }, { l: '统购达成', v: proc, w: 20 }, { l: '人才储备', v: Math.min(100, bench * 25), w: 15, note: `可晋升 ${bench} 人` }, { l: '团队稳定', v: stab, w: 15, note: '满编率、离职率、新人流失、关键岗空缺' }] };
+  return { score, grade: g, coef: { S: 1.5, A: 1.2, B: 1, C: 0.8, D: 0.5 }[g], parts: [{ l: '门店画像均分', v: avg, w: 50 }, { l: '统购达成', v: proc, w: 20 }, { l: '人才储备', v: Math.min(100, bench * 25), w: 15, note: `可晋升 ${bench} 人` }, { l: '团队稳定', v: stab, w: 15, note: '人事稳定 60%（满编率、离职率、新人流失、关键岗空缺）+ 员工美好 40%' }] };
 }
 function payOf(u) {
   const ym = L.today().slice(0, 7), base = BASE_PAY[u.role_name] || 4500;
@@ -2793,9 +2803,11 @@ function runReminders(date, time, onlyStores) {
   }
   return n;
 }
+const markMissed = () => run("UPDATE instances SET status='missed' WHERE status='pending' AND date<?", L.today()).changes;
 function tick() {
   try {
     const date = L.today(), time = L.nowHM();
+    markMissed();
     const times = D.getSetting('reminder_times', []);
     if (times.includes(time) && !q1('SELECT 1 FROM reminder_log WHERE date=? AND time=?', date, time)) {
       run('INSERT INTO reminder_log VALUES(?,?)', date, time);
@@ -2923,7 +2935,7 @@ app.get('/api/hrm', (req, res) => {
   const u = req.u; if (!HRM_LV.includes(u.level)) return deny(res);
   const sids = visibleStores(u), sid = Number(req.query.store) || 0; if (sid && !sids.includes(sid)) return deny(res);
   const all = sids.map(hrStats), sel = sid ? all.find(x => x.id === sid) : sids.length === 1 ? all[0] : null, t = L.today();
-  const link = all.map(x => { const sc = storeScore(x.id); return { id: x.id, name: x.name, grade: sc.grade, total: sc.total, team: sc.dims.team, cp30: q1('SELECT COUNT(*) n FROM complaints WHERE store_id=? AND created_at>=?', x.id, L.addDays(t, -30)).n, fill: x.fill, y_rate: x.y_rate, early_rate: x.early_rate, stab: x.stab }; });
+  const link = all.map(x => { const sc = storeScore(x.id); return { id: x.id, name: x.name, grade: sc.grade, total: sc.total, team: sc.dims.team, cp30: q1('SELECT COUNT(*) n FROM complaints WHERE store_id=? AND created_at>=?', x.id, L.addDays(t, -30)).n, fill: x.fill, y_rate: x.y_rate, early_rate: x.early_rate, stab: x.stab, tstab: stabMix(x.id) }; });
   const ms = sel ? [sel.id] : sids;
   const moves = ms.length ? q(`SELECT m.*, s.name store FROM hr_moves m LEFT JOIN stores s ON s.id=m.store_id WHERE m.kind='leave' AND m.store_id IN (${ms.join(',')}) AND m.date>=? ORDER BY m.date DESC LIMIT 20`, L.addDays(t, -365)) : [];
   res.json({ sum: hrAgg(all, sids), stores: all.map(x => ({ id: x.id, name: x.name })), link, sel, moves, th: HC_TH, cost_def: LEAVE_COST, can_plan: canHR(u), can_rec: canHR(u) || u.level === 'store_manager',
