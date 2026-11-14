@@ -2988,6 +2988,7 @@ app.get('/api/yi', (req, res) => {
 app.get('/api/notifications', (req, res) => res.json(q('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', req.u.id)));
 app.post('/api/notifications/read', (req, res) => {
   if (req.body.id) run('UPDATE notifications SET read=1 WHERE id=? AND user_id=?', req.body.id, req.u.id);
+  else if (Array.isArray(req.body.ids)) req.body.ids.slice(0, 200).forEach(id => run('UPDATE notifications SET read=1 WHERE id=? AND user_id=?', Number(id), req.u.id));
   else run('UPDATE notifications SET read=1 WHERE user_id=?', req.u.id);
   res.json({ ok: true });
 });

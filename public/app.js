@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
+const COMMON = ['home', 'work', 'me', 'notices', 'todo', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -146,6 +146,7 @@ const ICON = {
   notices: '<path d="M4 6.5C4 5 5.3 4 7 4h6c1.7 0 3 1 3 2.5v5c0 1.5-1.3 2.5-3 2.5H9l-3.5 2.5V14C4.6 13.7 4 12.8 4 11.5z"/>',
   work: '<rect x="4" y="4" width="5" height="5" rx="1.5"/><rect x="11" y="4" width="5" height="5" rx="1.5"/><rect x="4" y="11" width="5" height="5" rx="1.5"/><rect x="11" y="11" width="5" height="5" rx="1.5"/>',
   rect: '<path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V5.5z"/><path d="M7.5 10l1.8 1.8 3.4-3.6"/>',
+  todo: '<rect x="3.5" y="3.5" width="13" height="13" rx="3.5"/><path d="M7 10.2l2.1 2.1L13.2 8"/>',
   me: '<circle cx="10" cy="7" r="3"/><path d="M4.5 16.5c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/>',
   more: '<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="13.5" r="2.5"/><circle cx="13.5" cy="13.5" r="2.5"/>',
   cam: '<path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/>',
@@ -155,19 +156,20 @@ const ICON = {
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
 const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
-const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', todo: '任务', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
 
 function shell(route, html) {
-  const root = ['home', 'notices', 'work', 'rect', 'my-rect', 'me'].includes(route);
-  const rr = rectRoute();
-  const tabs = [['home', '宏图', 'home'], ['notices', '消息', 'notices'], ['work', '工作台', 'work'], [rr, '整改', 'rect'], ['me', '我的', 'me']];
+  const root = ['home', 'notices', 'work', 'todo', 'me'].includes(route);
+  const tabs = [['home', '首页', 'home'], ['notices', '消息', 'notices'], ['todo', '任务', 'todo'], ['work', '工作台', 'work'], ['me', '我的', 'me']];
+  const tabOn = ['my', 'my-rect', 'rect', 'must', 'task'].includes(route) ? 'todo' : route;
+  const rootTitle = { home: '宏图', notices: '消息', todo: '任务', work: '工作台', me: '我的' }[route];
   $('#app').innerHTML = `<div class="phone">
   <header class="appbar">${root ? '<img class="logo" src="/icon.svg" alt="">' : '<a class="back" id="back" href="javascript:void 0" aria-label="返回">‹</a>'}
-    <b>${root ? '宏图' : esc(navLabel(route))}</b><span class="sp"></span>
+    <b>${root ? rootTitle : esc(navLabel(route))}</b><span class="sp"></span>
     ${typeof helpBar === 'function' ? helpBar(route) : ''}<button class="dots" id="dots" aria-label="更多">···</button></header>
   <main class="main ${route === 'home' ? 'home' : ''}" id="main">${html}</main>
   <div class="foot">宏图计划 · 演示模式 · 数据为模拟数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div>
-  <nav class="tabbar">${tabs.map(([k, l, ic]) => `<a href="#/${k}" class="${route === k ? 'on' : ''}">${icon(ic)}${k === 'notices' && S.me.unread ? `<b>${S.me.unread > 99 ? '99+' : S.me.unread}</b>` : ''}<span>${l}</span></a>`).join('')}</nav>
+  <nav class="tabbar">${tabs.map(([k, l, ic]) => `<a href="#/${k}" class="${tabOn === k ? 'on' : ''}">${icon(ic)}${k === 'notices' && S.me.unread ? `<b>${S.me.unread > 99 ? '99+' : S.me.unread}</b>` : ''}<span>${l}</span></a>`).join('')}</nav>
   </div>`;
   const back = $('#back'); if (back) back.onclick = () => (history.length > 1 ? history.back() : (location.hash = '#/work'));
   $('#dots').onclick = () => sheet([['切换身份', () => { location.hash = '#/login'; }], ['刷新', () => route()], ['提交修改需求', () => window.open(SESSION_URL, '_blank')]]);
@@ -233,18 +235,41 @@ async function renderLogin() {
 }
 
 // ---------- notices ----------
+const CONV = { task: ['任务助手', '#3370FF', '任'], patrol: ['巡店与跟踪', '#14A38B', '巡'], rect: ['整改', '#F29A2E', '改'], ops: ['门店运营', '#7C6CF2', '运'], hr: ['人事与关怀', '#E5534B', '人'], help: ['说明咨询', '#2BA6DE', '问'], praise: ['认可', '#D9A44E', '赞'], region: ['区域与项目', '#5B8C5A', '区'], sys: ['系统通知', '#8F959E', '系'] };
+const CONV_KIND = { assign: 'task', remind: 'task', escalate: 'task', cover: 'task', shift: 'task', patrol: 'patrol', focus: 'patrol', plan: 'patrol', rectify: 'rect', repair: 'ops', complaint: 'ops', safety: 'ops', proc: 'ops', pay: 'hr', care: 'hr', hr: 'hr', onboard: 'hr', coach: 'hr', praise: 'praise', owner: 'region', report: 'region', project: 'region' };
+const convOf = n => ((n.link || '').startsWith('#/help') ? 'help' : CONV_KIND[n.kind] || 'sys');
+const ntime = t => (t || '').slice(0, 10) === S.me.today ? (t || '').slice(11, 16) : (t || '').slice(5, 10);
+const pins = () => { try { return JSON.parse(localStorage.lt_pin || '[]'); } catch (e) { return []; } };
+const safeLink = l => (l && /^#\//.test(l) ? l : '');
+function mcards(list) {
+  const out = [];
+  for (const n of list) { const g = out[out.length - 1]; g && g[0].title === n.title ? g.push(n) : out.push([n]); }
+  return out.map(([n, ...more]) => { const c = CONV[convOf(n)], l = safeLink(n.link);
+    return `<div class="mtime">${esc(n.created_at.slice(5, 16))}</div><div class="mcard ${n.read ? '' : 'unread'}"><div class="mh"><span><i style="background:${c[1]}"></i>${esc(n.title)}</span></div>
+    <div class="mb">${esc(n.body)}</div>${l ? `<div class="ma"><a class="btn sm" href="${esc(l)}">查看详情</a></div>` : ''}
+    ${more.length ? `<details class="mmore"><summary>还有 ${more.length} 条同类消息</summary>${more.map(m => `<div class="mrow"><span class="muted small">${esc(m.created_at.slice(5, 16))}</span> ${esc(m.body)} ${safeLink(m.link) ? `<a href="${esc(m.link)}">查看</a>` : ''}</div>`).join('')}</details>` : ''}</div>`; }).join('');
+}
 VIEWS.notices = async () => {
-  const list = await api('/notifications');
-  const kindTag = { remind: '定时提醒', escalate: '<span class="tag bad">超时升级</span>', praise: '<span class="tag ok">肯定</span>', rectify: '<span class="tag warn">整改</span>',
-    assign: '<span class="tag acc">分配</span>', cover: '<span class="tag acc">顶岗</span>', focus: '<span class="tag warn">重点跟踪</span>', patrol: '<span class="tag acc">巡店</span>', system: '系统' };
-  const canRun = S.me.can.manage;
-  $('#main').innerHTML = `<div class="row between"><h1>消息提醒</h1><div class="row">
-    ${canRun ? '<button class="btn" id="run">立即发送一次定时提醒</button>' : ''}<button class="btn" id="readall">全部标为已读</button></div></div>
-    <p class="muted small" style="margin-top:-6px">每天 ${esc(S.meta.settings.reminder_times.join('、'))} 自动提醒当事人未完成的任务，同时把门店完成情况推送给店长；超过截止时间 ${S.meta.settings.escalate_minutes} 分钟未完成会升级提醒店长，整改逾期会升级给区域经理和运营经理。</p>
-    <div class="list">${list.length ? list.map(n => `<div class="notice ${n.read ? '' : 'unread'}"><div class="row between"><b>${esc(n.title)}</b><span class="muted small mono">${esc(n.created_at)}</span></div>
-      <div class="small">${kindTag[n.kind] || ''} ${esc(n.body)} ${n.link ? `<a href="${esc(n.link)}">查看</a>` : ''}</div></div>`).join('') : '<div class="empty">暂无消息</div>'}</div>`;
+  const list = await api('/notifications'), c = qs().get('c'), canRun = S.me.can.manage;
+  const markRead = async ids => { if (!ids.length) return; await api('/notifications/read', { ids }); S.me = await api('/me'); const b = document.querySelector('.tabbar a[href="#/notices"] b'); if (b) S.me.unread ? (b.textContent = S.me.unread > 99 ? '99+' : S.me.unread) : b.remove(); };
+  if (c && CONV[c]) {
+    const xs = list.filter(n => convOf(n) === c), p = pins().includes(c);
+    $('#main').innerHTML = `<div class="chd"><span class="cav" style="background:${CONV[c][1]}">${CONV[c][2]}</span><b>${CONV[c][0]}</b><span class="sp"></span>
+      ${c === 'task' && canRun ? '<button class="btn sm" id="run">立即提醒</button>' : ''}<button class="btn sm" id="pin">${p ? '取消置顶' : '置顶'}</button></div>
+      ${xs.length ? mcards(xs) : '<div class="empty">暂无消息</div>'}`;
+    $('#pin').onclick = () => { const a = pins().filter(x => x !== c); if (!p) a.unshift(c); localStorage.lt_pin = JSON.stringify(a); route(); };
+    if ($('#run')) $('#run').onclick = () => act(async () => { const r = await api('/reminders/run', {}); toast(`已发送 ${r.sent} 条提醒`); await refresh(); });
+    await markRead(xs.filter(n => !n.read).map(n => n.id));
+    return;
+  }
+  const groups = {}; list.forEach(n => (groups[convOf(n)] ||= []).push(n));
+  const pp = pins(), keys = Object.keys(groups).sort((a, b) => (pp.includes(b) - pp.includes(a)) || (pp.indexOf(a) - pp.indexOf(b)) || groups[b][0].id - groups[a][0].id);
+  const convList = () => keys.length ? `<div class="fgrp">${keys.map(k => { const g = groups[k], n = g[0], u = g.filter(x => !x.read).length;
+    return `<a class="conv ${pp.includes(k) ? 'pinned' : ''}" href="#/notices?c=${k}"><span class="cav" style="background:${CONV[k][1]}">${CONV[k][2]}</span><span class="grow"><span class="row between"><b class="nm">${CONV[k][0]}</b><span class="tm">${esc(ntime(n.created_at))}</span></span>
+      <span class="row between"><span class="last">${esc(n.title)}：${esc(n.body)}</span>${u ? `<span class="ubadge">${u > 99 ? '99+' : u}</span>` : ''}</span></span></a>`; }).join('')}</div>` : '<div class="empty">暂无消息</div>';
+  $('#main').innerHTML = `<div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input class="fsearch" id="ms" placeholder="搜索消息" autocomplete="off"><button class="btn sm" id="readall">全部已读</button></div><div id="mlist">${convList()}</div>`;
+  $('#ms').oninput = e => { const k = e.target.value.trim(); $('#mlist').innerHTML = k ? (mcards(list.filter(n => (n.title + n.body).includes(k))) || '<div class="empty">没有找到相关消息</div>') : convList(); };
   $('#readall').onclick = () => act(async () => { await api('/notifications/read', {}); await refresh(); });
-  if (canRun) $('#run').onclick = () => act(async () => { const r = await api('/reminders/run', {}); toast(`已发送 ${r.sent} 条提醒`); await refresh(); });
 };
 
 // ---------- my tasks (staff + anyone) ----------
@@ -291,32 +316,39 @@ function bindBoard() {
   document.querySelectorAll('details.tgrp,details.tsec').forEach(d => d.ontoggle = () => { S.open[d.dataset.k] = d.open; const i = d.querySelector(':scope>summary>i'); if (i) i.textContent = d.open ? '收起' : '展开'; });
 }
 
-VIEWS.my = async () => {
-  const p = qs();
-  const date = p.get('date') || S.me.today;
-  const list = await api('/my/tasks?date=' + date);
-  const done = list.filter(t => t.status === 'done').length;
-  const od = list.filter(t => t.overdue).length;
-  const rects = (await api('/rectifications?mine=1')).filter(r => r.status !== 'closed');
-  const byScene = {};
-  for (const t of list) (byScene[t.scene_name || '其他'] ||= []).push(t);
-  $('#main').innerHTML = `<div class="row between"><h1>我的任务</h1><input type="date" value="${date}" onchange="location.hash='#/my?date='+this.value"></div>
-  <div class="grid g4" style="margin-bottom:14px">
-    <div class="card kpi"><div class="l">今日任务</div><div class="v">${list.length}</div></div>
-    <div class="card kpi"><div class="l">已完成</div><div class="v">${done}</div></div>
-    <div class="card kpi"><div class="l">超时未完成</div><div class="v" style="color:${od ? 'var(--bad)' : 'inherit'}">${od}</div></div>
-    <div class="card kpi"><div class="l">待整改</div><div class="v"><a href="#/my-rect">${rects.length}</a></div></div>
-  </div>
-  ${list.length ? taskBoard(list, t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
-      <div class="ttl">${esc(t.title)}${qm(t)}</div>
-      <div class="tsub">${esc(t.scene_name || '')} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">店长授权</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''} ${statusTag(t)} ${checkTag(t)}</div>
-      ${t.check_comment ? `<div class="muted small">店长：${esc(t.check_comment)}</div>` : ''}</div>
-      <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : t.status === 'missed' || t.date < S.me.today ? '<span class="tag bad">逾期未完成</span>' : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`, 'my')
-    : '<div class="list"><div class="empty">今天没有分配给你的任务</div></div>'}`;
-  document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeModal(list.find(t => t.id === Number(b.dataset.done))));
-  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'));
-  bindBoard();
+const ftag = t => (t.status === 'missed' || (t.status !== 'done' && t.date < S.me.today) ? '<span class="tag bad">逾期未完成</span>' : t.overdue ? '<span class="tag bad">已超时</span>'
+  : t.check_result ? checkTag(t) : t.deleg_id ? '<span class="tag warn">店长授权</span>' : t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : t.need_photo && t.status !== 'done' ? '<span class="tag">需拍照</span>' : '');
+const fcan = t => t.status !== 'done' && t.status !== 'missed' && t.date >= S.me.today;
+const frow = t => `<div class="frow ${t.status === 'done' ? 'done' : ''}" data-open="${t.id}">
+  <button type="button" class="fck" ${fcan(t) ? `data-fdone="${t.id}"` : t.status === 'done' && !t.check_result ? `data-undo="${t.id}"` : 'disabled'} aria-label="${t.status === 'done' ? '撤回' : '完成'}"></button>
+  <div class="b"><div class="ttl">${esc(t.title)}${qm(t)}</div><div class="fsub">${t.status === 'done' ? '完成于 ' + esc((t.done_at || '').slice(11, 16)) : esc(t.due_time) + ' 截止'}${t.scene_name ? ' · ' + esc(t.scene_name) : ''} ${ftag(t)}</div>
+  ${t.check_comment ? `<div class="fsub">点评：${esc(t.check_comment)}</div>` : ''}</div><span class="chev">›</span></div>`;
+async function myTasks(base) {
+  const date = qs().get('date') || S.me.today, list = await api('/my/tasks?date=' + date);
+  const od = list.filter(t => t.status !== 'done' && !fcan(t) || t.overdue && t.status !== 'done'), todo = list.filter(t => fcan(t) && !t.overdue), done = list.filter(t => t.status === 'done');
+  const grp = (k, l, xs, cls = '') => xs.length ? `<div class="fgrp-h ${cls}">${l}<b>${xs.length}</b></div><div class="fgrp">${xs.map(frow).join('')}</div>` : '';
+  return { list, html: `<div class="row between fhead"><span class="muted small">${date === S.me.today ? '今天' : esc(date)} ${list.length} 项 · 已完成 ${done.length}${od.length ? ` · <span style="color:var(--bad)">逾期 ${od.length}</span>` : ''}</span>
+    <input type="date" class="fdate" value="${date}" onchange="location.hash='${base}?date='+this.value"></div>
+    ${list.length ? grp('od', '已逾期', od, 'bad') + grp('todo', date === S.me.today ? '今天' : '待完成', todo) + (done.length ? `<details class="fdone" ${S.open['fdone'] ? 'open' : ''}><summary class="fgrp-h">已完成<b>${done.length}</b></summary><div class="fgrp">${done.map(frow).join('')}</div></details>` : '')
+      : '<div class="fgrp"><div class="empty">这天没有分配给你的任务</div></div>'}` };
+}
+function bindMy(list) {
+  document.querySelectorAll('[data-open]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,summary')) return; location.hash = '#/task/' + r.dataset.open; });
+  document.querySelectorAll('[data-fdone]').forEach(b => b.onclick = e => { e.stopPropagation(); const t = list.find(x => x.id === Number(b.dataset.fdone));
+    if (t.need_photo || t.need_value) return completeModal(t);
+    b.classList.add('ing'); act(async () => { await api(`/instances/${t.id}/complete`, { note: '', reading: '', photo: null }); route(); }, '已完成'); });
+  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = e => { e.stopPropagation(); act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'); });
+  const d = document.querySelector('details.fdone'); if (d) d.ontoggle = () => { S.open['fdone'] = d.open; };
+}
+VIEWS.todo = async () => {
+  const seg = qs().get('seg') || 'mine', rr = rectRoute(), lv = S.me.level;
+  const segs = [['mine', '我负责的'], ...(rr === 'my-rect' || NAV[lv].some(([k]) => k === 'rect') ? [['rect', lv === 'staff' ? '我的整改' : '整改闭环']] : []), ...(lv !== 'staff' ? [['must', '待我处理']] : [])];
+  const bar = `<div class="fseg">${segs.map(([k, l]) => `<a href="#/todo?seg=${k}" class="${seg === k ? 'on' : ''}">${l}</a>`).join('')}</div>`;
+  if (seg === 'mine' || !segs.some(x => x[0] === seg)) { const r = await myTasks('#/todo'); $('#main').innerHTML = bar + r.html; return bindMy(r.list); }
+  await VIEWS[seg === 'rect' ? rr : 'must']();
+  $('#main').insertAdjacentHTML('afterbegin', bar);
 };
+VIEWS.my = async () => { const r = await myTasks('#/my'); $('#main').innerHTML = r.html; bindMy(r.list); };
 function completeModal(t) { location.hash = '#/task/' + t.id; }
 function completeModalOld(t, after) {
   modal('完成任务', `<div class="kv"><div>任务</div><div>${esc(t.title)}</div><div>标准</div><div class="pre">${esc(t.standard || '-')}</div><div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div></div>
