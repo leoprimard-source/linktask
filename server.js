@@ -17,10 +17,10 @@ const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理
 app.get('/api/users', (req, res) => {
   const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
   const stores = q('SELECT * FROM stores');
-  const us = q('SELECT * FROM user_stores');
+  const us = q('SELECT * FROM user_stores'), rg = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
   res.json(users.map(u => ({ id: u.id, name: u.name, role_name: u.role_name, level: u.level,
     stores: u.level === 'store_manager' ? us.filter(x => x.user_id === u.id).map(x => stores.find(s => s.id === x.store_id)?.name)
-      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : ['华东一区'] })));
+      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : [rg[u.region_id] || ''], reserve: u.reserve || null })));
 });
 
 const tooLong = v => typeof v === 'string' ? !v.startsWith('data:image/') && v.length > 5000 : v && typeof v === 'object' ? Object.values(v).some(tooLong) : false;
@@ -73,7 +73,7 @@ function visibleStores(u) {
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
   return u.store_id ? [u.store_id] : [];
 }
-const canManage = (u, sid) => rmLike(u) || (u.level === 'store_manager' && visibleStores(u).includes(Number(sid)));
+const canManage = (u, sid) => (rmLike(u) || u.level === 'store_manager') && visibleStores(u).includes(Number(sid));
 const catFilter = u => (u.level === 'sales_manager' ? 'sales' : u.level === 'ops_manager' ? 'ops' : null);
 const inStore = (x, sid) => x.store_id === Number(sid) || D.storeManagers(Number(sid)).includes(x.id);
 const MEMO = new Map(); let memoAt = 0;
@@ -131,10 +131,17 @@ function decorate(rows) {
 }
 
 // ---------- me / meta ----------
+app.post('/api/me/region', (req, res) => {
+  const u = req.u, rid = Number((req.body || {}).region_id), r = q1('SELECT * FROM regions WHERE id=?', rid);
+  if (u.level !== 'hq') return deny(res, '只有总部和省区可以切换区域');
+  if (!r) return err(res, '区域不存在');
+  run('UPDATE users SET region_id=? WHERE id=?', rid, u.id); D.audit(u.id, null, '切换区域', r.name); res.json({ ok: true });
+});
 app.get('/api/me', (req, res) => {
   const u = req.u;
+  const rg = q1('SELECT r.name, p.name pname FROM regions r LEFT JOIN provinces p ON p.id=r.province_id WHERE r.id=?', u.region_id);
   const unread = q1('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read=0', u.id).n;
-  res.json({ ...u, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
+  res.json({ ...u, region_name: rg?.name, province_name: rg?.pname, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
     can: { manage: ['region_manager', 'coach', 'store_manager'].includes(u.level), region: isRegion(u), patrol: rmLike(u), settings: u.level === 'region_manager' },
     category: catFilter(u), data_auth: daAuth()[daKey(u)] || [], da_admin: ['region_manager', 'hq'].includes(u.level), team: u.store_id ? teamOf(u, u.store_id).map(x => x.id) : [], lead: !!LEADS[u.role_name] });
 });
@@ -441,6 +448,25 @@ app.get('/api/home', (req, res) => {
   });
 });
 
+const PAGG = new Map();
+function pagg(from, to) {
+  const k = from + to;
+  let e = PAGG.get(k);
+  if (!e || Date.now() - e.at > (to < L.today() ? 600000 : 30000)) {
+    const m = new Map();
+    for (const r of q(`SELECT assignee_id uid, COUNT(*) total, SUM(status='done') done,
+      SUM(status='done' AND (substr(COALESCE(done_at,''),1,10)<date OR (substr(COALESCE(done_at,''),1,10)=date AND substr(done_at,12,5)<=due_time))) ot,
+      SUM(COALESCE(check_result,'')!='') ck, SUM(check_result='good') good, SUM(check_result='bad') bad FROM instances WHERE date BETWEEN ? AND ? GROUP BY assignee_id`, from, to)) m.set(r.uid, r);
+    const tr = new Map(q("SELECT assignee_id uid, COUNT(*) n FROM rectifications WHERE created_at>=? AND training!='' GROUP BY assignee_id", from).map(r => [r.uid, r.n]));
+    if (PAGG.size > 50) PAGG.clear();
+    PAGG.set(k, e = { at: Date.now(), m, tr });
+  }
+}
+function pstatsLite(uid, from, to) {
+  const k = from + to; pagg(from, to); const e = PAGG.get(k), r = e.m.get(uid) || { total: 0, done: 0, ot: 0, ck: 0, good: 0, bad: 0 };
+  const P = (a, b) => (b ? Math.round(a * 100 / b) : null);
+  return { total: r.total, done: r.done, rate: P(r.done, r.total), ontime: P(r.ot, r.done), pass: P(r.good, r.ck), good: r.good, bad: r.bad, training: e.tr.get(uid) || 0 };
+}
 function pstats(uid, from, to) {
   const rs = q('SELECT i.status, i.date, i.due_time, i.done_at, i.check_result, s.name scene FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.assignee_id=? AND i.date BETWEEN ? AND ?', uid, from, to);
   const P = (a, b) => (b ? Math.round(a * 100 / b) : null);
@@ -818,7 +844,7 @@ function perfOf(u) {
   const t = L.today();
   return monthsBack(6).map((m, i) => {
     const end = i === 5 ? L.addDays(t, -1) : L.addDays(L.addDays(m, 32).slice(0, 8) + '01', -1);
-    const s = pstats(u.id, m, end);
+    const s = pstatsLite(u.id, m, end);
     let score, real = s.total >= 10 && s.done > 0;
     if (real) score = Math.round((s.rate ?? 0) * 0.5 + (s.pass ?? s.rate ?? 0) * 0.3 + (s.ontime ?? 0) * 0.2);
     else score = Math.round(76 + hash('pf' + u.id) * 16 + (hash('pm' + u.id + m) - 0.5) * 8);
@@ -832,7 +858,7 @@ const hrSummary = u => {
   return structuredClone(MEMO.get(k));
 };
 function hrSummary0(u) {
-  const t = L.today(), pf = profileOf(u), perf = perfOf(u), s30 = pstats(u.id, L.addDays(t, -30), L.addDays(t, -1));
+  const t = L.today(), pf = profileOf(u), perf = perfOf(u), s30 = pstatsLite(u.id, L.addDays(t, -30), L.addDays(t, -1));
   const avg3 = Math.round(perf.slice(-3).reduce((a, x) => a + x.score, 0) / 3);
   const tier = avg3 >= 88 && pf.tenure >= 1 && s30.bad < 2 ? '可晋升' : avg3 < 78 || s30.bad >= 4 ? '需辅导' : '稳定';
   const alerts = [];
@@ -841,7 +867,7 @@ function hrSummary0(u) {
   if (s30.bad >= 2) alerts.push({ level: s30.bad >= 3 ? 'high' : 'mid', type: '多次不合格', text: `近 30 天抽查不合格 ${s30.bad} 次` });
   if (s30.total >= 20 && !s30.good) alerts.push({ level: 'low', type: '长期未获肯定', text: `近 30 天完成 ${s30.done} 项，未获一次肯定` });
   if (u.level === 'staff' && ((pf.tenure < 0.5 && s30.bad >= 1) || (s30.total >= 20 && !s30.good && (s30.rate ?? 100) < 90) || (s30.bad >= 3 && avg3 < 80))) alerts.push({ level: 'mid', type: '离职风险', text: '近期表现波动且缺少正向反馈，建议店长谈心并同步人事' });
-  return { id: u.id, name: u.name, role_name: u.role_name, level: u.level, store_id: u.store_id, store: u.store_id ? q1('SELECT name FROM stores WHERE id=?', u.store_id).name : '区域',
+  return { id: u.id, name: u.name, role_name: u.role_name, level: u.level, reserve: u.reserve || null, store_id: u.store_id, store: u.store_id ? q1('SELECT name FROM stores WHERE id=?', u.store_id).name : '区域',
     hire: pf.hire, tenure: pf.tenure, edu: pf.edu, in_probation: pf.in_probation, avg3, tier, alerts, s30: { total: s30.total, rate: s30.rate, pass: s30.pass, good: s30.good, bad: s30.bad, training: s30.training },
     trend: perf.map(x => x.score) };
 }
@@ -857,7 +883,8 @@ app.get('/api/hr/people', (req, res) => {
   const bench = sids.map(sid => ({ store_id: sid, store: q1('SELECT name FROM stores WHERE id=?', sid).name, roles: KEY.map(role => {
     const dept = role.slice(0, 2);
     const pool = list.filter(x => x.tier === '可晋升' && x.role_name !== role && (role === '店长' || role === '店助' ? ['店助', '前台经理', '客房经理'].includes(x.role_name) : x.role_name.startsWith(dept)) && (x.store_id === sid || role === '店长'));
-    return { role, candidates: pool.slice(0, 3).map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store })) };
+    const rs = role === '店长' ? list.filter(x => x.reserve === 'sm') : [], pl = [...rs, ...pool.filter(x => !rs.includes(x))];
+  return { role, candidates: pl.slice(0, 3).map(x => ({ id: x.id, name: x.name, role_name: x.reserve === 'sm' ? x.role_name + ' · 储备店长' : x.role_name, store: x.store })) };
   }) }));
   res.json({ list, bench });
 });
@@ -1040,7 +1067,8 @@ const KEY_ROLES = ['店长', '店助', '前台经理', '客房经理'];
 const benchOf = (list, sid) => KEY_ROLES.map(role => {
   const dept = role.slice(0, 2);
   const pool = list.filter(x => x.tier === '可晋升' && x.role_name !== role && (role === '店长' || role === '店助' ? ['店助', '前台经理', '客房经理'].includes(x.role_name) : x.role_name.startsWith(dept)) && (x.store_id === sid || role === '店长'));
-  return { role, candidates: pool.slice(0, 3).map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store })) };
+  const rs = role === '店长' ? list.filter(x => x.reserve === 'sm') : [], pl = [...rs, ...pool.filter(x => !rs.includes(x))];
+  return { role, candidates: pl.slice(0, 3).map(x => ({ id: x.id, name: x.name, role_name: x.reserve === 'sm' ? x.role_name + ' · 储备店长' : x.role_name, store: x.store })) };
 });
 const CFG_DEF = { dims: { biz: 30, brand: 20, ops: 20, guest: 15, team: 10, safe: 5 }, grades: { S: 90, A: 85, B: 78, C: 70 }, type_th: 82, mgr: { exec: 35, brand: 25, team: 20, biz: 20 },
   pen: { rect_late: 4, rect_open: 1, repair_late: 6 }, reno_years: 4, plan_days: 3, recheck_days: 7, sla: { urgent: 4, normal: 24, low: 72 },
@@ -1169,7 +1197,8 @@ app.get('/api/store/:sid/people', (req, res) => {
   const list = storePeople(req.u, sid);
   res.json({ list, bench: canManage(req.u, sid) ? benchOf(list, sid) : [], suggests: q('SELECT h.*, u.name, u2.name replier FROM hr_suggest h JOIN users u ON u.id=h.user_id LEFT JOIN users u2 ON u2.id=h.replied_by WHERE h.store_id=? ORDER BY h.id DESC LIMIT 8', sid) });
 });
-const canPeople = (u, m) => canHR(u) || (u.level === 'ops_manager' && m.level === 'store_manager') || (m.store_id && canManage(u, m.store_id)) || leads(u, m.id);
+const sameRegion = (u, x) => u.level === 'hq' || !x || (x.store_id ? regionOfStore(x.store_id) === u.region_id : x.region_id === u.region_id);
+const canPeople = (u, m) => (canHR(u) && sameRegion(u, m)) || (u.level === 'ops_manager' && m.level === 'store_manager' && sameRegion(u, m)) || (m.store_id && canManage(u, m.store_id)) || leads(u, m.id);
 app.post('/api/hr/suggest', (req, res) => {
   const m = q1(USER_SQL + ' WHERE u.id=?', req.body.user_id), { kind, note } = req.body;
   if (!m || !(canManage(req.u, m.store_id) || leads(req.u, m.id))) return deny(res);
@@ -2107,10 +2136,10 @@ seedLifecycle();
 
 // ---------- 执行分 ----------
 function execScore(uid) {
-  const t = L.today(), s = pstats(uid, L.addDays(t, -30), L.addDays(t, -1));
+  const t = L.today(), s = pstatsLite(uid, L.addDays(t, -30), L.addDays(t, -1));
   if (!s.total) return null;
   const score = clamp((s.rate ?? 80) * 0.4 + (s.ontime ?? 80) * 0.25 + (s.pass ?? 80) * 0.25 + Math.min(10, s.good * 2));
-  const ms = pstats(uid, t.slice(0, 8) + '01', t), STAR = 8;
+  const ms = pstatsLite(uid, t.slice(0, 8) + '01', t), STAR = 8;
   return { score, level: score >= 90 ? '金牌' : score >= 80 ? '银牌' : score >= 70 ? '合格' : '待提升', parts: { rate: s.rate, ontime: s.ontime, pass: s.pass, good: s.good }, month_good: ms.good, star_need: STAR, star_left: Math.max(0, STAR - ms.good) };
 }
 function execBoard(sid) {
@@ -2182,7 +2211,7 @@ function careerRes(cur, conds, pool) {
 const trainCert = (uid, name) => { try { return !!q1("SELECT 1 FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE e.user_id=? AND e.status='certified' AND (c.name LIKE ? OR c.cert=?)", uid, '%' + name + '%', name); } catch { return false; } };
 app.get('/api/career/:uid', (req, res) => {
   const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid);
-  if (!x || !(x.id === req.u.id || isRegion(req.u) || (req.u.level === 'store_manager' && visibleStores(req.u).includes(x.store_id)))) return deny(res);
+  if (!x || !(x.id === req.u.id || (isRegion(req.u) && sameRegion(req.u, x)) || (req.u.level === 'store_manager' && visibleStores(req.u).includes(x.store_id)))) return deny(res);
   res.json(careerOf(x));
 });
 app.get('/api/career-pool', (req, res) => {
@@ -2415,7 +2444,7 @@ app.get('/api/train/suggest/:cid', (req, res) => {
   res.json(xs.slice(0, 12).map(x => ({ id: x.u.id, name: x.u.name, role_name: x.u.role_name, store: x.u.store_id ? sname(x.u.store_id) : '', why: x.why })));
 });
 app.get('/api/mentor-cands/:uid', (req, res) => {
-  const m = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!m || !(isTrain(req.u) || canManage(req.u, m.store_id))) return deny(res);
+  const m = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!m || !((isTrain(req.u) && sameRegion(req.u, m)) || canManage(req.u, m.store_id))) return deny(res);
   const dept = m.role_name.slice(0, 2);
   res.json(q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' AND u.id!=?", m.store_id, m.id).map(u => ({ id: u.id, name: u.name, role_name: u.role_name, same: u.role_name.startsWith(dept), score: execScore(u.id)?.score ?? null, tier: hrSummary(u).tier }))
     .filter(x => !/初级|PA/.test(x.role_name)).sort((a, b) => b.same - a.same || (b.score ?? 0) - (a.score ?? 0)).slice(0, 8));
@@ -2434,7 +2463,11 @@ function mentorStats(uid) {
   const s1 = as.flatMap(c => Object.values(c).map(x => x.by_mentee).filter(Boolean)), s2 = be.flatMap(c => Object.values(c).map(x => x.mentee_score).filter(Boolean));
   return { as_mentor: as.length, mentor_score: avg(s1), done90: as.filter(c => c.d90).length, as_mentee: be.length, mentee_score: avg(s2) };
 }
-app.get('/api/mentor-stats/:uid', (req, res) => res.json(mentorStats(Number(req.params.uid))));
+app.get('/api/mentor-stats/:uid', (req, res) => {
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid);
+  if (!x || !(x.id === req.u.id || (isRegion(req.u) && sameRegion(req.u, x)) || canManage(req.u, x.store_id) || leads(req.u, x.id))) return deny(res);
+  res.json(mentorStats(x.id));
+});
 function trainInsights(regionId) {
   const t = L.today(), f60 = L.addDays(t, -60);
   const topics = q(`SELECT pi.code, pi.item, COUNT(*) n FROM patrol_items pi JOIN patrols p ON p.id=pi.patrol_id JOIN stores s ON s.id=p.store_id WHERE pi.result='fail' AND s.region_id=? AND p.done_at>=? GROUP BY pi.code ORDER BY n DESC LIMIT 3`, regionId, f60)
@@ -2550,7 +2583,7 @@ function openItemsOf(uid) {
   };
 }
 app.get('/api/handoff/:uid', (req, res) => {
-  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || !(canManage(req.u, x.store_id) || canHR(req.u))) return deny(res);
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || !(canManage(req.u, x.store_id) || (canHR(req.u) && sameRegion(req.u, x)))) return deny(res);
   const items = openItemsOf(x.id), dept = x.role_name.slice(0, 2);
   const cands = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND u.id!=? AND r.level IN ('staff','store_manager')", x.store_id, x.id).sort((a, b) => b.role_name.startsWith(dept) - a.role_name.startsWith(dept)).map(c => ({ id: c.id, name: c.name, role_name: c.role_name }));
   res.json({ name: x.name, role_name: x.role_name, store_id: x.store_id, items, count: Object.values(items).reduce((a, v) => a + v.length, 0), cands, stores: visibleStores(req.u).filter(s => s !== x.store_id).map(s => ({ id: s, name: sname(s) })) });
@@ -2775,7 +2808,7 @@ function smDiag(uid) {
 }
 app.get('/api/diag/:uid', (req, res) => {
   const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || x.level !== 'store_manager') return err(res, '仅适用于店长');
-  if (!(x.id === req.u.id || isRegion(req.u))) return deny(res);
+  if (!(x.id === req.u.id || (isRegion(req.u) && sameRegion(req.u, x)))) return deny(res);
   res.json({ user: { id: x.id, name: x.name }, ...smDiag(x.id), sim: true });
 });
 const CK_W = { 客诉回访: 3, 客诉: 3, 安全: 3, 上岗门槛: 3, 超时: 2, 整改: 2, 补偿审批: 3, 离职预警: 2 };
@@ -2813,7 +2846,7 @@ function obOf(uid) {
 }
 app.get('/api/onboard/:uid', (req, res) => {
   const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x) return deny(res);
-  if (!(x.id === req.u.id || isRegion(req.u))) return deny(res);
+  if (!(x.id === req.u.id || (isRegion(req.u) && sameRegion(req.u, x)))) return deny(res);
   const o = obOf(x.id); res.json(o ? { user: { id: x.id, name: x.name }, ...o, can_ok: isCoach(req.u) || req.u.id === o.coach_id, me: x.id === req.u.id } : { user: { id: x.id, name: x.name }, none: true });
 });
 app.post('/api/onboard/:uid/:k', (req, res) => {
@@ -2916,11 +2949,11 @@ app.get('/api/hq', (req, res) => {
   const regs = q('SELECT * FROM regions').map(r => { const sc = regionScores(r.id).all, sids = sc.map(x => x.id), pr = sids.map(procOf).filter(p => p.rate != null);
     return { id: r.id, name: r.name, stores: sc.length, avg: sc.length ? Math.round(sc.reduce((a, x) => a + x.total, 0) / sc.length) : null, grades: [...GRADES].map(g => sc.filter(x => x.grade === g).length),
       proc: pr.length ? Math.round(pr.reduce((a, p) => a + p.rate, 0) / pr.length) : null, cp30: sids.length ? q1(`SELECT COUNT(*) n FROM complaints WHERE store_id IN (${sids.join(',')}) AND created_at>=?`, L.addDays(L.today(), -30)).n : 0,
-      sm: smList(r.id).length, coach: q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.region_id=? AND r.level='coach' AND u.active=1", r.id).n, sim: false }; });
+      sm: smList(r.id).length, rsm: q1("SELECT COUNT(*) n FROM users u JOIN stores s ON s.id=u.store_id WHERE s.region_id=? AND u.active=1 AND u.reserve='sm'", r.id).n, rrm: q1("SELECT COUNT(*) n FROM users WHERE region_id=? AND active=1 AND reserve='rm'", r.id).n, coach: q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.region_id=? AND r.level='coach' AND u.active=1 AND COALESCE(u.reserve,'')!='rm'", r.id).n, sim: false }; });
   const SIM = [['华南一区', 6, 84, [1, 2, 2, 1, 0], 81, 9, 5, 1], ['华北一区', 5, 79, [0, 1, 2, 1, 1], 76, 14, 5, 0]].map(([name, stores, avg, grades, proc, cp30, sm, coach], i) => ({ id: -1 - i, name, stores, avg, grades, proc, cp30, sm, coach, sim: true }));
-  const all = [...regs, ...SIM].sort((a, b) => (b.avg || 0) - (a.avg || 0)).map((x, i) => ({ ...x, rank: i + 1, ratio: x.coach ? Math.round(x.stores / x.coach * 10) / 10 : null }));
-  const pool = q(USER_SQL + " WHERE u.active=1 AND r.level='staff' AND (r.name='店助' OR r.name LIKE '%经理')").map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store_id ? sname(x.store_id) : '', region: q1('SELECT name FROM regions WHERE id=?', x.region_id)?.name, tier: hrSummary(x).tier, cert: !!smCertified(x.id) })).filter(x => x.tier === '可晋升');
-  res.json({ grades: [...GRADES], regions: all, pool, notices: q('SELECT n.*, u.name by_name FROM hq_notices n LEFT JOIN users u ON u.id=n.by ORDER BY n.id DESC LIMIT 10'), can_post: req.u.level === 'hq' });
+  const all = [...regs, ...(regs.length >= 3 ? [] : SIM)].sort((a, b) => (b.avg || 0) - (a.avg || 0)).map((x, i) => ({ ...x, rank: i + 1, ratio: x.coach ? Math.round(x.stores / x.coach * 10) / 10 : null }));
+  const pool = q(USER_SQL + " WHERE u.active=1 AND r.level='staff' AND (r.name='店助' OR r.name LIKE '%经理')").map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store_id ? sname(x.store_id) : '', region: q1('SELECT name FROM regions WHERE id=?', x.region_id)?.name, tier: hrSummary(x).tier, cert: !!smCertified(x.id), reserve: x.reserve || null })).filter(x => x.tier === '可晋升' || x.reserve === 'sm').sort((a, b) => (b.reserve === 'sm') - (a.reserve === 'sm'));
+  res.json({ grades: [...GRADES], regions: all, cur: req.u.region_id, province: q1('SELECT p.name FROM provinces p JOIN regions r ON r.province_id=p.id WHERE r.id=?', req.u.region_id)?.name, pool, notices: q('SELECT n.*, u.name by_name FROM hq_notices n LEFT JOIN users u ON u.id=n.by ORDER BY n.id DESC LIMIT 10'), can_post: req.u.level === 'hq' });
 });
 app.post('/api/hq/notice', (req, res) => {
   if (req.u.level !== 'hq') return deny(res); const b = req.body; if (!(b.title || '').trim()) return err(res, '请填写标题');
@@ -3461,6 +3494,9 @@ function seedCare() {
   });
 }
 seedCare();
+for (const [n, lv] of [['省区总经理', 'hq'], ['储备区域经理', 'coach']]) if (!q1('SELECT 1 FROM roles WHERE name=?', n)) run('INSERT INTO roles(name,level,sort) VALUES(?,?,0)', n, lv);
+if (!q1('SELECT 1 FROM provinces')) run("INSERT INTO provinces(id,name) VALUES(1,'华东省区')");
+run('UPDATE regions SET province_id=1 WHERE province_id IS NULL');
 
 // ---------- 说明文档：责任人与咨询 ----------
 D.db.exec('CREATE TABLE IF NOT EXISTS help_q(id INTEGER PRIMARY KEY, hkey TEXT, title TEXT, kind TEXT, text TEXT, user_id INTEGER, owner_id INTEGER, created_at TEXT, reply TEXT, replied_at TEXT)');

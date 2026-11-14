@@ -217,7 +217,7 @@ window.addEventListener('hashchange', route);
 async function renderLogin() {
   const list = await (await fetch('/api/users')).json();
   const stores = [...new Set(list.filter(u => u.level === 'staff').map(u => u.stores[0]))];
-  const row = u => `<button class="urow" data-uid="${u.id}"><span class="av">${esc(u.name.slice(0, 1))}</span><span class="grow"><b>${esc(u.name)}</b><small>${esc(u.stores.join('、'))}</small></span><span class="tag">${esc(u.role_name)}</span></button>`;
+  const row = u => `<button class="urow" data-uid="${u.id}"><span class="av">${esc(u.name.slice(0, 1))}</span><span class="grow"><b>${esc(u.name)}</b><small>${esc(u.stores.join('、'))}</small></span><span class="tag">${esc(u.role_name)}${u.reserve === 'sm' ? ' · 储备店长' : ''}</span></button>`;
   const lead = list.filter(u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'].includes(u.level));
   const group = (t, us) => `<div class="sec-t">${esc(t)}</div><div class="panel">${us.map(row).join('')}</div>`;
   $('#app').innerHTML = `<div class="phone">
@@ -225,7 +225,7 @@ async function renderLogin() {
     <main class="main">
       <div class="hero"><h1>选择身份进入</h1><p>门店运营任务分发与闭环管理 · 演示模式，进入后可随时在右上角「···」切换身份，查看不同角色的视角。</p></div>
       ${group('区域管理', lead)}${group('门店店长', list.filter(u => u.level === 'store_manager'))}
-      ${stores.map(s => group(s + ' · 员工', list.filter(u => u.level === 'staff' && u.stores[0] === s))).join('')}
+      ${stores.length > 12 ? stores.map(s => `<details class="tgrp"><summary>${esc(s)} · 员工 <i>展开</i></summary><div class="panel">${list.filter(u => u.level === 'staff' && u.stores[0] === s).map(row).join('')}</div></details>`).join('') : stores.map(s => group(s + ' · 员工', list.filter(u => u.level === 'staff' && u.stores[0] === s))).join('')}
     </main>
     <div class="foot">宏图计划 · 演示数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div></div>`;
   document.querySelectorAll('[data-uid]').forEach(b => b.onclick = () => {
@@ -2561,13 +2561,14 @@ VIEWS.engage = async () => {
 VIEWS.hq = async () => {
   const d = await api('/hq');
   $('#main').innerHTML = `<div class="pghd row between"><b>总部视角</b>${d.can_post ? '<button class="btn primary sm" id="nhq">下发政策</button>' : ''}</div>
-  <p class="muted small" style="margin-top:-6px">华南一区、华北一区为模拟区域，用于演示跨区域对比。</p>
+  ${d.regions.some(r => r.sim) ? '<p class="muted small" style="margin-top:-6px">华南一区、华北一区为模拟区域，用于演示跨区域对比。</p>' : `<p class="muted small" style="margin-top:-6px">${esc(d.province || '')} · ${d.regions.length} 个区域 · ${d.regions.reduce((a, r) => a + r.stores, 0)} 家店${S.me.level === 'hq' ? ' · 点「进入」切换到该区域' : ''}</p>`}
   ${d.regions.map(r => `<div class="ldr"><div class="row between"><b>${r.rank}. ${esc(r.name)}${r.sim ? ' <span class="tag">模拟</span>' : ''}</b><b>${r.avg ?? '-'}<small class="muted"> 分</small></b></div>
-    <div class="muted small">${r.stores} 家店 · 统购率 ${r.proc ?? '-'}% · 近 30 天客诉 ${r.cp30} 起 · 店长 ${r.sm} 人 · ${r.coach ? `教练 ${r.coach} 人，人均带 ${r.ratio} 家店` : '未配教练'}</div>
-    <div class="stags" style="margin-top:6px">${d.grades.map((g, i) => r.grades[i] ? `<span class="tag">${g} 级 ${r.grades[i]}</span>` : '').join('')}</div></div>`).join('')}
-  <div class="sec-t2">跨区域储备店长（可晋升）</div><div class="list">${d.pool.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.name)} <span class="muted small">${esc(p.role_name)}</span></div><div class="muted small">${esc(p.region || '')} · ${esc(p.store)}</div></div><span class="tag ${p.cert ? 'ok' : ''}">${p.cert ? '已认证' : '待店长班'}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>
+    <div class="muted small">${r.stores} 家店 · 统购率 ${r.proc ?? '-'}% · 近 30 天客诉 ${r.cp30} 起 · 店长 ${r.sm} 人${r.rsm ? ` · 储备店长 ${r.rsm} 人` : ''}${r.rrm ? ` · 储备区域经理 ${r.rrm} 人` : ''} · ${r.coach ? `教练 ${r.coach} 人，人均带 ${r.ratio} 家店` : '未配教练'}</div>
+    <div class="stags" style="margin-top:6px">${d.grades.map((g, i) => r.grades[i] ? `<span class="tag">${g} 级 ${r.grades[i]}</span>` : '').join('')}</div>${S.me.level === 'hq' && !r.sim ? (r.id === d.cur ? '<div class="muted small" style="margin-top:6px">当前所在区域</div>' : `<button class="btn sm" data-reg="${r.id}" style="margin-top:6px">进入该区域</button>`) : ''}</div>`).join('')}
+  <div class="sec-t2">跨区域储备店长 · ${d.pool.length} 人</div><div class="list">${d.pool.slice(0, 20).map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.name)} <span class="muted small">${esc(p.role_name)}${p.reserve === 'sm' ? ' · 储备店长' : ''}</span></div><div class="muted small">${esc(p.region || '')} · ${esc(p.store)}</div></div><span class="tag ${p.cert ? 'ok' : ''}">${p.cert ? '已认证' : '待店长班'}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>
   <div class="sec-t2">总部下发</div><div class="list">${d.notices.map(n => `<div class="task"><div class="b"><div class="ttl"><span class="tag acc">${esc(n.kind)}</span> ${esc(n.title)}</div><div class="muted small">${esc(n.body || '')} · ${esc(n.at.slice(0, 10))}</div></div></div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
   if ($('#nhq')) $('#nhq').onclick = () => formModal('下发政策 / 标准', '<label class="f"><span>类型</span><select name="kind"><option>政策</option><option>标准</option><option>通知</option></select></label><label class="f"><span>标题</span><input name="title" required></label><label class="f"><span>内容</span><textarea name="body"></textarea></label>', x => act(() => api('/hq/notice', x), '已下发到各区域和门店'));
+  document.querySelectorAll('[data-reg]').forEach(b => b.onclick = async () => { await api('/me/region', { region_id: Number(b.dataset.reg) }); S.meta = null; localStorage.removeItem('lt_store'); location.hash = '#/home'; route(); });
 };
 
 // ---------- 人事指标 ----------

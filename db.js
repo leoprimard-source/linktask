@@ -30,9 +30,11 @@ CREATE TABLE IF NOT EXISTS instances(id INTEGER PRIMARY KEY, store_id INTEGER, d
   escalated INTEGER DEFAULT 0, reading TEXT, UNIQUE(src, src_id, store_id, date));
 CREATE INDEX IF NOT EXISTS idx_inst_date ON instances(date, store_id);
 CREATE INDEX IF NOT EXISTS idx_inst_user ON instances(assignee_id, date);
+CREATE INDEX IF NOT EXISTS idx_inst_store ON instances(store_id, date);
 CREATE TABLE IF NOT EXISTS rectifications(id INTEGER PRIMARY KEY, instance_id INTEGER, store_id INTEGER, assignee_id INTEGER, reason TEXT, training TEXT,
   task TEXT, deadline TEXT, status TEXT DEFAULT 'open', created_by INTEGER, created_at TEXT, submit_note TEXT, submit_photo TEXT, submitted_at TEXT,
   verify_comment TEXT, verified_by INTEGER, verified_at TEXT, escalated INTEGER DEFAULT 0, source TEXT DEFAULT 'check');
+CREATE INDEX IF NOT EXISTS idx_rect_store ON rectifications(store_id, status);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, user_id INTEGER, created_at TEXT, kind TEXT, title TEXT, body TEXT, link TEXT, read INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
 CREATE TABLE IF NOT EXISTS reminder_log(date TEXT, time TEXT, PRIMARY KEY(date, time));
@@ -47,13 +49,14 @@ CREATE TABLE IF NOT EXISTS patrol_items(id INTEGER PRIMARY KEY, patrol_id INTEGE
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT, user_id INTEGER, store_id INTEGER, action TEXT, detail TEXT);
 `);
 
-for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
+for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEXT'], ['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
   ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
   ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
   ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
+db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
 db.exec(`CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, store_id INTEGER, from_id INTEGER, to_id INTEGER, scope TEXT, inst_id INTEGER, src TEXT, src_id INTEGER,
   title TEXT, start TEXT, end TEXT, review INTEGER DEFAULT 1, active INTEGER DEFAULT 1, created_at TEXT, revoked_at TEXT)`);
 const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
