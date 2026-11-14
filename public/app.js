@@ -31,6 +31,7 @@ function modal(title, html, onMount) {
   if (onMount) onMount(bg.querySelector('.modal'));
 }
 function closeModal() { $('#modal-root').innerHTML = ''; }
+window.addEventListener('hashchange', closeModal);
 function formData(form) {
   const o = {};
   for (const el of form.elements) {
