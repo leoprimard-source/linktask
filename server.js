@@ -54,7 +54,8 @@ function savePhoto(dataUrl) {
 const INST_SQL = `SELECT i.*, s.name AS scene_name, st.name AS store_name, a.name AS assignee_name, ar.name AS assignee_role,
   o.name AS orig_name, c.name AS checker_name,
   (SELECT id FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_id,
-  (SELECT status FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_status
+  (SELECT status FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_status,
+  CASE WHEN i.src='tpl' THEN (SELECT freq FROM templates WHERE id=i.src_id) ELSE (SELECT recur FROM flex_tasks WHERE id=i.src_id) END AS freq
   FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=i.store_id
   LEFT JOIN users a ON a.id=i.assignee_id LEFT JOIN roles ar ON ar.id=a.role_id LEFT JOIN users o ON o.id=i.orig_assignee_id LEFT JOIN users c ON c.id=i.checked_by`;
 function decorate(rows) {
@@ -308,6 +309,136 @@ app.post('/api/rectifications/:id/verify', (req, res) => {
   D.audit(req.u.id, r.store_id, pass ? '整改闭环' : '整改退回', req.body.comment || '');
   res.json({ ok: true });
 });
+
+
+// ---------- home (宏图) ----------
+function homeScope(req, res) {
+  const sids = visibleStores(req.u);
+  const sid = Number(req.query.store) || sids[0];
+  if (!sids.includes(sid)) { deny(res); return null; }
+  const mine = req.u.level === 'staff' || req.query.mine === '1';
+  let w = ' AND i.store_id=?'; const p = [sid];
+  const cat = catFilter(req.u);
+  if (cat) { w += ' AND i.category=?'; p.push(cat); }
+  if (mine) { w += ' AND i.assignee_id=?'; p.push(req.u.id); }
+  return { sid, mine, w, p, cat };
+}
+const monthEnd = d => L.addDays(L.addDays(d.slice(0, 8) + '01', 32).slice(0, 8) + '01', -1);
+app.get('/api/home', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today();
+  const date = req.query.date || t;
+  const ws = L.addDays(date, -(L.weekday(date) - 1)), we = L.addDays(ws, 6);
+  const ms = date.slice(0, 8) + '01', me = monthEnd(date);
+  const end = we > me ? we : me;
+  for (let d = ms < ws ? ms : ws; d <= end; d = L.addDays(d, 1)) D.ensureInstances(d, [sc.sid]);
+  const week = [];
+  for (let d = ws; d <= we; d = L.addDays(d, 1)) {
+    const r = q1(`SELECT COUNT(*) total, SUM(i.status='done') done FROM instances i WHERE i.date=?${sc.w}`, d, ...sc.p);
+    week.push({ date: d, total: r.total, done: r.done || 0, rate: d > t || !r.total ? null : Math.round((r.done || 0) * 100 / r.total) });
+  }
+  const rows = (where, ...args) => decorate(q(INST_SQL + ` WHERE ${where}${sc.w} ORDER BY i.date, i.due_time`, ...args, ...sc.p));
+  const all = rows('i.date BETWEEN ? AND ?', ms < ws ? ms : ws, end);
+  res.json({
+    date, today: t, week, mine: sc.mine,
+    tabs: {
+      day: all.filter(i => i.date === date && (i.freq || 'daily') === 'daily'),
+      week: all.filter(i => i.freq === 'weekly' && i.date >= ws && i.date <= we),
+      month: all.filter(i => i.freq === 'monthly' && i.date >= ms && i.date <= me),
+      once: all.filter(i => i.freq === 'once' && i.date >= ms && i.date <= me),
+    },
+  });
+});
+
+function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; }
+const BIZ_BASE = [0, 380, 460, 320];
+const REVIEW_TOPICS = [
+  ['隔音', '建议排查噪音源，尝试引导高噪房型客人，观察后续评价。'],
+  ['早餐品种', '建议复盘早餐出品计划，高峰前补足热菜主食，并跟踪 9:00 断档检查。'],
+  ['卫生间毛发', '建议加强 OK 房抽查比例，对相关服务员做清洁标准复训。'],
+  ['前台排队', '建议早高峰增开退房通道，提前预制账单。'],
+  ['空调噪音', '建议工程排查相关楼层风机盘管，必要时调房。'],
+  ['WiFi 信号', '建议工程检测弱信号楼层 AP，补充信号覆盖。'],
+];
+function bizDay(sid, d) {
+  const base = BIZ_BASE[sid] || 350;
+  const wk = [5, 6].includes(L.weekday(d)) ? 1.12 : 1;
+  const occ = Math.min(0.97, 0.7 + hash(sid + 'o' + d) * 0.22) * (wk > 1 ? 1.04 : 1);
+  const adr = base / 0.82 * (0.92 + hash(sid + 'a' + d) * 0.16) * wk;
+  const bad = hash(sid + 'r' + d) > 0.62 ? 1 + (hash(sid + 'r2' + d) > 0.8 ? 1 : 0) : 0;
+  const topic = sid === 3 && hash(sid + 't' + d) > 0.35 ? 1 : Math.floor(hash(sid + 't' + d) * REVIEW_TOPICS.length);
+  return { occ, adr, revpar: occ * adr, mpi: 92 + hash(sid + 'm' + d) * 24, bad, topic };
+}
+function bizRange(sid, from, to) {
+  let n = 0, rev = 0, occ = 0, adr = 0, mpi = 0, bad = 0; const topics = {};
+  for (let d = from; d <= to; d = L.addDays(d, 1)) {
+    const b = bizDay(sid, d); n++; rev += b.revpar; occ += b.occ; adr += b.adr; mpi += b.mpi; bad += b.bad;
+    if (b.bad) topics[b.topic] = (topics[b.topic] || 0) + b.bad;
+  }
+  return { revpar: rev / n, occ: occ / n, adr: adr / n, mpi: mpi / n, bad, topics };
+}
+const pct = (a, b) => (b ? Math.round((a - b) * 1000 / b) / 10 : 0);
+const sgn = v => (v > 0 ? '+' : '') + v + '%';
+app.get('/api/brief', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today(), y = L.addDays(t, -1);
+  const week = req.query.mode === 'week';
+  const from = week ? L.addDays(y, -6) : y, to = y;
+  const pf = L.addDays(from, -7), pt = L.addDays(to, -7);
+  const label = week ? '近 7 日' : '昨日';
+  for (let d = pf; d <= t; d = L.addDays(d, 1)) D.ensureInstances(d, [sc.sid]);
+  const st = (a, b) => q1(`SELECT COUNT(*) total, SUM(i.status='done') done, SUM(i.check_result IS NOT NULL) checked, SUM(i.check_result='good') good, SUM(i.check_result='bad') bad,
+    SUM(i.status='done' AND substr(i.done_at,12,5)>i.due_time) late FROM instances i WHERE i.date BETWEEN ? AND ?${sc.w}`, a, b, ...sc.p);
+  const cur = st(from, to), prev = st(pf, pt);
+  const rate = x => (x.total ? Math.round((x.done || 0) * 1000 / x.total) / 10 : 0);
+  const r1 = rate(cur), r0 = rate(prev);
+  const pass = cur.checked ? Math.round((cur.good || 0) * 100 / cur.checked) : null;
+  const rw = sc.mine ? ' AND r.assignee_id=?' : '';
+  const rp = sc.mine ? [req.u.id] : [];
+  const rects = q(`SELECT r.*, i.title FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id WHERE r.store_id=? AND r.status!='closed'${rw}${sc.cat ? ' AND i.category=?' : ''}`, sc.sid, ...rp, ...(sc.cat ? [sc.cat] : []));
+  const lateRects = rects.filter(r => r.status === 'open' && r.deadline < t);
+  const items = [];
+  const overdue = q1(`SELECT COUNT(*) n FROM instances i WHERE i.date=? AND i.status='pending' AND i.due_time<?${sc.w}`, t, L.nowHM(), ...sc.p).n;
+  if (overdue) items.push({ level: 'bad', title: `今日已有 ${overdue} 项超时未完成`, body: sc.mine ? '请尽快完成，超时 30 分钟会升级提醒店长。' : '建议查看超时任务，必要时临时改派或代为完成。', link: sc.mine ? '#/home' : '#/tasks?st=overdue&store=' + sc.sid });
+  if (lateRects.length) items.push({ level: 'bad', title: `整改逾期 ${lateRects.length} 项`, body: `「${lateRects[0].title || lateRects[0].task}」等已过整改截止日期，${sc.mine ? '请尽快提交整改。' : '建议督促责任人提交，必要时复训。'}`, link: sc.mine ? '#/my-rect' : '#/rect?st=late' });
+  if (cur.bad) {
+    const b = q(`SELECT i.title FROM instances i WHERE i.date BETWEEN ? AND ? AND i.check_result='bad'${sc.w}`, from, to, ...sc.p);
+    items.push({ level: 'warn', title: `${label}抽查不合格 ${cur.bad} 项`, body: `「${b[0].title}」${b.length > 1 ? ` 等 ${b.length} 项` : ''}，已下发培训和整改任务，请按期闭环。`, link: sc.mine ? '#/my-rect' : '#/rect' });
+  }
+  if (!sc.mine) {
+    const rep = q(`SELECT i.title, COUNT(*) n FROM instances i WHERE i.date BETWEEN ? AND ? AND i.check_result='bad'${sc.w} GROUP BY i.title HAVING n>=2 ORDER BY n DESC LIMIT 1`, L.addDays(t, -14), t, ...sc.p)[0];
+    if (rep) items.push({ level: 'warn', title: `问题重复出现：${rep.title}`, body: `14 天内 ${rep.n} 次抽查不合格，建议设为重点跟踪任务，每日定点检查。`, link: '#/issues' });
+    const unchecked = q1(`SELECT COUNT(*) n FROM instances i WHERE i.date=? AND i.status='done' AND i.check_result IS NULL${sc.w}`, t, ...sc.p).n;
+    if (unchecked && !sc.cat) items.push({ level: 'acc', title: `今日 ${unchecked} 项已完成待抽查`, body: '建议随机抽查 3-5 项，合格的给予肯定，不合格的写明原因并安排整改。', link: '#/desk' });
+  }
+  const focus = q(`SELECT title, id FROM flex_tasks WHERE store_id=? AND source='focus' AND active=1 AND (end_date IS NULL OR end_date>=?)`, sc.sid, t);
+  for (const f of focus.slice(0, 2)) {
+    const r = q1(`SELECT COUNT(*) total, SUM(status='done') done FROM instances WHERE src='flex' AND src_id=? AND date BETWEEN ? AND ?`, f.id, L.addDays(t, -7), y);
+    if (r.total) items.push({ level: r.done < r.total ? 'warn' : 'ok', title: `重点跟踪：${f.title.replace('【重点跟踪】', '')}`, body: `近 7 日完成 ${r.done || 0}/${r.total}，区域经理和运营经理持续跟进中。`, link: S_FOCUS(req.u) });
+  }
+  if (!items.length) items.push({ level: 'ok', title: '运营平稳', body: `${label}任务按时完成，暂无超时、逾期整改和重复问题。`, link: '' });
+  const newRect = q1(`SELECT COUNT(*) n FROM rectifications r WHERE r.store_id=? AND substr(r.created_at,1,10) BETWEEN ? AND ?${rw}`, sc.sid, from, to, ...rp).n;
+  const ops = {
+    headline: `${label}${sc.mine ? '我的' : ''}任务完成率 **${r1}%**，周环比 **${sgn(Math.round((r1 - r0) * 10) / 10)}**${pass !== null ? `，抽查合格率 **${pass}%**` : ''}${newRect ? `，新增 **${newRect}** 项整改` : ''}${rects.length ? `，未闭环整改 **${rects.length}** 项` : ''}。`,
+    items,
+  };
+  let biz = null;
+  if (!sc.mine || req.u.level !== 'staff') {
+    const b1 = bizRange(sc.sid, from, to), b0 = bizRange(sc.sid, pf, pt);
+    const wow = pct(b1.revpar, b0.revpar);
+    const comp = b1.mpi >= 104 ? '远超竞对' : b1.mpi >= 100 ? '略超竞对' : '低于竞对';
+    const topicIds = Object.keys(b1.topics).sort((a, b) => b1.topics[b] - b1.topics[a]);
+    const bitems = topicIds.map(k => ({ level: 'bad', title: `新增 ${b1.topics[k]} 条${REVIEW_TOPICS[k][0]}差评`, body: REVIEW_TOPICS[k][1], link: '' }));
+    bitems.push({ level: 'acc', title: `出租率 ${(b1.occ * 100).toFixed(1)}% · 平均房价 ${b1.adr.toFixed(0)} 元`, body: `RevPAR 指数（MPI）${b1.mpi.toFixed(1)}，${comp}。`, link: '' });
+    biz = {
+      headline: `${label}RevPAR **${b1.revpar.toFixed(2)}**元，周环比**${sgn(wow)}**，${comp}${b1.bad ? `，新增**${b1.bad}**条${topicIds.length === 1 ? REVIEW_TOPICS[topicIds[0]][0] : ''}差评` : '，无新增差评'}。`,
+      items: bitems,
+      sim: true,
+    };
+  }
+  res.json({ mode: week ? 'week' : 'day', from, to, ops, biz });
+});
+const S_FOCUS = u => (['region_manager', 'ops_manager', 'store_manager'].includes(u.level) ? '#/focus' : '#/home');
 
 // ---------- dashboard & issues ----------
 function storeStats(sids, from, to, cat) {

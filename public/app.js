@@ -112,28 +112,55 @@ function storeSwitch(route, extra = '') {
 
 // ---------- nav ----------
 const NAV = {
-  staff: [['my', '我的任务'], ['my-rect', '我的整改'], ['notices', '消息提醒']],
-  store_manager: [['sec', '每日工作'], ['home', '工作台'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
+  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['notices', '消息提醒']],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
-  ops_manager: [['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店记录'], ['notices', '消息提醒']],
-  sales_manager: [['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
+  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店记录'], ['notices', '消息提醒']],
+  sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
   region_manager: [['sec', '全局'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['sec', '配置'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
-const HOME = { staff: 'my', store_manager: 'home', ops_manager: 'dash', sales_manager: 'dash', region_manager: 'dash' };
+const HOME = { staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect'];
+const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
+const CENTER = { staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
+const ICON = {
+  home: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5V14l-3 3H5.5A1.5 1.5 0 0 1 4 15.5z"/><path d="M7 8h6M7 11h4"/>',
+  notices: '<path d="M4 6.5C4 5 5.3 4 7 4h6c1.7 0 3 1 3 2.5v5c0 1.5-1.3 2.5-3 2.5H9l-3.5 2.5V14C4.6 13.7 4 12.8 4 11.5z"/>',
+  work: '<rect x="4" y="4" width="5" height="5" rx="1.5"/><rect x="11" y="4" width="5" height="5" rx="1.5"/><rect x="4" y="11" width="5" height="5" rx="1.5"/><rect x="11" y="11" width="5" height="5" rx="1.5"/>',
+  rect: '<path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V5.5z"/><path d="M7.5 10l1.8 1.8 3.4-3.6"/>',
+  me: '<circle cx="10" cy="7" r="3"/><path d="M4.5 16.5c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/>',
+  more: '<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="13.5" r="2.5"/><circle cx="13.5" cy="13.5" r="2.5"/>',
+  cal: '<rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8h13M7 3v3M13 3v3"/>',
+};
+const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
+const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息' }[k] || ''; };
 
 function shell(route, html) {
-  const nav = NAV[S.me.level].map(([k, l]) => k === 'sec' ? `<div class="sec">${l}</div>` : `<a href="#/${k}" class="${route === k ? 'on' : ''}">${l}</a>`).join('');
-  $('#app').innerHTML = `
-  <div class="top">
-    <div class="brand"><img src="/icon.svg" alt="">职链 <span class="muted" style="font-weight:400">LinkTask</span></div>
-    <div class="grow"></div>
-    <a class="bell" href="#/notices" title="消息提醒">消息${S.me.unread ? `<b>${S.me.unread}</b>` : ''}</a>
-    <div class="who"><span>${esc(S.me.name)}</span><span class="tag rn">${esc(S.me.role_name)}</span><a class="btn sm" href="#/login">切换身份</a></div>
-  </div>
-  <div class="layout"><nav class="nav">${nav}</nav><div class="content"><main class="main" id="main">${html}</main>
-  <div class="foot">演示模式 · 数据为模拟数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div></div></div>`;
+  const root = ['home', 'notices', 'work', 'rect', 'my-rect', 'me'].includes(route);
+  const rr = rectRoute();
+  const tabs = [['home', '宏图', 'home'], ['notices', '消息', 'notices'], ['work', '工作台', 'work'], [rr, '整改', 'rect'], ['me', '我的', 'me']];
+  $('#app').innerHTML = `<div class="phone">
+  <header class="appbar">${root ? '<img class="logo" src="/icon.svg" alt="">' : '<a class="back" id="back" href="javascript:void 0" aria-label="返回">‹</a>'}
+    <b>${root ? '宏图' : esc(navLabel(route))}</b><span class="sp"></span>
+    <button class="dots" id="dots" aria-label="更多">···</button></header>
+  <main class="main ${route === 'home' ? 'home' : ''}" id="main">${html}</main>
+  <div class="foot">宏图计划 · 演示模式 · 数据为模拟数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div>
+  <nav class="tabbar">${tabs.map(([k, l, ic]) => `<a href="#/${k}" class="${route === k ? 'on' : ''}">${icon(ic)}${k === 'notices' && S.me.unread ? `<b>${S.me.unread > 99 ? '99+' : S.me.unread}</b>` : ''}<span>${l}</span></a>`).join('')}</nav>
+  </div>`;
+  const back = $('#back'); if (back) back.onclick = () => (history.length > 1 ? history.back() : (location.hash = '#/work'));
+  $('#dots').onclick = () => sheet([['切换身份', () => { location.hash = '#/login'; }], ['刷新', () => route()], ['提交修改需求', () => window.open(SESSION_URL, '_blank')]]);
+}
+function sheet(items, title) {
+  const root = $('#modal-root');
+  root.innerHTML = `<div class="modal-bg sheet-bg"><div class="sheet">${title ? `<div class="sh">${esc(title)}</div>` : ''}${items.map(([l], i) => `<button data-i="${i}">${l}</button>`).join('')}<button class="cancel" data-close>取消</button></div></div>`;
+  const bg = root.firstChild;
+  bg.addEventListener('click', e => {
+    if (e.target === bg || e.target.hasAttribute('data-close')) return closeModal();
+    const b = e.target.closest('[data-i]'); if (b) { closeModal(); items[Number(b.dataset.i)][1](); }
+  });
 }
 
 // ---------- router ----------
@@ -147,7 +174,7 @@ async function route() {
     S.me = await api('/me');
     if (!S.meta || S.meta.uid !== S.me.id) await loadMeta();
   } catch (e) { return renderLogin(); }
-  const allowed = VIEWS[name] && (NAV[S.me.level].some(([k]) => k === name) || (name === 'patrol' && S.me.level !== 'staff'));
+  const allowed = VIEWS[name] && (COMMON.includes(name) || NAV[S.me.level].some(([k]) => k === name) || (name === 'patrol' && S.me.level !== 'staff'));
   if (!allowed) { location.hash = '#/' + HOME[S.me.level]; return; }
   const v = name;
   shell(v, '<div class="empty">加载中…</div>');
@@ -167,22 +194,21 @@ window.addEventListener('hashchange', route);
 // ---------- login ----------
 async function renderLogin() {
   const list = await (await fetch('/api/users')).json();
-  const groups = [['region_manager', '区域管理'], ['ops_manager', ''], ['sales_manager', ''], ['store_manager', '门店店长'], ['staff', '门店员工']];
   const stores = [...new Set(list.filter(u => u.level === 'staff').map(u => u.stores[0]))];
-  const card = u => `<button class="card u" data-uid="${u.id}"><div class="row between"><b>${esc(u.name)}</b><span class="tag">${esc(u.role_name)}</span></div><div class="muted small">${esc(u.stores.join('、'))}</div></button>`;
+  const row = u => `<button class="urow" data-uid="${u.id}"><span class="av">${esc(u.name.slice(0, 1))}</span><span class="grow"><b>${esc(u.name)}</b><small>${esc(u.stores.join('、'))}</small></span><span class="tag">${esc(u.role_name)}</span></button>`;
   const lead = list.filter(u => ['region_manager', 'ops_manager', 'sales_manager'].includes(u.level));
-  $('#app').innerHTML = `<div class="login">
-    <div class="brand" style="font-size:20px;margin-bottom:4px"><img src="/icon.svg" alt="" style="width:28px;height:28px">职链 LinkTask</div>
-    <p class="muted" style="margin-top:0">门店运营任务分发与闭环管理 · 演示模式：选择一个身份进入，可随时切换，查看不同角色的视角。</p>
-    <h2>区域管理</h2><div class="grid g4">${lead.map(card).join('')}</div>
-    <h2>门店店长</h2><div class="grid g4">${list.filter(u => u.level === 'store_manager').map(card).join('')}</div>
-    ${stores.map(s => `<h2>${esc(s)} · 员工</h2><div class="grid g4">${list.filter(u => u.level === 'staff' && u.stores[0] === s).map(card).join('')}</div>`).join('')}
-    <div class="foot" style="padding-left:0"><a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div>
-  </div>`;
+  const group = (t, us) => `<div class="sec-t">${esc(t)}</div><div class="panel">${us.map(row).join('')}</div>`;
+  $('#app').innerHTML = `<div class="phone">
+    <header class="appbar"><img class="logo" src="/icon.svg" alt=""><b>宏图计划</b></header>
+    <main class="main">
+      <div class="hero"><h1>选择身份进入</h1><p>门店运营任务分发与闭环管理 · 演示模式，进入后可随时在右上角「···」切换身份，查看不同角色的视角。</p></div>
+      ${group('区域管理', lead)}${group('门店店长', list.filter(u => u.level === 'store_manager'))}
+      ${stores.map(s => group(s + ' · 员工', list.filter(u => u.level === 'staff' && u.stores[0] === s))).join('')}
+    </main>
+    <div class="foot">宏图计划 · 演示数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div></div>`;
   document.querySelectorAll('[data-uid]').forEach(b => b.onclick = () => {
     localStorage.lt_uid = b.dataset.uid; S.meta = null; localStorage.removeItem('lt_store');
-    const lvl = list.find(u => u.id === Number(b.dataset.uid)).level;
-    location.hash = '#/' + HOME[lvl]; route();
+    location.hash = '#/home'; route();
   });
 }
 
@@ -378,7 +404,7 @@ function checkModal(t) {
 }
 
 // ---------- store manager home ----------
-VIEWS.home = async () => {
+VIEWS.desk = async () => {
   const d = await api('/dashboard?days=7');
   const rects = await api('/rectifications');
   const leaves = (await api('/leaves?from=' + S.me.today)).filter(l => l.date === S.me.today);
@@ -389,13 +415,13 @@ VIEWS.home = async () => {
   const toVerify = rects.filter(r => r.status === 'submitted');
   const lateRect = rects.filter(r => r.late);
   const sample = unchecked.slice().sort(() => Math.random() - 0.5).slice(0, 5);
-  $('#main').innerHTML = `<h1>工作台 <span class="muted small" style="font-weight:400">${esc(S.me.today)} · 现在 ${esc(S.me.now)}</span></h1>
+  $('#main').innerHTML = `<h1>今日待办 <span class="muted small" style="font-weight:400">${esc(S.me.today)} · 现在 ${esc(S.me.now)}</span></h1>
   <div class="grid g3">${d.today.map(s => `<div class="card"><div class="row between"><b>${esc(s.name)}</b><a class="small" href="#/tasks?store=${s.id}">任务看板</a></div>
     <div style="margin:8px 0">${rateBar(s.rate)}</div>
     <div class="row small"><span>今日 ${s.done}/${s.total}</span><span class="tag ${s.overdue ? 'bad' : ''}">超时 ${s.overdue}</span><span class="tag">已抽查 ${s.checked}</span><span class="tag ${s.rect_late ? 'bad' : ''}">整改未闭环 ${s.rect_open}</span></div>
     <div class="muted small" style="margin-top:6px">近 7 日完成率 ${d.period.find(x => x.id === s.id)?.rate ?? '-'}% · 抽查合格率 ${d.period.find(x => x.id === s.id)?.pass_rate ?? '-'}%</div></div>`).join('')}</div>
   <div class="grid g2" style="margin-top:12px">
-    <div class="list"><div class="hd">随机抽查建议 <span class="muted small" style="font-weight:400">从今日已完成、未抽查的 ${unchecked.length} 项中随机选取</span><span class="sp"></span><a class="small" href="#/home">换一批</a></div>
+    <div class="list"><div class="hd">随机抽查建议 <span class="muted small" style="font-weight:400">从今日已完成、未抽查的 ${unchecked.length} 项中随机选取</span><span class="sp"></span><a class="small" href="javascript:route()">换一批</a></div>
       ${sample.length ? sample.map(t => `<div class="task"><div class="t">${esc(t.due_time)}</div><div class="b"><div class="ttl">${esc(t.title)}</div><div class="muted small">${esc(t.store_name)} · ${esc(t.scene_name)} · ${esc(t.assignee_name)}</div></div><button class="btn primary sm" data-chk="${t.id}">抽查</button></div>`).join('') : '<div class="empty">暂无待抽查任务</div>'}</div>
     <div class="list"><div class="hd">超时未完成 <span class="tag ${overdue.length ? 'bad' : ''}">${overdue.length}</span></div>
       ${overdue.length ? overdue.slice(0, 8).map(t => `<div class="task"><div class="t">${esc(t.due_time)}</div><div class="b"><div class="ttl">${esc(t.title)}</div><div class="muted small">${esc(t.store_name)} · ${esc(t.assignee_name)}</div></div><button class="btn sm" data-view="${t.id}">处理</button></div>`).join('') + (overdue.length > 8 ? `<div class="task"><a href="#/tasks?st=overdue">查看全部 ${overdue.length} 项</a></div>` : '') : '<div class="empty">没有超时任务</div>'}</div>
@@ -730,6 +756,116 @@ VIEWS.audit = async () => {
   $('#main').innerHTML = `<h1>操作日志</h1><p class="muted small" style="margin-top:-6px">分配、顶岗、抽查、整改、巡店等关键操作都会留痕，方便追溯。</p>
   <div class="tbl"><table><tr><th>时间</th><th>操作人</th><th>门店</th><th>操作</th><th>内容</th></tr>
   ${list.map(a => `<tr><td class="mono">${esc(a.at)}</td><td>${esc(a.user_name)}</td><td>${esc(a.store_name || '区域')}</td><td>${esc(a.action)}</td><td class="small">${esc(a.detail)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">暂无</td></tr>'}</table></div>`;
+};
+
+
+// ---------- 宏图 home ----------
+function gauge(rate, size, sw, color) {
+  const r = (size - sw) / 2, c = 2 * Math.PI * r, arc = c * 0.75, v = rate == null ? 0 : Math.max(0.02, rate / 100) * arc;
+  return `<svg class="gauge" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><g transform="rotate(135 ${size / 2} ${size / 2})">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${arc} ${c}"/>
+    ${rate == null ? '' : `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${v} ${c}"/>`}</g></svg>`;
+}
+const rateColor = r => (r == null ? 'var(--track)' : r >= 90 ? 'var(--ring)' : r >= 75 ? 'var(--gold)' : 'var(--bad)');
+const md = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+const redNum = t => esc(t).replace(/(\d+)/, '<em>$1</em>');
+const CN_WD = ['一', '二', '三', '四', '五', '六', '日'];
+S.open = S.open || {};
+VIEWS.home = async () => {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const date = p.get('date') || S.me.today;
+  const tab = p.get('tab') || 'day';
+  const mode = p.get('m') || 'day';
+  const [h, b] = await Promise.all([api(`/home?store=${sid}&date=${date}`), api(`/brief?store=${sid}&mode=${mode}`)]);
+  const bt = p.get('bt') || (S.me.level === 'sales_manager' && b.biz ? 'biz' : b.biz && S.me.level !== 'staff' && S.me.level !== 'ops_manager' ? 'biz' : 'ops');
+  const link = o => '#/home?' + new URLSearchParams({ store: sid, date, tab, m: mode, bt, ...o });
+  const br = bt === 'biz' && b.biz ? b.biz : b.ops;
+  const list = h.tabs[tab];
+  const cnt = k => `${h.tabs[k].filter(t => t.status === 'done').length}/${h.tabs[k].length}`;
+  const done = list.filter(t => t.status === 'done');
+  const ontime = done.filter(t => (t.done_at || '').slice(0, 10) < t.date || ((t.done_at || '').slice(0, 10) === t.date && t.done_at.slice(11, 16) <= t.due_time));
+  const checked = list.filter(t => t.check_result), good = checked.filter(t => t.check_result === 'good');
+  const R = (a, b2) => (b2.length ? Math.round(a.length * 100 / b2.length) : null);
+  const rings = [['完成', R(done, list)], ['准时', R(ontime, done)], ['合格', R(good, checked)]];
+  const groups = {};
+  for (const t of list) {
+    const key = tab === 'day' ? (t.scene_name || '其他') : tab === 'once' ? t.title : `${t.scene_name || '其他'}`;
+    (groups[key] ||= []).push(t);
+  }
+  const gl = Object.entries(groups).map(([name, ts]) => ({ name, ts, time: ts.map(t => t.due_time).sort()[0], date: ts[0].date })).sort((x, y) => (tab === 'day' ? 0 : x.date.localeCompare(y.date)) || x.time.localeCompare(y.time));
+  const mine = h.mine;
+  const manage = S.me.can.manage;
+  const stLabel = { day: '日任务', week: '周任务', month: '月任务', once: '非周期任务' };
+  const multi = S.meta.stores.length > 1;
+  const gKey = n => tab + ':' + n;
+  const taskRow = t => `<div class="trow ${t.status === 'done' ? 'done' : ''}">
+    <div class="tm">${tab === 'day' ? '' : `<small>${esc(t.date.slice(5))}</small>`}${esc(t.due_time)}</div>
+    <div class="tb"><div class="tt">${esc(t.title)} ${originTag(t.origin)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
+      <div class="ts">${mine ? esc(t.standard || '') : `${esc(t.assignee_name || '未分配')} · ${esc(t.assignee_role || '')}`}</div>
+      <div class="tg">${statusTag(t)} ${checkTag(t)}</div></div>
+    <div class="ta">${t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? `<button class="btn primary sm" data-done="${t.id}">完成</button>` : ''}
+      ${manage && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">抽查</button>` : ''}
+      <button class="btn sm" data-view="${t.id}">详情</button></div></div>`;
+  $('#main').innerHTML = `
+  <div class="storebar">
+    <button class="storename" id="sp" ${multi ? '' : 'disabled'}>${esc(storeName(sid))}${multi ? '<i>▾</i>' : ''}</button>
+    <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a>
+    <a class="ib" href="#/work">${icon('more')}<span>更多</span></a>
+  </div>
+  <div class="week">${h.week.map((d, i) => `<a href="${link({ date: d.date })}" class="${d.date === date ? 'on' : ''} ${d.date === S.me.today ? 'today' : ''}">
+      <span class="wd">${CN_WD[i]}</span>${gauge(d.rate, 34, 4, rateColor(d.rate))}</a>`).join('')}
+    <label class="calbtn"><span class="wd">日历</span><span class="cal">${icon('cal')}<b>${Number(date.slice(8))}</b></span><input type="date" id="cal" value="${date}"></label>
+  </div>
+  <section class="brief">
+    <div class="btabs">${b.biz ? `<a href="${link({ bt: 'biz' })}" class="${bt === 'biz' ? 'on' : ''}">经营简报</a>` : ''}<a href="${link({ bt: 'ops' })}" class="${bt !== 'biz' || !b.biz ? 'on' : ''}">${mine ? '我的简报' : '运营简报'}</a>
+      <span class="sp"></span><div class="seg"><a href="${link({ m: 'day' })}" class="${mode === 'day' ? 'on' : ''}">日</a><a href="${link({ m: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a></div></div>
+    <p class="headline">${md(br.headline)}</p>
+    <div class="bcards">${br.items.map(it => `<a class="bcard ${it.level}" ${it.link ? `href="${esc(it.link)}"` : ''}><b>${it.level === 'bad' ? redNum(it.title) : esc(it.title)}</b><p>${esc(it.body)}</p></a>`).join('')}</div>
+    <button class="aibtn" id="bd"><svg viewBox="0 0 20 20" class="ico"><path d="M10 2.5l1.6 4.6 4.9 1.4-4.9 1.4L10 14.5l-1.6-4.6-4.9-1.4 4.9-1.4zM15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>简报详情</button>
+  </section>
+  <section class="tasks">
+    <div class="ttabs">${['day', 'week', 'month', 'once'].map(k => `<a href="${link({ tab: k })}" class="${tab === k ? 'on' : ''}">${stLabel[k]}<small>${cnt(k)}</small></a>`).join('')}</div>
+    <div class="rings">${rings.map(([l, r]) => `<div class="ring">${gauge(r, 92, 9, rateColor(r))}<div class="rv"><b>${r == null ? '-' : r}</b><small>%</small><span>${l}</span></div></div>`).join('')}</div>
+    <div class="timeline">${gl.length ? gl.map(g => {
+      const d = g.ts.filter(t => t.status === 'done').length, od = g.ts.some(t => t.overdue);
+      const open = S.open[gKey(g.name)] ?? (mine || gl.length <= 2);
+      return `<div class="tl ${od ? 'od' : d === g.ts.length ? 'ok' : ''}"><i class="dot"></i>
+        <div class="tcard"><div class="th" data-g="${esc(gKey(g.name))}"><b>${esc(g.name)}</b><span class="tt2">${tab === 'day' ? '' : esc(g.date.slice(5)) + ' '}${esc(g.time)}</span></div>
+          <div class="tp"><span>已完成 <b>${d}/${g.ts.length}</b></span>${od ? '<span class="tag bad">有超时</span>' : ''}</div>
+          <div class="segbar">${g.ts.map(t => `<i class="${t.status === 'done' ? 'd' : t.overdue ? 'b' : ''}"></i>`).join('')}</div>
+          ${open ? `<div class="tlist">${g.ts.map(taskRow).join('')}</div>` : ''}</div></div>`;
+    }).join('') : `<div class="empty">${date > S.me.today ? '未来日期的任务会在当天生成' : `没有${stLabel[tab]}`}</div>`}</div>
+  </section>`;
+  if (multi) $('#sp').onclick = () => sheet(S.meta.stores.map(st => [esc(st.name) + (st.id === sid ? ' ✓' : ''), () => { location.hash = link({ store: st.id }); }]), '切换门店');
+  $('#cal').onchange = e => { if (e.target.value) location.hash = link({ date: e.target.value }); };
+  $('#bd').onclick = () => modal(bt === 'biz' && b.biz ? '经营简报详情' : mine ? '我的简报详情' : '运营简报详情', `<p class="headline">${md(br.headline)}</p>
+    ${br.items.map(it => `<div class="note"><b>${esc(it.title)}</b><br>${esc(it.body)} ${it.link ? `<a href="${esc(it.link)}" data-close>去处理</a>` : ''}</div>`).join('')}
+    ${bt === 'biz' && b.biz ? '<p class="muted small">经营数据（RevPAR、出租率、平均房价、差评）为模拟数据，接入 PMS 和点评平台后自动更新。</p>' : `<p class="muted small">统计区间 ${esc(b.from)} 至 ${esc(b.to)}，与前一周同期对比。</p>`}`);
+  document.querySelectorAll('[data-g]').forEach(el => el.onclick = () => { const k = el.dataset.g; const cur = el.parentElement.querySelector('.tlist'); S.open[k] = !cur; route(); });
+  document.querySelectorAll('[data-done]').forEach(x => x.onclick = () => completeModal(list.find(t => t.id === Number(x.dataset.done))));
+  document.querySelectorAll('[data-chk]').forEach(x => x.onclick = () => checkModal(list.find(t => t.id === Number(x.dataset.chk))));
+  document.querySelectorAll('[data-view]').forEach(x => x.onclick = () => taskDetail(Number(x.dataset.view)));
+};
+
+// ---------- 工作台 ----------
+VIEWS.work = async () => {
+  const secs = []; let cur = null;
+  for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else cur.items.push([k, l]); }
+  let ci = 0;
+  $('#main').innerHTML = `<h1>工作台</h1>${secs.map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
+    `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}`;
+};
+
+// ---------- 我的 ----------
+VIEWS.me = async () => {
+  const [mt, rs] = await Promise.all([S.me.level === 'staff' || S.me.level === 'store_manager' ? api('/my/tasks') : Promise.resolve(null), api('/rectifications?mine=1')]);
+  const open = rs.filter(r => r.status !== 'closed').length;
+  $('#main').innerHTML = `<div class="profile"><span class="av lg">${esc(S.me.name.slice(0, 1))}</span><div><b>${esc(S.me.name)}</b><div class="muted small">${esc(S.me.role_name)} · ${esc(S.meta.stores.map(s => s.name).join('、'))}</div></div></div>
+  <div class="panel stats">${mt ? `<a href="#/my"><b>${mt.filter(t => t.status === 'done').length}/${mt.length}</b><span>今日我的任务</span></a>` : `<a href="#/dash"><b>${S.meta.stores.length}</b><span>管辖门店</span></a>`}
+    <a href="#/${rectRoute()}"><b>${open}</b><span>${S.me.level === 'staff' ? '待整改' : '我负责的整改'}</span></a><a href="#/notices"><b>${S.me.unread}</b><span>未读消息</span></a></div>
+  <div class="panel menu">${[...(mt ? [['#/my', '我的任务']] : []), ['#/my-rect', '我的整改'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
+    <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
 };
 
 route();

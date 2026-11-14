@@ -173,7 +173,7 @@ function seed() {
   run('UPDATE rectifications SET escalated=1');
   D.notify([4], 'escalate', '超时升级：早餐补餐巡检（不断档）', '上海静安店 应于 08:00 完成，已超时 30 分钟以上。', '#/tasks?store=2');
   D.notify([5], 'escalate', '整改逾期：杭州西湖店', '按标准重新执行并拍照上传（已过截止日期）', '#/rect');
-  D.notify([1, 2], 'system', '欢迎使用职链 LinkTask', '这是演示数据：3 家门店、近 14 天的任务记录、1 次已完成巡店和 1 个重点跟踪任务。', '#/dash');
+  D.notify([1, 2], 'system', '欢迎使用宏图计划', '这是演示数据：3 家门店、近 14 天的任务记录、1 次已完成巡店和 1 个重点跟踪任务。', '#/dash');
   D.audit(1, null, '初始化', '载入演示数据');
   return true;
 }
