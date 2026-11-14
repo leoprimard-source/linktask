@@ -532,3 +532,7 @@ summary.tsec-h i{font-style:normal;font-weight:400;margin-left:auto;color:var(--
 .yit b{font-size:15px}.yit span{font-size:12px;color:#8a8f98}
 .yit .dot{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:#e5484d}
 .yic .rkpi a{background:#f4f5f7}
+.sched table{font-size:12px}.sched th,.sched td{padding:4px 2px;text-align:center;white-space:nowrap}.sched td:first-child{text-align:left}
+.shc{border:0;border-radius:6px;width:26px;height:24px;font-size:12px;background:#eef1f5;color:var(--text)}
+.shc.s0{background:#e6f0fb;color:#1f5fa8}.shc.s1{background:#fff3df;color:#9a5b00}.shc.s2{background:#ece7fb;color:#5a3fb0}.shc.s3{background:#f1f2f4;color:#9aa0a6}
+.thumb{width:36px;height:36px;object-fit:cover;border-radius:6px;flex:none}

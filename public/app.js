@@ -119,23 +119,23 @@ function storeSwitch(route, extra = '') {
 
 // ---------- nav ----------
 const NAV = {
-  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['shift', '值班交接'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
+  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
-    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
+    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
   train_manager: [['sec', '培训'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   hr_manager: [['sec', '人事'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
+  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
   region_manager: [['sec', '全局'], ['dash', '区域看板'], ['people', '人事档案与梯队'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
-    ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
+    ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -2135,7 +2135,9 @@ function bindFunnel(d) {
 const RQ_ST = { open: ['warn', '待审批'], approved: ['acc', '配送中'], received: ['ok', '已收货'], rejected: ['bad', '已退回'] };
 const rqRow = (r, can) => `<div class="task"><div class="b"><div class="ttl">${r.store ? esc(r.store) + ' · ' : ''}${r.items.map(x => `${esc(x.name)} ${x.qty}${esc(x.unit)}`).join('、')}</div><div class="muted small">${esc(r.creator || '')} ${esc((r.created_at || '').slice(5))} · ¥${r.items.reduce((a, x) => a + (x.amt || 0), 0)}${r.note ? ' · ' + esc(r.note) : ''}</div></div>
   <div class="row" style="gap:6px;flex:none">${can.approve && r.status === 'open' ? `<button class="btn primary sm" data-rq="approve:${r.id}">批准</button><button class="btn sm" data-rq="reject:${r.id}">退回</button>` : ''}${can.req && r.status === 'approved' ? `<button class="btn primary sm" data-rq="receive:${r.id}">确认收货</button>` : ''}<span class="tag ${RQ_ST[r.status][0]}">${RQ_ST[r.status][1]}</span></div></div>`;
-function bindRq() { document.querySelectorAll('[data-rq]').forEach(b => b.onclick = () => { const [op, id] = b.dataset.rq.split(':'); act(async () => { await api(`/requisitions/${id}/${op}`, {}); route(); }, { approve: '已批准', reject: '已退回', receive: '已收货，库存已更新' }[op]); }); }
+function bindRq() { document.querySelectorAll('[data-rq]').forEach(b => b.onclick = () => { const [op, id] = b.dataset.rq.split(':');
+  if (op === 'receive') return formModal('确认收货 · 供应商评价', [['on_time', '到货及时'], ['quality', '质量'], ['price', '价格']].map(([k, l]) => `<label class="f"><span>${l}</span><select name="${k}">${[5, 4, 3, 2, 1].map(n => `<option value="${n}">${n} 分</option>`).join('')}</select></label>`).join('') + '<label class="f"><span>问题说明（可选）</span><input name="note" placeholder="例如：晚到 40 分钟 / 2 包破损"></label>', x => act(() => api(`/requisitions/${id}/receive`, { rating: x }), '已收货，库存已更新'));
+  act(async () => { await api(`/requisitions/${id}/${op}`, {}); route(); }, { approve: '已批准', reject: '已退回', receive: '已收货，库存已更新' }[op]); }); }
 VIEWS.proc = async () => {
   const sid = Number(qs().get('store')) || (S.meta.stores.length === 1 ? S.meta.stores[0].id : 0);
   if (!sid) {
@@ -2283,6 +2285,72 @@ async function handoffModal(uid) {
     f => act(async () => { await api('/handoff/' + uid, { ...f, to: Number(f.to), store_id: Number(f.store_id) }); await loadMeta(); }, '已交接'));
   $('#hm').onchange = () => { $('#hs').style.display = $('#hm').value === 'transfer' ? '' : 'none'; };
 }
+
+// ---------- 客诉闭环 ----------
+const CP_ST = { open: ['warn', '待处理'], handled: ['acc', '待回访'], closed: ['ok', '已关闭'] }, CP_LV = { 一般: '', 严重: 'warn', 重大: 'bad' };
+const sidQ = () => Number(qs().get('store')) || (S.me.store_id && !REGION_LV.includes(S.me.level) ? S.me.store_id : 0);
+VIEWS.complaints = async () => {
+  const sid = sidQ(), d = await api('/complaints' + (sid ? '?store=' + sid : '')), f = qs().get('f') || 'act', K = d.kpi;
+  const xs = d.list.filter(c => f === 'all' || (f === 'act' ? c.status !== 'closed' : c.status === 'closed'));
+  $('#main').innerHTML = `<div class="pghd row between"><b>客诉闭环${sid ? ' · ' + esc(storeName(sid)) : ''}</b>${sid || S.me.store_id ? '<button class="btn primary sm" id="ncp">登记客诉</button>' : ''}</div>
+  <section class="yic"><div class="rkpi">${[['近 30 天', K.n30, '起'], ['处理中', K.open, '起'], ['已超时', K.late, '起'], ['按时处理', K.ontime ?? '-', '%'], ['回访满意', K.sat ?? '-', '/5'], ['补偿', K.comp, '元']].map(([l, v, u], i) => `<a class="${i === 2 && v ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div>
+  <p class="muted small">时限：一般 ${d.sla.一般} 小时、严重 ${d.sla.严重} 小时、重大 ${d.sla.重大} 小时。补偿 ${d.comp_limit} 元以内店长决定，超出需运营经理审批。结果计入门店画像的宾客口碑分。</p></section>
+  <div class="tfil">${[['act', '处理中'], ['done', '已关闭'], ['all', '全部']].map(([k, l]) => `<a class="${f === k ? 'on' : ''}" href="#/complaints?${new URLSearchParams(sid ? { store: sid, f: k } : { f: k })}">${l}</a>`).join('')}</div>
+  <div class="list">${xs.map(c => `<div class="task"><div class="b"><div class="ttl"><span class="tag ${CP_LV[c.level]}">${c.level}</span> ${esc(c.body)}</div>
+    <div class="muted small">${esc(c.store)} · ${esc(c.src)}${c.guest ? ' · ' + esc(c.guest) : ''}${c.room ? ' · ' + esc(c.room) + ' 房' : ''}${c.staff ? ' · 涉及 ' + esc(c.staff) : ''} · ${esc(c.created_at.slice(5, 16))}</div>
+    ${c.handle_note ? `<div class="muted small">处理：${esc(c.handle_note)}${c.comp_amt ? ` · 补偿 ¥${c.comp_amt}${c.comp_kind ? '（' + esc(c.comp_kind) + '）' : ''} ${{ pending: '待审批', approved: '已批准', rejected: '未批准' }[c.comp_status] || ''}` : ''}</div>` : ''}
+    ${c.cb_score ? `<div class="muted small">回访满意度 ${c.cb_score}/5${c.cb_note ? ' · ' + esc(c.cb_note) : ''}</div>` : ''}</div>
+    <div class="row" style="gap:6px;flex:none;flex-direction:column;align-items:flex-end">${c.late ? '<span class="tag bad">超时</span>' : `<span class="tag ${CP_ST[c.status][0]}">${CP_ST[c.status][1]}</span>`}
+    ${c.status === 'open' && !d.can_approve ? `<button class="btn primary sm" data-cp="handle:${c.id}">处理</button>` : ''}${c.comp_status === 'pending' && d.can_approve ? `<button class="btn primary sm" data-cp="comp:${c.id}">审批</button>` : ''}${c.status === 'handled' && c.comp_status !== 'pending' && !d.can_approve ? `<button class="btn sm" data-cp="callback:${c.id}">回访</button>` : ''}</div></div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
+  if ($('#ncp')) $('#ncp').onclick = () => formModal('登记客诉', `<label class="f"><span>来源</span><select name="src">${d.srcs.map(x => `<option>${x}</option>`).join('')}</select></label><label class="f"><span>等级</span><select name="level">${d.levels.map(x => `<option>${x}</option>`).join('')}</select></label>
+    <label class="f"><span>宾客 / 渠道</span><input name="guest"></label><label class="f"><span>房号</span><input name="room"></label><label class="f"><span>投诉内容</span><textarea name="body" required></textarea></label>
+    <label class="f"><span>涉及员工（可选）</span><select name="staff_id"><option value="">无</option>${d.staff.map(x => `<option value="${x.id}">${esc(x.name)} · ${esc(x.role_name)}</option>`).join('')}</select></label>`, x => act(() => api('/complaints', { ...x, store_id: sid || S.me.store_id }), '已登记，已通知店长'));
+  document.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => { const [op, id] = b.dataset.cp.split(':'), c = d.list.find(x => x.id === Number(id));
+    if (op === 'handle') formModal('处理客诉', `<p class="small">${esc(c.body)}</p><label class="f"><span>处理结果</span><textarea name="note" required placeholder="例如：已致歉并换房"></textarea></label><label class="f"><span>补偿方式</span><input name="comp_kind" placeholder="例如：免房费一晚 / 送早餐券"></label><label class="f"><span>补偿金额（元，可为 0）</span><input type="number" name="comp_amt" value="0"></label><p class="muted small">超过 ${d.comp_limit} 元需运营经理审批。</p>`, x => act(() => api(`/complaints/${id}/handle`, x), '已处理'));
+    if (op === 'comp') formModal('补偿审批', `<p class="small">${esc(c.store)}：${esc(c.body)}<br>处理：${esc(c.handle_note || '')}<br>补偿 ¥${c.comp_amt} ${esc(c.comp_kind || '')}</p><label class="f"><span>结果</span><select name="ok"><option value="1">批准</option><option value="">不批准</option></select></label>`, x => act(() => api(`/complaints/${id}/comp`, { ok: !!x.ok }), '已审批'));
+    if (op === 'callback') formModal('宾客回访', `<p class="small">${esc(c.body)}</p><label class="f"><span>满意度</span><select name="score">${[5, 4, 3, 2, 1].map(n => `<option value="${n}">${n} 分</option>`).join('')}</select></label><label class="f"><span>回访记录</span><textarea name="note"></textarea></label>`, x => act(() => api(`/complaints/${id}/callback`, x), '已回访，客诉关闭'));
+  });
+};
+
+// ---------- 安全与应急 ----------
+VIEWS.safety = async () => {
+  const sid = sidQ();
+  if (!sid) { const d = await api('/safety'); $('#main').innerHTML = `<div class="pghd"><b>安全与应急</b></div><div class="list">${d.stores.map(s => `<a class="task" href="#/safety?store=${s.id}"><div class="b"><div class="ttl">${esc(s.name)}</div><div class="muted small">${s.n} 项计划</div></div>${s.late ? `<span class="tag bad">逾期 ${s.late}</span>` : ''}${s.soon ? `<span class="tag warn">7 天内 ${s.soon}</span>` : ''}${!s.late && !s.soon ? '<span class="tag ok">正常</span>' : ''}</a>`).join('')}</div>`; return; }
+  const d = await api('/safety?store=' + sid);
+  $('#main').innerHTML = `<div class="pghd"><b>安全与应急 · ${esc(d.store)}</b></div><p class="muted small" style="margin-top:-6px">按周期自动到期提醒，记录需上传现场照片；逾期和发现问题会扣门店画像的安全合规分。</p>
+  <div class="list">${d.plans.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.kind)} <span class="muted small">每 ${p.cycle} 天</span></div><div class="muted small">${esc(p.title)} · 上次 ${esc(p.last_date || '-')}${p.last ? (p.last.result === 'bad' ? ' · 有问题' : ' · 合格') : ''} · 下次 ${esc(p.next_date)}</div></div>
+    <div class="row" style="gap:6px;flex:none">${p.late ? '<span class="tag bad">逾期</span>' : p.soon ? '<span class="tag warn">将到期</span>' : ''}<button class="btn sm ${p.late ? 'primary' : ''}" data-sf="${p.id}">记录</button></div></div>`).join('')}</div>
+  <div class="sec-t2">执行记录</div><div class="list">${d.logs.map(l => `<div class="task"><div class="t mono">${esc(l.date.slice(5))}</div><div class="b"><div class="ttl">${esc(l.kind)}</div><div class="muted small">${esc(l.by_name || '')}${l.note ? ' · ' + esc(l.note) : ''}</div></div>${l.photo ? `<img class="thumb" src="${l.photo}">` : ''}<span class="tag ${l.result === 'ok' ? 'ok' : 'bad'}">${l.result === 'ok' ? '合格' : '有问题'}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
+  document.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { const p = d.plans.find(x => x.id === Number(b.dataset.sf));
+    formModal(p.kind, `<p class="muted small">${esc(p.title)}</p><label class="f"><span>结果</span><select name="result"><option value="ok">合格</option><option value="bad">发现问题</option></select></label><label class="f"><span>记录说明</span><textarea name="note" placeholder="参与人数、发现的问题等"></textarea></label><label class="f"><span>现场照片${p.kind === '食品留样' ? '（可选）' : '（必传）'}</span><input type="file" accept="image/*" capture="environment"></label>`,
+      async x => act(async () => api('/safety/' + p.id, { ...x, photo: await filePhoto($('#mf')) }), '已记录')); });
+};
+
+// ---------- 排班与人效 ----------
+VIEWS.labor = async () => {
+  const sid = sidQ() || S.meta.stores[0]?.id, from = qs().get('from') || '', d = await api(`/labor?store=${sid}${from ? '&from=' + from : ''}`), S2 = d.std;
+  $('#main').innerHTML = `<div class="pghd"><b>排班与人效 · ${esc(d.store)}</b></div>
+  ${d.region ? `<div class="tfil">${d.region.map(r => `<a class="${r.id === sid ? 'on' : ''}" href="#/labor?store=${r.id}">${esc(r.name.replace(/^.{2}/, ''))}<small>${r.cost_rate}%</small></a>`).join('')}</div>` : ''}
+  <section class="yic"><div class="rkpi">${[['人房比', d.ratio, '', d.ratio > S2.ratio], ['人均间夜', d.rn_per, '/月'], ['人工成本率', d.cost_rate, '%', d.cost_rate > S2.cost_rate], ['加班合计', d.ot_total, '小时'], ['在岗人数', d.staff, '人'], ['房量', d.rooms, '间']].map(([l, v, u, bad]) => `<a class="${bad ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div>
+  <p class="muted small">参考线：人房比 ≤ ${S2.ratio}，人工成本率 ≤ ${S2.cost_rate}%，个人月加班 ≤ ${S2.ot} 小时。人工成本按基本工资 × 1.35 估算，均为模拟数据。</p></section>
+  <div class="sec-t2 row between"><span>本周排班 ${esc(d.sched.days[0].slice(5))} 起</span><span><a href="#/labor?store=${sid}&from=${addD(d.from, -7)}">上周</a> · <a href="#/labor?store=${sid}&from=${addD(d.from, 7)}">下周</a></span></div>
+  <div class="tbl sched"><table><tr><th>姓名</th>${d.sched.days.map(x => `<th>${'一二三四五六日'[(new Date(x).getDay() + 6) % 7]}<br><small>${x.slice(8)}</small></th>`).join('')}</tr>
+  ${d.sched.rows.map(r => `<tr><td>${esc(r.name)}<br><small class="muted">${esc(r.role_name)}</small></td>${r.cells.map((c, i) => `<td><button class="shc s${'早中夜休'.indexOf(c)}" ${d.can_edit ? `data-sh="${r.id}:${d.sched.days[i]}:${c}"` : 'disabled'}>${c}</button></td>`).join('')}</tr>`).join('')}</table></div>
+  <div class="sec-t2">客房计件与人效</div><div class="list">${d.hk.map((h, i) => `<div class="task"><span class="rk">${i + 1}</span><div class="b"><div class="ttl">${esc(h.name)}</div><div class="muted small">本月 ${h.rooms} 间 · 工时 ${h.hours} 小时 · 提成 ¥${h.amount}</div></div><b>${h.per_h}<small class="muted"> 间/时</small></b></div>`).join('')}</div>
+  <div class="sec-t2">加班排行</div><div class="list">${d.ot.slice(0, 5).map(o => `<div class="task"><div class="b"><div class="ttl">${esc(o.name)} <span class="muted small">${esc(o.role_name)}</span></div></div><span class="tag ${o.ot > S2.ot ? 'bad' : ''}">${o.ot} 小时</span></div>`).join('')}</div>`;
+  document.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const [uid, date, c] = b.dataset.sh.split(':'), nx = '早中夜休'['早中夜休'.indexOf(c) + 1] || '早';
+    act(async () => { await api('/labor/shift', { uid: Number(uid), date, shift: nx }); b.textContent = nx; b.className = 'shc s' + '早中夜休'.indexOf(nx); b.dataset.sh = `${uid}:${date}:${nx}`; }); });
+};
+const addD = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+
+// ---------- 供应商评价 ----------
+VIEWS.suppliers = async () => {
+  const d = await api('/suppliers'), LVC = { 优选: 'ok', 合格: 'acc', 待改进: 'bad' };
+  $('#main').innerHTML = `<div class="pghd"><b>供应商评价</b></div><p class="muted small" style="margin-top:-6px">门店收货时为统购供应商打分：到货及时 40%、质量 40%、价格 20%。85 分以上为优选，70 分以下待改进。</p>
+  ${d.list.map(s => `<div class="ldr"><div class="row between"><b>${esc(s.name)} <span class="muted small">${esc(s.cats)}</span></b><span class="row" style="gap:6px"><b>${s.score ?? '-'}</b><span class="tag ${LVC[s.level] || ''}">${s.level}</span></span></div>
+    <div class="muted small">到货及时 ${s.on_time ?? '-'} · 质量 ${s.quality ?? '-'} · 价格 ${s.price ?? '-'}（5 分制）· ${s.n} 次评价${s.issues ? ` · <b style="color:var(--bad)">问题 ${s.issues} 次</b>` : ''}</div>
+    ${s.recent.filter(r => r.note).slice(0, 2).map(r => `<div class="iss-i"><span class="tag">${esc(r.store || '')}</span><span class="small">${esc(r.note)}</span></div>`).join('')}</div>`).join('')}`;
+};
 
 // 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）
 const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParams(location.search).get('feishu') === '1';

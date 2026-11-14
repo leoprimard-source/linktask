@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS requisitions(id INTEGER PRIMARY KEY, store_id INTEGER
 CREATE TABLE IF NOT EXISTS stocktakes(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, status TEXT, assignee_id INTEGER, items TEXT, created_by INTEGER, created_at TEXT, done_by INTEGER, done_at TEXT);
 CREATE TABLE IF NOT EXISTS train_classes(id INTEGER PRIMARY KEY, region_id INTEGER, name TEXT, kind TEXT, cert TEXT, start TEXT, end TEXT, seats INTEGER, trainer_id INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS train_enroll(id INTEGER PRIMARY KEY, class_id INTEGER, user_id INTEGER, status TEXT, score INTEGER, created_at TEXT, by INTEGER);
+CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, store_id INTEGER, src TEXT, level TEXT, guest TEXT, room TEXT, body TEXT, staff_id INTEGER, owner_id INTEGER, status TEXT, due_at TEXT, created_by INTEGER, created_at TEXT, handle_note TEXT, handled_at TEXT, comp_amt INTEGER DEFAULT 0, comp_kind TEXT, comp_status TEXT DEFAULT 'none', comp_by INTEGER, cb_score INTEGER, cb_note TEXT, closed_at TEXT);
+CREATE TABLE IF NOT EXISTS safety_plans(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, cycle INTEGER, last_date TEXT, next_date TEXT);
+CREATE TABLE IF NOT EXISTS safety_logs(id INTEGER PRIMARY KEY, plan_id INTEGER, store_id INTEGER, date TEXT, by INTEGER, result TEXT, note TEXT, photo TEXT);
+CREATE TABLE IF NOT EXISTS schedules(store_id INTEGER, user_id INTEGER, date TEXT, shift TEXT, PRIMARY KEY(user_id, date));
+CREATE TABLE IF NOT EXISTS suppliers(id INTEGER PRIMARY KEY, name TEXT, cats TEXT);
+CREATE TABLE IF NOT EXISTS supplier_ratings(id INTEGER PRIMARY KEY, supplier_id INTEGER, store_id INTEGER, req_id INTEGER, on_time INTEGER, quality INTEGER, price INTEGER, note TEXT, by INTEGER, at TEXT);
 CREATE TABLE IF NOT EXISTS pay_appeals(id INTEGER PRIMARY KEY, user_id INTEGER, ym TEXT, item TEXT, reason TEXT, status TEXT, reply TEXT, by INTEGER, created_at TEXT, replied_at TEXT);
 CREATE TABLE IF NOT EXISTS shift_logs(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, shift TEXT, by INTEGER, issues TEXT, guest TEXT, equip TEXT, cash TEXT, status TEXT, created_at TEXT, taken_by INTEGER, taken_at TEXT, take_note TEXT);
 CREATE TABLE IF NOT EXISTS mentors(id INTEGER PRIMARY KEY, mentee_id INTEGER, mentor_id INTEGER, start TEXT, checks TEXT, status TEXT);`);
