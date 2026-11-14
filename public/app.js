@@ -1490,9 +1490,9 @@ const calMini = (date, cls = '') => `<button class="calmini ${cls}" id="cal">${i
 const RHYTHM = [['08:30', '早会交班'], ['09:00', '早餐高峰'], ['11:00', '预抵核对'], ['14:00', '退房查房'], ['18:00', '入住高峰'], ['21:00', '日结复盘'], ['23:30', '夜审']];
 const MUST_TAG = { self: 'acc', focus: 'bad', zero: 'bad', review: 'warn', again: 'warn', late: 'bad', spot: 'acc' };
 const pct = v => (v == null ? '-' : v + '%');
-function rhythmBar() {
-  const now = S.me.now; let cur = -1; RHYTHM.forEach(([t], i) => { if (t <= now) cur = i; });
-  return `<div class="rhythm">${RHYTHM.map(([t, l], i) => `<div class="${i === cur ? 'on' : i < cur ? 'past' : ''}"><b>${t}</b><span>${l}</span></div>`).join('')}</div>`;
+function rhythmBar(R = RHYTHM) {
+  const now = S.me.now; let cur = -1; R.forEach(([t], i) => { if (t <= now) cur = i; });
+  return `<div class="rhythm">${R.map(([t, l], i) => `<div class="${i === cur ? 'on' : i < cur ? 'past' : ''}"><b>${t}</b><span>${l}</span></div>`).join('')}</div>`;
 }
 const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
 const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
@@ -1629,6 +1629,7 @@ VIEWS.home = async () => {
   else if (pl === 'ren') await (S.me.lead ? storePeopleView(sid) : myPortrait(sid));
   else if (pl === 'biz') await storeBizView(sid);
   else await staffHome();
+  if (region && pl === (list.includes('ops') ? 'ops' : list[0])) mgrTop();
   if (lv === 'store_manager' && pl === 'ops') loadCockpit(sid);
   if (pl === 'ren' && lv !== 'staff' && lv !== 'train_manager' && da('hrm')) hrmCard(lv === 'store_manager' ? sid : 0);
   if (pl === 'ren' && lv !== 'staff' && lv !== 'train_manager' && da('care')) careCard(lv === 'store_manager' ? sid : 0);
@@ -2460,7 +2461,7 @@ async function hrmCard(sid) {
   const h = `<a class="yic" id="hrmc" href="#/hrm${d.sel ? '?store=' + d.sel.id : ''}" style="display:block;color:inherit;text-decoration:none"><div class="row between"><b>人事指标</b><span class="muted small">编制 · 离职 · 招聘 · 合规 ›</span></div>
     <div class="rkpi">${[['满编率', A.fill, '%', A.fill < d.th.fill], ['缺编', A.gaps, '人', A.gaps > 0], ['月离职率', A.m_rate, '%', A.m_rate > d.th.month]].map(([l, v, u, b]) => `<div class="k ${b ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
     ${A.alerts.length ? `<div class="small" style="color:var(--bad)">${A.alerts.length} 项预警：${esc([...new Set(A.alerts.map(a => a.type))].join('、'))}</div>` : '<div class="muted small">暂无人事预警</div>'}</a>`;
-  const t = $('#main .pltabs') || $('#main .storebar'); t ? t.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+  const t = $('#topw') || $('#main .pltabs') || $('#main .storebar'); t ? t.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
 }
 VIEWS.hrm = async () => {
   const sid = Number(qs().get('store')) || 0, d = await api('/hrm' + (sid ? '?store=' + sid : '')), s = d.sel, A = s || d.sum, th = d.th;
@@ -2500,7 +2501,7 @@ async function careCard(sid) {
   const s = d.sel, sc = s ? s.score : Math.round(d.list.reduce((a, x) => a + x.score, 0) / Math.max(1, d.list.length)), n = s ? s.alerts.length : d.list.reduce((a, x) => a + x.alerts, 0);
   const h = `<a class="yic" id="carec" href="#/care${s ? '?store=' + s.id : ''}" style="display:block;color:inherit;text-decoration:none"><div class="row between"><b>员工美好</b><span class="muted small">员工餐 · 活动 · 关怀 ›</span></div>
     <div class="rkpi"><div class="k ${sc < 70 ? 'bad' : ''}"><b>${sc}<small>分</small></b><span>员工美好分</span></div><div class="k"><b>${s ? stars(s.meal.rate.avg) : d.list.length + '<small>店</small>'}</b><span>${s ? '员工餐满意度' : '门店'}</span></div><div class="k ${n ? 'bad' : ''}"><b>${n}<small>项</small></b><span>待落实</span></div></div></a>`;
-  const t = $('#hrmc') || $('#main .pltabs') || $('#main .storebar'); t ? t.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+  const t = $('#hrmc') || $('#topw') || $('#main .pltabs') || $('#main .storebar'); t ? t.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
 }
 VIEWS.care = async () => {
   const sid = Number(qs().get('store')) || 0, d = await api('/care' + (sid ? '?store=' + sid : '')), s = d.sel, c = d.cfg;
@@ -2592,3 +2593,36 @@ const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParam
 if (IN_FEISHU) document.body.classList.add('in-feishu');
 
 route();
+
+// ---------- 管理角色首页：我的工作 + 一天时间 ----------
+const MGR_TILES = {
+  region_manager: [['#/dash', '区域看板', '看'], ['#/coach', '教练辅导', '教'], ['#/patrol', '巡店计划', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/issues', '问题门店', '问'], ['#/rect', '整改闭环', '改'], ['#/hrm', '人事指标', '人'], ['#/wcal', '工作日历', '历']],
+  ops_manager: [['#/dash', '运营看板', '看'], ['#/issues', '问题门店', '问'], ['#/patrol', '巡店与复查', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安'], ['#/labor', '排班与人效', '排']],
+  sales_manager: [['#/dash', '销售看板', '看'], ['#/issues', '问题门店', '问'], ['#/tasks', '销售任务', '任'], ['#/complaints', '客诉闭环', '诉'], ['#/rect', '整改闭环', '改'], ['#/notices', '消息提醒', '消']],
+  hr_manager: [['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/people', '人员档案', '档'], ['#/pay', '绩效薪酬', '薪'], ['#/train', '培训认证', '培'], ['#/dataauth', '数据授权', '权']],
+  coach: [['#/coach', '本周辅导', '辅'], ['#/wcal', '工作日历', '历'], ['#/engage', '敬业与留任', '留'], ['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安']],
+  hq: [['#/hq', '总部视角', '总'], ['#/dataauth', '数据授权', '权'], ['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/brands', '品牌标准', '标'], ['#/suppliers', '供应商评价', '供'], ['#/wcal', '工作日历', '历']],
+  train_manager: [['#/train', '培训与认证', '培'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消'], ['#/work', '易培训', '易']],
+  dev_manager: [['#/home?pl=shop&lc=pipe', '管道与筹备', '管'], ['#/home?pl=shop&lc=run', '在营画像', '营'], ['#/home?pl=shop&lc=flow', '周转记录', '转'], ['#/work', '易开发', '易'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消']],
+  build_manager: [['#/home?pl=shop&lc=pipe', '筹备项目', '筹'], ['#/home?pl=shop&lc=run', '在营画像', '营'], ['#/home?pl=shop&lc=flow', '周转记录', '转'], ['#/work', '易筹建', '易'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消']]
+};
+const MGR_RHYTHM_OPS = [['08:30', '看区域看板'], ['09:30', '异常处理'], ['10:30', '巡店辅导'], ['14:00', '复查整改'], ['17:00', '重点跟踪'], ['20:00', '日结复盘']];
+const MGR_RHYTHM = {
+  region_manager: MGR_RHYTHM_OPS, ops_manager: MGR_RHYTHM_OPS,
+  coach: [['08:30', '看辅导清单'], ['09:30', '例外事项'], ['10:30', '到店辅导'], ['14:00', '上手验收'], ['17:00', '记录辅导'], ['20:00', '日结复盘']],
+  sales_manager: [['09:00', '看销售看板'], ['10:00', '门店销售跟进'], ['14:00', '渠道与点评'], ['16:00', '客诉跟进'], ['18:00', '日结复盘']],
+  hr_manager: [['09:00', '人事预警'], ['10:00', '招聘面试'], ['14:00', '员工关怀'], ['16:00', '用工合规'], ['17:30', '日结复盘']],
+  hq: [['09:00', '区域排名'], ['10:30', '政策标准'], ['14:00', '跨区对比'], ['17:00', '日结复盘']],
+  train_manager: [['09:00', '达标提醒'], ['10:00', '开班授课'], ['14:00', '认证考核'], ['17:00', '培训复盘']],
+  dev_manager: [['09:00', '线索跟进'], ['10:30', '业主拜访'], ['14:00', '选址评估'], ['17:00', '管道复盘']],
+  build_manager: [['09:00', '节点检查'], ['10:30', '工地巡查'], ['14:00', '供应商协调'], ['17:00', '进度复盘']]
+};
+function mgrTop() {
+  const lv = S.me.level, ts = MGR_TILES[lv]; if (!ts || $('#topw')) return;
+  const items = ts.filter(([h]) => { const k = h.slice(2).split('?')[0]; return !NAV_DA[k] || da(NAV_DA[k]); });
+  const h = `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${items.map(([href, l, c], i) => `<a href="${href}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar(MGR_RHYTHM[lv] || MGR_RHYTHM_OPS)}</div>`;
+  let a = $('#main .pltabs') || $('#main .storebar') || $('#main .pghd');
+  if (a && a.classList.contains('pghd') && a.nextElementSibling?.matches('p.muted')) a = a.nextElementSibling;
+  a ? a.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
+}
+for (const [v, lv] of [['coach', 'coach'], ['hq', 'hq']]) { const f0 = VIEWS[v]; VIEWS[v] = async () => { await f0(); if (S.me.level === lv) mgrTop(); }; }
