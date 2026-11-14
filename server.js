@@ -53,14 +53,24 @@ function savePhoto(dataUrl) {
 
 const INST_SQL = `SELECT i.*, s.name AS scene_name, st.name AS store_name, a.name AS assignee_name, ar.name AS assignee_role,
   o.name AS orig_name, c.name AS checker_name, tp.code, tp.tag, tp.score AS tscore, tp.m, tp.l, tp.f, tp.sub, tp.need_value,
+  COALESCE(tp.pillar, (SELECT pillar FROM flex_tasks WHERE i.src='flex' AND id=i.src_id)) AS tpillar,
   (SELECT id FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_id,
   (SELECT status FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_status,
   CASE WHEN i.src='tpl' THEN (SELECT freq FROM templates WHERE id=i.src_id) ELSE (SELECT recur FROM flex_tasks WHERE id=i.src_id) END AS freq
   FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=i.store_id
   LEFT JOIN users a ON a.id=i.assignee_id LEFT JOIN roles ar ON ar.id=a.role_id LEFT JOIN users o ON o.id=i.orig_assignee_id LEFT JOIN users c ON c.id=i.checked_by LEFT JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id`;
+const PILLAR_MONEY = /收银|账务|账单|挂账|营收|备用金|夜审|发票|押金|房价|价格|成本|采购|能耗|水电表|合同|保险|OTA|GOP|收入|库存|盘点|预算|结算/;
+const PILLAR_PEOPLE = /培训|员工|仪容|仪表|礼仪|迎来送往|迎送|交接|班前会|晨会|排班|问候|宾客|客诉|投诉|点评|回复|人员|招聘|考勤|微笑|健康证|服务流程|关怀|会员服务/;
+function pillarOf(r) {
+  const s = (r.title || '') + (r.standard || '');
+  if (/交接|培训|仪容|礼仪|迎来送往|早会|班前会/.test(r.title || '')) return '人';
+  if (PILLAR_MONEY.test(s)) return '财';
+  if (PILLAR_PEOPLE.test(s)) return '人';
+  return r.category === 'sales' ? '财' : '物';
+}
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
-  return rows.map(r => ({ ...r, overdue: r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
+  return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
     covered: r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
 }
 
@@ -351,6 +361,85 @@ app.get('/api/home', (req, res) => {
       once: all.filter(i => i.freq === 'once' && i.date >= ms && i.date <= me),
     },
   });
+});
+
+app.get('/api/calendar', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today();
+  const rows = q(`SELECT i.date, COUNT(*) total, SUM(i.status='done') done FROM instances i WHERE i.date BETWEEN ? AND ?${sc.w} GROUP BY i.date`, req.query.from, req.query.to, ...sc.p);
+  res.json(Object.fromEntries(rows.filter(r => r.date <= t).map(r => [r.date, Math.round((r.done || 0) * 100 / r.total)])));
+});
+
+app.get('/api/profile', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const u = req.u, t = L.today(), y = L.addDays(t, -1);
+  const week = req.query.mode === 'week';
+  const ms = (t.endsWith('-01') ? y : t).slice(0, 8) + '01';
+  const from = week ? L.addDays(t, -7) : ms, to = y;
+  const store = q1('SELECT * FROM stores WHERE id=?', sc.sid);
+  const patrol = q1("SELECT score, done_at FROM patrols WHERE store_id=? AND status='done' ORDER BY done_at DESC LIMIT 1", sc.sid);
+  const rows = decorate(q(INST_SQL + ` WHERE i.date BETWEEN ? AND ?${sc.w}`, from, to, ...sc.p));
+  const R = (a, b) => (b.length ? Math.round(a.length * 100 / b.length) : null);
+  const done = r => r.status === 'done';
+  const ind = [];
+  const add = (group, name, v, good, warn, unit = '%', higher = true) => {
+    if (v == null) return;
+    const st = higher ? (v >= good ? 'ok' : v >= warn ? 'warn' : 'bad') : (v <= good ? 'ok' : v <= warn ? 'warn' : 'bad');
+    ind.push({ group, name, value: v, unit, status: st, rule: higher ? `≥${good}${unit} 达标，≥${warn}${unit} 预警` : `≤${good}${unit} 达标，≤${warn}${unit} 预警` });
+  };
+  const byF = f => rows.filter(r => (r.freq || 'daily') === f);
+  add('执行', '日任务完成率', R(byF('daily').filter(done), byF('daily')), 95, 85);
+  add('执行', '周任务完成率', R(byF('weekly').filter(done), byF('weekly')), 95, 85);
+  add('执行', '月任务完成率', R(byF('monthly').filter(done), byF('monthly')), 100, 80);
+  const dn = rows.filter(done);
+  add('执行', '准时完成率', R(dn.filter(r => (r.done_at || '').slice(0, 10) < r.date || ((r.done_at || '').slice(0, 10) === r.date && r.done_at.slice(11, 16) <= r.due_time)), dn), 90, 80);
+  const ck = rows.filter(r => r.check_result);
+  add('质量', '抽查合格率', R(ck.filter(r => r.check_result === 'good'), ck), 90, 80);
+  const zero = rows.filter(r => r.tag === '清零项');
+  add('品牌标准', '清零项执行率', R(zero.filter(r => done(r) && r.check_result !== 'bad'), zero), 100, 95);
+  const key = rows.filter(r => r.tag === '重点项');
+  add('品牌标准', '重点项执行率', R(key.filter(done), key), 98, 90);
+  const m2 = rows.filter(r => r.m === 'M2' && done(r));
+  add('品牌标准', 'M2 店长复查覆盖率', R(m2.filter(r => r.check_result), m2), 90, 70);
+  const m3 = rows.filter(r => r.m === 'M3' && done(r));
+  add('品牌标准', 'M3 抽查覆盖率', R(m3.filter(r => r.check_result), m3), 20, 10);
+  const f4 = rows.filter(r => (r.f || '').includes('F4'));
+  add('品牌标准', 'F4 群拍提交率', R(f4.filter(r => done(r) && r.photo), f4), 95, 85);
+  const f3 = rows.filter(r => r.need_value);
+  add('品牌标准', 'F3 计量填报率', R(f3.filter(r => done(r)), f3), 95, 85);
+  const scenes = {};
+  for (const r of rows) (scenes[r.scene_name || '其他'] ||= []).push(r);
+  for (const [n, rs] of Object.entries(scenes)) add('场景', `${n}完成率`, R(rs.filter(done), rs), 95, 85);
+  if (!sc.mine) {
+    const late = q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status!='closed' AND deadline<?", sc.sid, t).n;
+    add('质量', '逾期未整改', late, 0, 2, '项', false);
+    const fx = rows.filter(r => r.origin === 'focus');
+    add('质量', '重点跟踪执行率', R(fx.filter(done), fx), 100, 90);
+    if (patrol) add('质量', '最近巡店得分', patrol.score, 90, 80, '分');
+    if (!sc.cat || sc.cat === 'sales') {
+      const b = bizRange(sc.sid, from, to);
+      add('经营', '出租率', Math.round(b.occ * 1000) / 10, 85, 75);
+      add('经营', 'RevPAR 指数（MPI）', Math.round(b.mpi * 10) / 10, 100, 95, '');
+      add('经营', '差评数', b.bad, 0, 2, '条', false);
+    }
+  }
+  const cnt = s => ind.filter(i => i.status === s).length;
+  const health = ind.length ? Math.round((cnt('ok') * 100 + cnt('warn') * 60) / ind.length) : null;
+  const rateIn = (f, a, b) => {
+    const r = q1(`SELECT COUNT(*) total, SUM(i.status='done') done FROM instances i WHERE i.date BETWEEN ? AND ? AND COALESCE(CASE WHEN i.src='tpl' THEN (SELECT freq FROM templates WHERE id=i.src_id) ELSE (SELECT recur FROM flex_tasks WHERE id=i.src_id) END,'daily')=?${sc.w}`, a, b, f, ...sc.p);
+    return r.total ? Math.round((r.done || 0) * 100 / r.total) : null;
+  };
+  const ws = L.addDays(t, -(L.weekday(t) - 1)), cm = t.slice(0, 8) + '01', lme = L.addDays(cm, -1), lms = lme.slice(0, 8) + '01', ys = t.slice(0, 5) + '01-01';
+  const completion = {
+    cur: { day: rateIn('daily', y, y), week: rateIn('weekly', ws, t), month: rateIn('monthly', cm, t) },
+    last: { day: rateIn('daily', lms, lme), week: rateIn('weekly', lms, lme), month: rateIn('monthly', lms, lme) },
+    year: { day: rateIn('daily', ys, y), week: rateIn('weekly', ys, t), month: rateIn('monthly', ys, t) },
+  };
+  const cr = R(rows.filter(done), rows);
+  const score = health == null || cr == null ? null : Math.round(health * 0.6 + cr * 0.4);
+  const since = L.addDays('2021-03-01', Math.floor(hash('since' + u.id) * 1200));
+  res.json({ user: { name: u.name, role: u.role_name, level: u.level, since }, store: { ...store, patrol_score: patrol?.score ?? null, patrol_at: patrol?.done_at || null },
+    from, to, mode: week ? 'week' : 'month', health, completion_rate: cr, score, counts: { ok: cnt('ok'), warn: cnt('warn'), bad: cnt('bad') }, indicators: ind, completion });
 });
 
 function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; }

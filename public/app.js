@@ -130,7 +130,7 @@ const NAV = {
     ['sec', '配置'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -141,11 +141,13 @@ const ICON = {
   me: '<circle cx="10" cy="7" r="3"/><path d="M4.5 16.5c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/>',
   more: '<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="13.5" r="2.5"/><circle cx="13.5" cy="13.5" r="2.5"/>',
   cam: '<path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/>',
+  clock: '<circle cx="10" cy="10" r="6.5"/><path d="M10 6.5V10l2.5 1.5"/>',
+  hour: '<path d="M6 3.5h8M6 16.5h8M7 3.5c0 4 6 4.5 6 6.5s-6 2.5-6 6.5M13 3.5c0 4-6 4.5-6 6.5"/>',
   cal: '<rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8h13M7 3v3M13 3v3"/>',
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
 const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
-const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息' }[k] || ''; };
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
 
 function shell(route, html) {
   const root = ['home', 'notices', 'work', 'rect', 'my-rect', 'me'].includes(route);
@@ -263,7 +265,8 @@ VIEWS.my = async () => {
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeModal(list.find(t => t.id === Number(b.dataset.done))));
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'));
 };
-function completeModal(t, after) {
+function completeModal(t) { location.hash = '#/task/' + t.id; }
+function completeModalOld(t, after) {
   modal('完成任务', `<div class="kv"><div>任务</div><div>${esc(t.title)}</div><div>标准</div><div class="pre">${esc(t.standard || '-')}</div><div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div></div>
     ${t.code ? `<p class="muted small">品牌标准 No.${esc(t.code)} · ${M_DESC[t.m] || ''} · 反馈方式：${fText(t.f)}${(t.f || '').includes('F4') ? '（照片会同步到门店群拍墙）' : ''}</p>` : ''}
     <form id="f">${t.need_value ? '<label class="f"><span>计量读数（必填）</span><input name="reading" required placeholder="例如：巡检 15 个点位，异常 0 处 / 水温 52℃"></label>' : ''}<label class="f"><span>完成说明（可选）</span><textarea name="note" placeholder="例如：已补齐 3 个品种"></textarea></label>
@@ -826,15 +829,18 @@ VIEWS.home = async () => {
   const mode = p.get('m') || 'day';
   const [h, b] = await Promise.all([api(`/home?store=${sid}&date=${date}`), api(`/brief?store=${sid}&mode=${mode}`)]);
   const bt = p.get('bt') || (S.me.level === 'sales_manager' && b.biz ? 'biz' : b.biz && S.me.level !== 'staff' && S.me.level !== 'ops_manager' ? 'biz' : 'ops');
-  const link = o => '#/home?' + new URLSearchParams({ store: sid, date, tab, m: mode, bt, ...o });
+  const link = o => '#/home?' + new URLSearchParams({ store: sid, date, tab, m: mode, bt, pl: p.get('pl') || '', ...o });
   const br = bt === 'biz' && b.biz ? b.biz : b.ops;
-  const list = h.tabs[tab];
+  const full = h.tabs[tab];
+  const pl = p.get('pl') || '';
+  const list = pl ? full.filter(t => t.pillar === pl) : full;
   const cnt = k => `${h.tabs[k].filter(t => t.status === 'done').length}/${h.tabs[k].length}`;
   const done = list.filter(t => t.status === 'done');
   const ontime = done.filter(t => (t.done_at || '').slice(0, 10) < t.date || ((t.done_at || '').slice(0, 10) === t.date && t.done_at.slice(11, 16) <= t.due_time));
   const checked = list.filter(t => t.check_result), good = checked.filter(t => t.check_result === 'good');
   const R = (a, b2) => (b2.length ? Math.round(a.length * 100 / b2.length) : null);
-  const rings = [['完成', R(done, list)], ['准时', R(ontime, done)], ['合格', R(good, checked)]];
+  const PL = k => full.filter(t => t.pillar === k);
+  const rings = ['人', '财', '物'].map(k => [k, R(PL(k).filter(t => t.status === 'done'), PL(k)), PL(k)]);
   const groups = {};
   for (const t of list) {
     const key = tab === 'day' ? (t.scene_name || '其他') : tab === 'once' ? t.title : `${t.scene_name || '其他'}`;
@@ -858,11 +864,11 @@ VIEWS.home = async () => {
   <div class="storebar">
     <button class="storename" id="sp" ${multi ? '' : 'disabled'}>${esc(storeName(sid))}${multi ? '<i>▾</i>' : ''}</button>
     <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a>
-    <a class="ib" href="#/work">${icon('more')}<span>更多</span></a>
+    <button class="ib" id="more">${icon('more')}<span>更多</span></button>
   </div>
   <div class="week">${h.week.map((d, i) => `<a href="${link({ date: d.date })}" class="${d.date === date ? 'on' : ''} ${d.date === S.me.today ? 'today' : ''}">
       <span class="wd">${CN_WD[i]}</span>${gauge(d.rate, 34, 4, rateColor(d.rate))}</a>`).join('')}
-    <label class="calbtn"><span class="wd">日历</span><span class="cal">${icon('cal')}<b>${Number(date.slice(8))}</b></span><input type="date" id="cal" value="${date}"></label>
+    <button class="calbtn" id="cal"><span class="wd">日历</span><span class="cal">${icon('cal')}<b>${Number(date.slice(8))}</b></span></button>
   </div>
   <section class="brief">
     <div class="btabs">${b.biz ? `<a href="${link({ bt: 'biz' })}" class="${bt === 'biz' ? 'on' : ''}">经营简报</a>` : ''}<a href="${link({ bt: 'ops' })}" class="${bt !== 'biz' || !b.biz ? 'on' : ''}">${mine ? '我的简报' : '运营简报'}</a>
@@ -873,21 +879,23 @@ VIEWS.home = async () => {
   </section>
   <section class="tasks">
     <div class="ttabs">${['day', 'week', 'month', 'once'].map(k => `<a href="${link({ tab: k })}" class="${tab === k ? 'on' : ''}">${stLabel[k]}<small>${cnt(k)}</small></a>`).join('')}</div>
-    <div class="rings">${rings.map(([l, r]) => `<div class="ring">${gauge(r, 92, 9, rateColor(r))}<div class="rv"><b>${r == null ? '-' : r}</b><small>%</small><span>${l}</span></div></div>`).join('')}</div>
+    <div class="rings">${rings.map(([l, r, arr]) => `<a class="ring ${pl === l ? 'on' : ''}" href="${link({ pl: pl === l ? '' : l })}">${gauge(r, 92, 9, rateColor(r))}<div class="rv"><b>${r == null ? '-' : r}</b><small>${r == null ? '' : '%'}</small><span>${l}</span></div><em>${arr.filter(t => t.status === 'done').length}/${arr.length}</em></a>`).join('')}</div>
     ${(() => { const z = list.filter(t => t.tag === '清零项'), b = list.filter(t => t.code); return b.length ? `<a class="stdbar" href="#/standards?store=${sid}"><span>品牌标准 <b>${b.filter(t => t.status === 'done').length}/${b.length}</b></span>${z.length ? `<span>清零项 <b class="${z.some(t => t.status !== 'done') ? 'bad' : ''}">${z.filter(t => t.status === 'done').length}/${z.length}</b></span>` : ''}<span class="sp"></span><span class="lk">品牌标准库 ›</span></a>` : ''; })()}
     <a class="stdbar feedbar" href="#/feed?store=${sid}&date=${date}"><span>${icon('cam')} 门店群拍墙</span><span class="sp"></span><span class="lk">M4 机制群拍 ›</span></a>
     <div class="timeline">${gl.length ? gl.map(g => {
       const d = g.ts.filter(t => t.status === 'done').length, od = g.ts.some(t => t.overdue);
       const open = S.open[gKey(g.name)] ?? (mine || gl.length <= 2);
       return `<div class="tl ${od ? 'od' : d === g.ts.length ? 'ok' : ''}"><i class="dot"></i>
-        <div class="tcard"><div class="th" data-g="${esc(gKey(g.name))}"><b>${esc(g.name)}</b><span class="tt2">${tab === 'day' ? '' : esc(g.date.slice(5)) + ' '}${esc(g.time)}</span></div>
+        <div class="tcard" data-go="${esc(g.name)}"><div class="th"><b>${esc(g.name)}</b><span class="tt2">${tab === 'day' ? '' : esc(g.date.slice(5)) + ' '}${esc(g.time)}</span></div>
           <div class="tp"><span>已完成 <b>${d}/${g.ts.length}</b></span>${od ? '<span class="tag bad">有超时</span>' : ''}</div>
           <div class="segbar">${g.ts.map(t => `<i class="${t.status === 'done' ? 'd' : t.overdue ? 'b' : ''}"></i>`).join('')}</div>
-          ${open ? `<div class="tlist">${g.ts.map(taskRow).join('')}</div>` : ''}</div></div>`;
+          <div class="tmore">${g.ts.filter(t => t.status !== 'done').length ? `待完成 ${g.ts.filter(t => t.status !== 'done').length} 项` : '全部完成'} ›</div></div></div>`;
     }).join('') : `<div class="empty">${date > S.me.today ? '未来日期的任务会在当天生成' : `没有${stLabel[tab]}`}</div>`}</div>
   </section>`;
   if (multi) $('#sp').onclick = () => sheet(S.meta.stores.map(st => [esc(st.name) + (st.id === sid ? ' ✓' : ''), () => { location.hash = link({ store: st.id }); }]), '切换门店');
-  $('#cal').onchange = e => { if (e.target.value) location.hash = link({ date: e.target.value }); };
+  $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = link({ date: d }); });
+  $('#more').onclick = e => moreMenu(e.currentTarget);
+  document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab, pl, g: el.dataset.go }); });
   $('#bd').onclick = () => modal(bt === 'biz' && b.biz ? '经营简报详情' : mine ? '我的简报详情' : '运营简报详情', `<p class="headline">${md(br.headline)}</p>
     ${br.items.map(it => `<div class="note"><b>${esc(it.title)}</b><br>${esc(it.body)} ${it.link ? `<a href="${esc(it.link)}" data-close>去处理</a>` : ''}</div>`).join('')}
     ${bt === 'biz' && b.biz ? '<p class="muted small">经营数据（RevPAR、出租率、平均房价、差评）为模拟数据，接入 PMS 和点评平台后自动更新。</p>' : `<p class="muted small">统计区间 ${esc(b.from)} 至 ${esc(b.to)}，与前一周同期对比。</p>`}`);
@@ -962,7 +970,8 @@ VIEWS.work = async () => {
   for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else cur.items.push([k, l]); }
   let ci = 0;
   $('#main').innerHTML = `<h1>工作台</h1>${secs.map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
-    `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}`;
+    `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}
+  <div class="sec-t">内部系统</div><div class="panel tiles">${Object.entries(APPS).map(([k, x]) => `<a class="tile" href="#/app/${k}"><span class="tic" style="background:${x.color}">${x.name.replace('易', '').slice(0, 1)}</span><span>${x.name}</span></a>`).join('')}</div>`;
 };
 
 // ---------- 我的 ----------
@@ -975,5 +984,278 @@ VIEWS.me = async () => {
   <div class="panel menu">${[...(mt ? [['#/my', '我的任务']] : []), ['#/my-rect', '我的整改'], ['#/standards', '品牌标准库'], ['#/feed', '门店群拍墙'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
     <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
 };
+
+// ---------- 日历弹窗 / 更多 ----------
+async function calSheet(sid, sel, onPick) {
+  const t = S.me.today, cur = sel.slice(0, 8) + '01';
+  const months = [-2, -1, 0].map(k => { const d = new Date(cur + 'T00:00:00'); d.setMonth(d.getMonth() + k); return d.toISOString().slice(0, 8) + '01'; });
+  const last = new Date(cur + 'T00:00:00'); last.setMonth(last.getMonth() + 1); last.setDate(0);
+  const to = cur.slice(0, 8) + String(last.getDate()).padStart(2, '0');
+  const rates = await api(`/calendar?store=${sid}&from=${months[0]}&to=${to}${S.me.level === 'staff' ? '&mine=1' : ''}`);
+  const month = ms => {
+    const d0 = new Date(ms + 'T00:00:00'), y = d0.getFullYear(), m = d0.getMonth();
+    const n = new Date(y, m + 1, 0).getDate(), lead = (d0.getDay() + 6) % 7;
+    let cells = '<i></i>'.repeat(lead);
+    for (let i = 1; i <= n; i++) {
+      const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`, r = rates[ds];
+      cells += `<button data-d="${ds}" class="${ds === sel ? 'on' : ''} ${ds === t ? 'today' : ''}" ${ds > L30() ? 'disabled' : ''}><span>${i}</span>${ds <= t ? gauge(r ?? null, 30, 3, rateColor(r ?? null)) : '<b class="gp"></b>'}</button>`;
+    }
+    return `<div class="cm"><div class="cmt">${y}年${m + 1}月</div><div class="cg">${cells}</div></div>`;
+  };
+  $('#modal-root').innerHTML = `<div class="modal-bg sheet-bg"><div class="calsheet"><div class="ch"><button class="x" data-close>✕</button><b>选择查看日期</b><span></span></div>
+    <div class="cw">${CN_WD.map(w => `<span>${w}</span>`).join('')}</div><div class="cbody">${months.map(month).join('')}</div></div></div>`;
+  const bg = $('#modal-root').firstChild;
+  bg.addEventListener('click', e => { if (e.target === bg || e.target.closest('[data-close]')) return closeModal(); const b = e.target.closest('[data-d]'); if (b) { closeModal(); onPick(b.dataset.d); } });
+  const on = bg.querySelector('.cbody .on'); if (on) on.scrollIntoView({ block: 'center' });
+}
+const L30 = () => { const d = new Date(S.me.today + 'T00:00:00'); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); };
+function moreMenu(btn) {
+  const quick = { store_manager: [1, '切换为区域经理'], region_manager: [4, '切换为店长'], ops_manager: [4, '切换为店长'], sales_manager: [1, '切换为区域经理'], staff: [4, '切换为店长'] }[S.me.level];
+  const items = [[quick[1], () => { localStorage.lt_uid = quick[0]; S.meta = null; location.hash = '#/home'; route(); }], ['工作台', () => { location.hash = '#/work'; }], ['品牌标准库', () => { location.hash = '#/standards'; }], ['切换其他身份', () => { location.hash = '#/login'; }]];
+  const r = btn.getBoundingClientRect();
+  $('#modal-root').innerHTML = `<div class="pop-bg"><div class="pop" style="top:${r.bottom + 6}px;right:${Math.max(8, innerWidth - r.right - 4)}px">${items.map(([l], i) => `<button data-i="${i}">${i === 0 ? '⇌ ' : ''}${esc(l)}</button>`).join('')}</div></div>`;
+  const bg = $('#modal-root').firstChild;
+  bg.onclick = e => { const b = e.target.closest('[data-i]'); closeModal(); if (b) items[Number(b.dataset.i)][1](); };
+}
+
+// ---------- 任务列表（点击时间轴卡片） ----------
+const md2 = d => `${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`;
+VIEWS.group = async () => {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const date = p.get('date') || S.me.today, tab = p.get('tab') || 'day', g = p.get('g') || '', pl = p.get('pl') || '';
+  const h = await api(`/home?store=${sid}&date=${date}${S.me.level === 'staff' ? '&mine=1' : ''}`);
+  const ts = h.tabs[tab].filter(t => (!pl || t.pillar === pl) && (tab === 'once' ? t.title : (t.scene_name || '其他')) === g);
+  const manage = S.me.can.manage;
+  const btn = t => (t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? ['去完成', 'go'] : manage && t.status === 'done' && !t.check_result ? [t.m === 'M2' ? '去复查' : '去抽查', 'go'] : ['查看', 'view']);
+  $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(g)}${pl ? ` · ${esc(pl)}` : ''}</div><div class="bp-body">
+    <h2 class="bp-t">任务列表 (${ts.filter(t => t.status === 'done').length}/${ts.length})</h2>
+    ${ts.map(t => { const [l, k] = btn(t); return `<div class="gcard ${t.status === 'done' ? 'done' : ''} ${t.overdue ? 'od' : ''}" data-id="${t.id}">
+      <div class="gt">「${esc(g)}」-${esc(t.title)}</div>
+      <div class="gl">${icon('clock')}建议完成时间：${md2(t.date)} ${esc(t.due_time)}</div>
+      <div class="gl">${icon('hour')}任务截止时间：${md2(t.date)} 23:59</div>
+      <div class="gtags"><span class="tag">${esc(t.pillar)}</span> ${stdTags(t)} ${statusTag(t)} ${checkTag(t)}<span class="muted small">${esc(t.assignee_name || '')}</span></div>
+      <span class="gbtn ${k}">${l} →</span></div>`; }).join('') || '<div class="empty">没有任务</div>'}</div></div>`;
+  document.querySelectorAll('.gcard').forEach(el => el.onclick = () => { location.hash = '#/task/' + el.dataset.id; });
+};
+
+// ---------- 任务处理页（AI 助手 + 内部系统） ----------
+const APPS = {
+  room: { name: '易客房', color: '#14A38B', re: /客房|布草|房间|OK ?房|做房|查房|迷你吧|易耗品|洗衣|床/, desc: '房态、做房、查房与布草管理' },
+  eng: { name: '易工程', color: '#3C7BF4', re: /设备|空调|电梯|工程|维修|报修|水电|锅炉|照明|管道|能耗|巡检|配电/, desc: '报修工单、设备巡检与能耗抄表' },
+  patrol: { name: '易巡店', color: '#7C6CF2', re: /巡|公区|外围|大堂|标识|绿化|停车/, desc: '巡店计划、检查表与问题追踪' },
+  bf: { name: '易早餐', color: '#F29A2E', re: /早餐|餐厅|食品|留样|厨|出品|菜|餐具/, desc: '早餐备餐、补餐与食品安全' },
+  safe: { name: '易安全', color: '#E5534B', re: /消防|安全|监控|燃气|液化气|天然气|应急|消火栓|疏散|治安|报警/, desc: '消防、监控、燃气与应急管理' },
+  gop: { name: 'GOP管理', color: '#C2843A', re: /营收|成本|GOP|采购|收银|账|价格|房价|库存|预算|销售|客户/, desc: '营收、成本与 GOP 经营分析' },
+};
+const SCENE_APP = { 客房: 'room', 餐厅: 'bf', 后场: 'eng', 外围: 'patrol', 公区: 'patrol', 前台: 'gop', 营业功能区: 'room' };
+function appsFor(t) {
+  const s = (t.title || '') + (t.standard || '') + (t.scene_name || '');
+  const ks = Object.keys(APPS).filter(k => APPS[k].re.test(s));
+  if (!ks.length && SCENE_APP[t.scene_name]) ks.push(SCENE_APP[t.scene_name]);
+  return ks.slice(0, 3);
+}
+const SCENE_COLOR = { 前台: '#3C7BF4', 餐厅: '#F29A2E', 客房: '#14A38B', 公区: '#7C6CF2', 外围: '#5B8C5A', 后场: '#C2843A', 营业功能区: '#2BA6DE' };
+function aiPhoto(t) {
+  const c = document.createElement('canvas'); c.width = 960; c.height = 720; const x = c.getContext('2d');
+  const col = SCENE_COLOR[t.scene_name] || '#3C7BF4';
+  const g = x.createLinearGradient(0, 0, 0, 720); g.addColorStop(0, '#F4F6FA'); g.addColorStop(0.55, col + '55'); g.addColorStop(1, col + 'AA');
+  x.fillStyle = g; x.fillRect(0, 0, 960, 720);
+  x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 2;
+  for (let i = -8; i <= 8; i++) { x.beginPath(); x.moveTo(480, 330); x.lineTo(480 + i * 140, 720); x.stroke(); }
+  for (let y = 380; y < 720; y += 50) { x.beginPath(); x.moveTo(0, y); x.lineTo(960, y); x.stroke(); }
+  let seed = 0; for (const ch of t.title) seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+  for (let i = 0; i < 5; i++) { const w = 90 + (seed * (i + 3)) % 120, h = 60 + (seed * (i + 7)) % 160; x.fillStyle = `rgba(255,255,255,${0.55 + i * 0.07})`; x.beginPath(); x.roundRect(80 + i * 165, 400 - h, w, h, 10); x.fill(); x.fillStyle = col; x.fillRect(80 + i * 165, 400 - h, w, 8); }
+  x.fillStyle = 'rgba(20,24,32,.72)'; x.beginPath(); x.roundRect(30, 560, 900, 130, 16); x.fill();
+  x.fillStyle = '#fff'; x.font = '600 34px sans-serif'; x.fillText(t.title.slice(0, 22), 56, 612);
+  x.font = '24px sans-serif'; x.fillText(`${t.store_name || storeName(t.store_id)} · ${t.scene_name || ''} · ${S.me.today} ${new Date().toTimeString().slice(0, 5)}`, 56, 656);
+  x.fillStyle = 'rgba(91,78,255,.92)'; x.beginPath(); x.roundRect(30, 30, 300, 52, 26); x.fill();
+  x.fillStyle = '#fff'; x.font = '600 24px sans-serif'; x.fillText('✦ AI 生成 · 演示图片', 52, 64);
+  return c.toDataURL('image/jpeg', 0.82);
+}
+function stdPoints(t) { return (t.standard || '').split(/\n|；|;|。/).map(x => x.replace(/^[\s\d.、()（）-]+/, '').trim()).filter(x => x.length > 3).slice(0, 5); }
+VIEWS.task = async id => {
+  const t = await api('/instances/' + id);
+  const can = t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || S.me.can.manage);
+  const apps = appsFor(t);
+  let photo = null;
+  $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(t.scene_name || '任务')}</div><div class="bp-body">
+    <div class="tk-card"><div class="gt">${esc(t.title)}</div>
+      <div class="gtags"><span class="tag">${esc(t.pillar)}</span> ${originTag(t.origin)} ${stdTags(t)} ${statusTag(t)} ${checkTag(t)}</div>
+      <div class="gl">${icon('clock')}建议完成时间：${md2(t.date)} ${esc(t.due_time)}　${icon('me')}${esc(t.assignee_name || '未分配')}${t.covered ? `（顶岗 · 原 ${esc(t.orig_name)}）` : ''}</div>
+      ${t.code ? `<div class="gl">品牌标准 No.${esc(t.code)} · ${M_DESC[t.m] || ''} · 反馈：${fText(t.f)}</div>` : ''}
+      <details class="sd" ${(t.standard || '').length < 80 ? 'open' : ''}><summary>执行标准</summary><div class="pre small">${esc(t.standard || '-')}</div></details></div>
+    ${apps.length ? `<div class="sec-t2">相关内部系统</div><div class="approw">${apps.map(k => `<a href="#/app/${k}?task=${t.id}" class="appchip"><span style="background:${APPS[k].color}">${APPS[k].name.replace('易', '').slice(0, 1)}</span>${APPS[k].name}</a>`).join('')}</div>` : ''}
+    ${can ? `<div class="ai"><div class="ai-h"><span class="aiav">AI</span><div><b>宏图 AI 助手</b><div class="muted small">演示功能：可以帮你生成照片、写完成说明、提交前预检</div></div></div>
+      <div class="ai-btns"><button class="btn sm" id="ai-photo">✦ 生成现场照片</button><button class="btn sm" id="ai-note">✦ 写完成说明</button><button class="btn sm" id="ai-check">✦ 提交前预检</button></div>
+      <div id="ai-out"></div></div>
+    <form id="f" class="tk-form">
+      ${t.need_value ? '<label class="f"><span>计量读数（必填）</span><input name="reading" required placeholder="例如：巡检 15 个点位，异常 0 处"></label>' : ''}
+      <div class="f"><span>现场照片${t.need_photo ? '（必传）' : '（可选）'}</span><div class="ph-row"><div class="ph-prev" id="pv">${icon('cam')}</div>
+        <label class="btn sm">拍照 / 相册<input type="file" accept="image/*" capture="environment" id="pf" hidden></label></div></div>
+      <label class="f"><span>完成说明</span><textarea name="note" id="note" placeholder="例如：已按标准完成，无异常"></textarea></label>
+      <button class="btn primary block">提交完成</button></form>`
+    : `<div class="tk-card">${t.status === 'done' ? `<div class="gl">完成时间：${esc(t.done_at)}</div>${t.reading ? `<div class="gl">计量读数：${esc(t.reading)}</div>` : ''}${t.done_note ? `<div class="gl">完成说明：${esc(t.done_note)}</div>` : ''}${t.photo ? `<img class="tk-img" src="${esc(t.photo)}" alt="">` : ''}
+      ${t.check_result ? `<div class="note">${t.check_result === 'good' ? '店长肯定' : '不合格'}：${esc(t.check_comment || '')}（${esc(t.checker_name || '')}）</div>` : ''}` : `<div class="muted">${t.date > S.me.today ? '未到执行日期' : '该任务由 ' + esc(t.assignee_name || '-') + ' 负责'}</div>`}
+      <div class="row" style="margin-top:10px"><span class="sp"></span>${S.me.can.manage && t.status === 'done' && !t.check_result ? `<button class="btn primary" id="chk">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn" id="det">完整记录</button></div></div>`}
+  </div></div>`;
+  if ($('#det')) $('#det').onclick = () => taskDetail(t.id);
+  if ($('#chk')) $('#chk').onclick = () => checkModal(t);
+  if (!can) return;
+  const out = (html, cls = '') => { $('#ai-out').insertAdjacentHTML('beforeend', `<div class="ai-msg ${cls}">${html}</div>`); };
+  const setPhoto = (src, ai) => { photo = src; $('#pv').innerHTML = `<img src="${src}" alt="">${ai ? '<i>AI 演示</i>' : ''}`; };
+  $('#pf').onchange = async e => { if (e.target.files[0]) setPhoto(await compressImage(e.target.files[0])); };
+  $('#ai-photo').onclick = () => { out('正在根据任务内容生成现场照片…', 'muted'); setTimeout(() => { setPhoto(aiPhoto(t), true); out(`已生成「${esc(t.title)}」的演示照片，图上标注「AI 生成」。<b>正式使用时应以现场实拍为准</b>，AI 只做构图辅助和质检。`); }, 700); };
+  $('#ai-note').onclick = () => {
+    const pts = stdPoints(t); const r = $('#f').reading ? $('#f').reading.value : '';
+    $('#note').value = `已按标准完成「${t.title}」${pts.length ? '：' + pts.slice(0, 2).join('；') + ' 均已落实' : ''}${r ? `，读数 ${r}` : ''}，现场无异常。`;
+    out('已根据执行标准写好完成说明，可以再修改。');
+  };
+  $('#ai-check').onclick = () => {
+    const f = $('#f'), pts = stdPoints(t), items = [];
+    if (t.need_photo) items.push([!!photo, '现场照片已上传']);
+    if (t.need_value) items.push([!!(f.reading && f.reading.value.trim()), '计量读数已填写']);
+    items.push([!!$('#note').value.trim(), '完成说明已填写']);
+    out(`<b>提交前预检</b>${items.map(([ok, l]) => `<div>${ok ? '✅' : '⚠️'} ${l}</div>`).join('')}${pts.length ? `<div class="muted small" style="margin-top:4px">请对照确认：</div>${pts.map(x => `<div class="small">☐ ${esc(x)}</div>`).join('')}` : ''}<div class="muted small">演示：按规则检查，没有接入大模型。</div>`);
+  };
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const d = formData(e.target);
+    if (await act(() => api(`/instances/${t.id}/complete`, { note: d.note, reading: d.reading || '', photo }), '已完成')) history.length > 1 ? history.back() : (location.hash = '#/home');
+  };
+};
+
+// ---------- 内部系统（演示） ----------
+VIEWS.app = async key => {
+  const a = APPS[key]; if (!a) { location.hash = '#/work'; return; }
+  const tid = qs().get('task'); const sid = S.store;
+  let sd = 0; for (const ch of key + S.me.today + sid) sd = (sd * 31 + ch.charCodeAt(0)) % 100003;
+  const rn = (lo, hi) => { sd = (sd * 9301 + 49297) % 233280; return lo + Math.floor(sd / 233280 * (hi - lo + 1)); };
+  const kpi = arr => `<div class="panel stats">${arr.map(([l, v]) => `<a><b>${v}</b><span>${l}</span></a>`).join('')}</div>`;
+  const rows = arr => `<div class="list">${arr.map(([l, r, c]) => `<div class="task"><div class="b"><div class="ttl">${l}</div></div><span class="tag ${c || ''}">${r}</span></div>`).join('')}</div>`;
+  const body = {
+    room: () => { const st = ['OK', 'OK', 'OK', '脏', '住', '住', '住', '修']; const rooms = Array.from({ length: 24 }, (_, i) => [801 + i, st[rn(0, 7)]]);
+      return kpi([['空净房', rooms.filter(r => r[1] === 'OK').length], ['待做房', rooms.filter(r => r[1] === '脏').length], ['住客房', rooms.filter(r => r[1] === '住').length], ['维修房', rooms.filter(r => r[1] === '修').length]])
+        + `<div class="roomgrid">${rooms.map(([n, s]) => `<span class="rm ${{ OK: 'ok', 脏: 'warn', 住: 'acc', 修: 'bad' }[s]}">${n}<small>${s}</small></span>`).join('')}</div>`; },
+    eng: () => kpi([['待派工单', rn(1, 4)], ['处理中', rn(1, 5)], ['今日完成', rn(3, 9)], ['设备巡检', rn(70, 100) + '%']]) + rows([['812 房空调不制冷', '处理中', 'warn'], ['大堂筒灯 2 盏不亮', '待派单', 'bad'], ['2 号电梯月度保养', '已完成', 'ok'], ['水电表抄录（每日）', '已完成', 'ok']]),
+    patrol: () => kpi([['本月巡店', rn(1, 3)], ['最近得分', rn(82, 96)], ['待整改', rn(2, 8)], ['重点跟踪', rn(1, 3)]]) + rows([['大堂区域 70 条', '已检查', 'ok'], ['客房区域 49 条', '检查中', 'warn'], ['餐厅区域 36 条', '待检查', ''], ['后场区域 17 条', '待检查', '']]),
+    bf: () => kpi([['预计用餐', rn(120, 260) + ' 人'], ['已用餐', rn(40, 120) + ' 人'], ['品种', rn(32, 40) + ' 种'], ['断档预警', rn(0, 2)]]) + rows([['热菜 · 炒饭', '余量 30%', 'warn'], ['面点 · 包子', '充足', 'ok'], ['饮品 · 豆浆', '充足', 'ok'], ['食品留样（48h）', '已留样', 'ok']]),
+    safe: () => kpi([['消防主机', '正常'], ['监控在线', rn(95, 100) + '%'], ['燃气浓度', '0.0%'], ['今日隐患', rn(0, 2)]]) + rows([['消防报警主机自检', '正常', 'ok'], ['疏散通道 / 安全门', '畅通', 'ok'], ['厨房燃气报警器', '正常', 'ok'], ['消火栓压力巡检', '待巡检', 'warn']]),
+    gop: () => kpi([['本月营收', rn(180, 260) + ' 万'], ['GOP 率', rn(38, 52) + '%'], ['人工成本率', rn(18, 26) + '%'], ['能耗成本率', rn(5, 9) + '%']]) + rows([['客房收入', '完成预算 ' + rn(88, 105) + '%', 'ok'], ['早餐收入', '完成预算 ' + rn(80, 100) + '%', 'warn'], ['布草洗涤成本', '环比 +' + rn(1, 6) + '%', 'warn'], ['OTA 佣金', '环比 -' + rn(1, 4) + '%', 'ok']]),
+  }[key]();
+  $('#main').innerHTML = `<div class="apphd" style="background:${a.color}"><span class="appic">${a.name.replace('易', '').slice(0, 1)}</span><div><b>${a.name}</b><div class="small">${a.desc} · ${esc(storeName(sid))}</div></div></div>
+    <div class="note small" style="margin:10px 0">演示页面：展示宏图计划与内部系统的跳转衔接，数据为模拟，尚未接入真实${a.name}。</div>${body}
+    ${tid ? `<a class="btn primary block" style="margin-top:14px" href="#/task/${tid}">返回任务继续完成</a>` : ''}`;
+};
+
+// ---------- 我的 / 店长中心 ----------
+VIEWS.me = async () => {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const mode = p.get('mode') || 'month', cp = p.get('cp') || 'cur';
+  const staff = S.me.level === 'staff';
+  const [d, rs] = await Promise.all([api(`/profile?store=${sid}&mode=${mode}${staff ? '&mine=1' : ''}`), api('/rectifications?mine=1')]);
+  const link = o => '#/me?' + new URLSearchParams({ store: sid, mode, cp, ...o });
+  const st = d.store, c = d.completion[cp];
+  const ymd = s => (s ? `${s.slice(0, 4)}年${s.slice(5, 7)}月${s.slice(8, 10)}日` : '-');
+  const open = rs.filter(r => r.status !== 'closed').length;
+  $('#main').innerHTML = `<div class="pf-hd"><span class="pf-av">${esc(d.user.role.slice(0, 2))}</span><div><b>${esc(d.user.name)}</b><div class="muted">${esc(d.user.role)}任职：${d.user.since.replace(/-/g, '.')}-至今</div></div></div>
+  <div class="pf-store"><div class="row between"><button class="storename sm" id="sp">${esc(st.name)}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button><span class="mono muted">${esc(st.code)}</span></div>
+    <div class="row" style="gap:6px;margin:4px 0 8px"><span class="tag acc">${esc(st.brand || '')}</span><span class="tag acc">${esc(st.stype || '')}</span></div>
+    <div class="pf-kv"><span>首次开业 ${ymd(st.open_date)}</span><span>房量 ${st.rooms || '-'}</span><span>品牌审计 ${st.patrol_score != null ? `<a href="#/standards?store=${sid}">${st.patrol_score} 分</a>` : '未检查'}</span><span>品牌一致性 未检查</span></div></div>
+  <div class="pf-score"><div class="pf-st">${staff ? '个人综合分' : '宏图综合分'} <button class="q" id="q">?</button></div>
+    <div class="pf-big"><b>${d.score ?? '--'}</b><span>分</span><div>取数：${d.from.slice(5).replace('-', '.')}-${d.to.slice(5).replace('-', '.')}<br>由健康度 ${d.health ?? '-'}、任务完成率 ${d.completion_rate ?? '-'}% 综合得出</div></div>
+    <div class="pf-in"><div class="row between"><h3>${staff ? '我的工作健康度' : '门店健康度'} ${d.health ?? '-'}</h3><div class="seg"><a href="${link({ mode: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a><a href="${link({ mode: 'month' })}" class="${mode === 'month' ? 'on' : ''}">月</a></div></div>
+      <div class="hl3">${[['ok', '达标'], ['warn', '预警'], ['bad', '异常']].map(([k, l]) => `<button data-hs="${k}"><span><i class="hd ${k}"></i>${l}</span><b>${d.counts[k]}</b></button>`).join('')}</div>
+      <button class="hdetail" id="hd"><span class="aiav">AI</span>健康度详情<i>›</i></button>
+      <div class="hr"></div>
+      <div class="row between"><h3>任务完成率</h3><div class="seg">${[['cur', '当期'], ['last', '上月'], ['year', '年度平均']].map(([k, l]) => `<a href="${link({ cp: k })}" class="${cp === k ? 'on' : ''}">${l}</a>`).join('')}</div></div>
+      <div class="c3">${[['day', '日任务'], ['week', '周任务'], ['month', '月任务']].map(([k, l]) => `<div><span>${l}</span><b>${c[k] == null ? '-' : c[k] + '%'}</b></div>`).join('')}</div>
+      <div class="muted small">取数：${{ cur: '当期最新任务完成率（日任务取昨日）', last: '上月任务完成率', year: '本年度平均任务完成率' }[cp]}</div></div></div>
+  <div class="panel menu">${[...(staff || S.me.level === 'store_manager' ? [['#/my', '我的任务']] : []), ['#/' + rectRoute(), `我的整改${open ? ` <span class="tag warn">${open}</span>` : ''}`], ['#/standards', '品牌标准库'], ['#/feed', '门店群拍墙'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
+    <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
+  if (S.meta.stores.length > 1) $('#sp').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name) + (s.id === sid ? ' ✓' : ''), () => { location.hash = link({ store: s.id }); }]), '切换门店');
+  $('#q').onclick = () => modal('综合分怎么算', `<p>综合分 = 健康度 × 60% + 任务完成率 × 40%。</p><p>健康度：${d.indicators.length} 项指标中，达标计 100 分，预警计 60 分，异常计 0 分，取平均。指标包括任务执行、抽查质量、品牌标准（清零项、M2 复查、F4 群拍等）、场景完成率${staff ? '' : '和经营数据'}。</p><p class="muted small">经营数据为模拟数据。</p>`);
+  const hd = only => modal(staff ? '我的工作健康度' : '门店健康度详情', ['bad', 'warn', 'ok'].filter(k => !only || k === only).map(k => {
+    const xs = d.indicators.filter(i => i.status === k); if (!xs.length) return '';
+    return `<h3 style="margin-top:12px"><i class="hd ${k}"></i>${{ ok: '达标', warn: '预警', bad: '异常' }[k]} ${xs.length}</h3><div class="list">${xs.map(i => `<div class="task"><div class="b"><div class="ttl">${esc(i.name)} <span class="muted small">${esc(i.group)}</span></div><div class="muted small">${esc(i.rule)}</div></div><b class="${k === 'ok' ? '' : k}">${i.value}${esc(i.unit)}</b></div>`).join('')}</div>`;
+  }).join('') + `<p class="muted small">取数 ${esc(d.from)} 至 ${esc(d.to)}。</p>`);
+  $('#hd').onclick = () => hd();
+  document.querySelectorAll('[data-hs]').forEach(b => b.onclick = () => hd(b.dataset.hs));
+};
+
+// ---------- 首页分流：区域管理层 / 店长 / 员工 ----------
+const storeHome = VIEWS.home;
+VIEWS.home = async () => {
+  const lv = S.me.level, p = qs();
+  if (['region_manager', 'ops_manager', 'sales_manager'].includes(lv) && p.get('view') !== 'store') return regionHome();
+  if (lv === 'staff') return staffHome();
+  return storeHome();
+};
+async function regionHome() {
+  const [d, iss, pts] = await Promise.all([api('/dashboard'), api('/issues'), S.me.level === 'sales_manager' ? Promise.resolve([]) : api('/patrols')]);
+  const rows = d.week || d.today, today = d.today;
+  const sum = k => today.reduce((a, s) => a + (s[k] || 0), 0);
+  const tot = sum('total'), dn = sum('done');
+  const wk = (d.week || []).reduce((a, s) => [a[0] + (s.done || 0), a[1] + (s.total || 0)], [0, 0]);
+  const chk = rows.reduce((a, s) => [a[0] + (s.good || 0), a[1] + (s.checked || 0)], [0, 0]);
+  const pc = (a, b) => (b ? Math.round(a * 100 / b) : null);
+  const sales = S.me.level === 'sales_manager', rm = S.me.level === 'region_manager';
+  const lvl = x => ({ high: 'bad', mid: 'warn', low: 'acc' }[x] || 'acc');
+  const toStore = id => `#/home?view=store&store=${id}`;
+  const planned = pts.filter(x => x.status === 'planned'), done = pts.filter(x => x.status === 'done').slice(0, 3);
+  $('#main').innerHTML = `<div class="storebar"><button class="storename" disabled>${esc(S.me.region_name || '华东一区')} · 辖区 ${today.length} 店</button>
+    <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
+  <section class="brief rg"><div class="btabs"><a class="on">${sales ? '销售看板' : '区域看板'}</a><span class="sp"></span><a href="#/dash" class="lk2">完整看板 ›</a></div>
+    <div class="rkpi">${[['今日完成率', pc(dn, tot), '%', '#/tasks'], ['重点跟踪', sum('focus_total'), '', '#/focus'], ['抽查合格率', pc(chk[0], chk[1]), '%', '#/dash'], ['未闭环整改', sum('rect_open'), '', '#/rect'], ['逾期整改', sum('rect_late'), '', '#/rect?st=late'], ['问题门店', iss.length, '', '#/issues']]
+      .map(([l, v, u, h], i) => `<a href="${h}" class="${i >= 4 && v ? 'bad' : ''}"><b>${v ?? '-'}<small>${v == null ? '' : u}</small></b><span>${l}</span></a>`).join('')}</div></section>
+  <div class="sec-t2 row between"><span>问题门店筛选</span><a href="#/issues" class="small">全部 ›</a></div>
+  ${iss.length ? iss.map(x => `<div class="iss"><a class="iss-h" href="${toStore(x.store.id)}"><b>${esc(x.store.name)}</b><span class="muted small">${esc((x.store.managers || []).join('、'))} · 完成率 ${x.store.rate ?? '-'}% · 合格率 ${x.store.pass_rate ?? '-'}%</span><i>›</i></a>
+      ${x.issues.slice(0, 3).map(i => `<div class="iss-i"><span class="tag ${lvl(i.level)}">${esc(i.type)}</span><span>${esc(i.text)}</span></div>`).join('')}${x.issues.length > 3 ? `<div class="muted small">还有 ${x.issues.length - 3} 项…</div>` : ''}
+      <div class="row iss-a"><a class="btn sm" href="#/tasks?store=${x.store.id}">任务明细</a><a class="btn sm" href="#/rect?store=${x.store.id}">整改</a>${rm ? `<a class="btn sm" href="#/patrol?new=1&store=${x.store.id}">加入巡店计划</a><a class="btn primary sm" href="#/focus?new=1&store=${x.store.id}">重点跟踪</a>` : ''}</div></div>`).join('') : '<div class="list"><div class="empty">暂无问题门店</div></div>'}
+  <div class="sec-t2">门店执行排名（今日）</div>
+  <div class="list">${[...today].sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1)).map((s, i) => `<a class="rank" href="${toStore(s.id)}"><span class="no">${i + 1}</span>${gauge(s.rate, 40, 5, rateColor(s.rate))}<div class="b"><b>${esc(s.name)}</b><div class="muted small">${esc((s.managers || []).join('、'))} · 已完成 ${s.done}/${s.total}${s.overdue ? ` · <span style="color:var(--bad)">超时 ${s.overdue}</span>` : ''}</div></div>
+      <div class="r"><b>${s.rate ?? '-'}%</b><span class="small ${s.rect_late ? 'bad' : 'muted'}">整改 ${s.rect_open}${s.rect_late ? ` / 逾期 ${s.rect_late}` : ''}</span></div></a>`).join('')}</div>
+  ${sales ? '' : `<div class="sec-t2 row between"><span>巡店计划</span><a href="#/patrol" class="small">${rm ? '新建 / 全部' : '全部'} ›</a></div>
+  <div class="list">${planned.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc(x.planned_date.slice(5))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc(x.reason || '例行巡店')}</div></div><span class="tag acc">待巡店</span></a>`).join('')}
+    ${done.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc((x.done_at || '').slice(5, 10))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc((x.summary || '').slice(0, 40))}</div></div><span class="tag ${x.score >= 90 ? 'ok' : x.score >= 80 ? 'warn' : 'bad'}">${x.score} 分</span></a>`).join('') || '<div class="empty">暂无巡店</div>'}</div>`}
+  <div class="sec-t2">进入门店</div><div class="panel tiles">${today.map((s, i) => `<a class="tile" href="${toStore(s.id)}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${esc(s.name.slice(2, 3))}</span><span>${esc(s.name)}</span></a>`).join('')}</div>`;
+  $('#more').onclick = e => moreMenu(e.currentTarget);
+}
+async function staffHome() {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const date = p.get('date') || S.me.today;
+  const [h, rs] = await Promise.all([api(`/home?store=${sid}&date=${date}&mine=1`), api('/rectifications?mine=1')]);
+  const all = [...h.tabs.day, ...h.tabs.week.filter(t => t.date === date), ...h.tabs.month.filter(t => t.date === date), ...h.tabs.once.filter(t => t.date === date)];
+  const done = all.filter(t => t.status === 'done'), pend = all.filter(t => t.status !== 'done').sort((a, b) => a.due_time.localeCompare(b.due_time));
+  const next = pend[0], od = pend.filter(t => t.overdue), r = all.length ? Math.round(done.length * 100 / all.length) : null;
+  const openR = rs.filter(x => x.status !== 'closed');
+  const fb = all.filter(t => t.check_result);
+  const apps = [...new Set(all.flatMap(appsFor))].slice(0, 6);
+  const hr = Number(S.me.now.slice(0, 2)), hi = hr < 11 ? '早上好' : hr < 14 ? '中午好' : hr < 18 ? '下午好' : '晚上好';
+  const groups = {};
+  for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
+  $('#main').innerHTML = `<div class="sf-hd"><div><b>${hi}，${esc(S.me.name)}</b><div class="small">${esc(S.me.role_name)} · ${esc(storeName(sid))}</div></div><button class="ib w" id="more">${icon('more')}<span>更多</span></button></div>
+  <div class="week sf">${h.week.map((d, i) => `<a href="#/home?date=${d.date}" class="${d.date === date ? 'on' : ''} ${d.date === S.me.today ? 'today' : ''}"><span class="wd">${CN_WD[i]}</span>${gauge(d.rate, 34, 4, rateColor(d.rate))}</a>`).join('')}
+    <button class="calbtn" id="cal"><span class="wd">日历</span><span class="cal">${icon('cal')}<b>${Number(date.slice(8))}</b></span></button></div>
+  <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
+    <div class="sf-pl">${['人', '财', '物'].map(k => { const a = all.filter(t => t.pillar === k), d2 = a.filter(t => t.status === 'done').length; return `<div><span>${k}</span><i><em style="width:${a.length ? d2 * 100 / a.length : 0}%"></em></i><b>${d2}/${a.length}</b></div>`; }).join('')}
+      <div class="small muted">${od.length ? `<span style="color:var(--bad)">超时 ${od.length} 项</span> · ` : ''}待整改 ${openR.length} 项</div></div></div>
+  ${next ? `<a class="sf-next" href="#/task/${next.id}"><div class="small">下一项任务 · ${next.overdue ? '<b style="color:#FFD2D2">已超时</b>' : '截止 ' + esc(next.due_time)}</div><b>${esc(next.title)}</b><div class="small">${esc(next.scene_name || '')} ${next.covered ? '· 顶岗替 ' + esc(next.orig_name) : ''}${next.need_photo ? ' · 需拍照' : ''}</div><span class="gbtn go">去完成 →</span></a>`
+    : `<div class="sf-next done"><b>${all.length ? '今天的任务都完成了' : '今天没有任务'}</b><div class="small">${all.length ? '辛苦了，店长会随机抽查' : ''}</div></div>`}
+  ${openR.length ? `<div class="sec-t2">我的整改</div><div class="list">${openR.slice(0, 3).map(x => `<a class="task" href="#/my-rect"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.reason || '')} · 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</a>`).join('')}</div>` : ''}
+  ${fb.length ? `<div class="sec-t2">店长反馈</div><div class="list">${fb.map(t => `<a class="task" href="#/task/${t.id}"><div class="b"><div class="ttl">${esc(t.title)}</div><div class="muted small">${esc(t.check_comment || '')}</div></div>${checkTag(t)}</a>`).join('')}</div>` : ''}
+  <div class="sec-t2">今日工作</div><div class="timeline">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length;
+    return `<div class="tl ${ts.some(t => t.overdue) ? 'od' : d2 === ts.length ? 'ok' : ''}"><i class="dot"></i><div class="tcard" data-go="${esc(g)}"><div class="th"><b>${esc(g)}</b><span class="tt2">${esc(ts.map(t => t.due_time).sort()[0])}</span></div>
+      <div class="tp"><span>已完成 <b>${d2}/${ts.length}</b></span></div><div class="segbar">${ts.map(t => `<i class="${t.status === 'done' ? 'd' : t.overdue ? 'b' : ''}"></i>`).join('')}</div><div class="tmore">${ts.length - d2 ? `待完成 ${ts.length - d2} 项` : '全部完成'} ›</div></div></div>`; }).join('') || '<div class="empty">没有任务</div>'}</div>
+  ${apps.length ? `<div class="sec-t2">常用系统</div><div class="approw">${apps.map(k => `<a href="#/app/${k}" class="appchip"><span style="background:${APPS[k].color}">${APPS[k].name.replace('易', '').slice(0, 1)}</span>${APPS[k].name}</a>`).join('')}</div>` : ''}`;
+  $('#more').onclick = e => moreMenu(e.currentTarget);
+  $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?date=' + d; });
+  document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
+}
+
+// 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）
+const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParams(location.search).get('feishu') === '1';
+if (IN_FEISHU) document.body.classList.add('in-feishu');
 
 route();
