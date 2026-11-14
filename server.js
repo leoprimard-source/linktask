@@ -125,7 +125,7 @@ function pillarOf(r) {
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
   return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
-    covered: r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
+    covered: !r.deleg_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
 }
 
 // ---------- me / meta ----------
@@ -483,6 +483,7 @@ app.get('/api/must', (req, res) => {
   T.filter(r => r.assignee_id === req.u.id && r.status !== 'done').forEach(r => push('self', '我亲做', r));
   T.filter(r => r.origin === 'focus' && r.assignee_id !== req.u.id).forEach(r => push('focus', '上级重点跟踪', r));
   T.filter(r => r.tag === '清零项' && r.status !== 'done').forEach(r => push('zero', '清零项：当日必须完成', r));
+  if (mgr) T.filter(r => r.deleg_review && r.status === 'done' && !r.check_result).forEach(r => push('review', '授权任务：待复核', r));
   T.filter(r => r.m === 'M2' && r.status === 'done' && !r.check_result).forEach(r => push('review', 'M2：待复查', r));
   const yb = q("SELECT src, src_id FROM instances WHERE store_id=? AND date=? AND check_result='bad'", sc.sid, y);
   T.filter(r => yb.some(b => b.src === r.src && b.src_id === r.src_id)).forEach(r => push('again', '昨日点评不合格，今日复看', r));
@@ -1379,6 +1380,154 @@ app.get('/api/inbox', (req, res) => {
 });
 
 // ---------- patrols ----------
+// ---------- 店长任务授权下转 ----------
+const rmLike = u => ['region_manager', 'coach'].includes(u.level);
+const DELEG_ROLES = ['店助', '前台经理', '客房经理'];
+const delegCands = sid => q("SELECT u.id, u.name, r.name role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.name IN ('店助','前台经理','客房经理') ORDER BY u.id", sid);
+function delegStats(sid) {
+  const t = L.today(), f = L.addDays(t, -6), sm = D.storeManagers(sid);
+  return sm.map(id => {
+    const r = q1("SELECT COUNT(*) n, SUM(deleg_id IS NOT NULL) d FROM instances WHERE store_id=? AND orig_assignee_id=? AND date BETWEEN ? AND ?", sid, id, f, L.addDays(t, 7));
+    const ds = q("SELECT d.*, u.name to_name FROM delegations d JOIN users u ON u.id=d.to_id WHERE d.store_id=? AND d.from_id=? AND d.active=1 AND d.end>=? ORDER BY d.id DESC", sid, id, t);
+    const ratio = r.n ? Math.round((r.d || 0) * 100 / r.n) : 0;
+    return { sm_id: id, sm: q1('SELECT name FROM users WHERE id=?', id)?.name, total: r.n, deleg: r.d || 0, ratio, warn: ratio > 50, list: ds };
+  });
+}
+app.get('/api/deleg', (req, res) => {
+  const u = req.u, t = L.today();
+  if (u.level === 'store_manager') {
+    const sid = visibleStores(u).includes(Number(req.query.store)) ? Number(req.query.store) : visibleStores(u)[0];
+    const mine = q("SELECT d.*, u.name to_name FROM delegations d JOIN users u ON u.id=d.to_id WHERE d.from_id=? AND d.store_id=? ORDER BY d.active DESC, d.id DESC LIMIT 40", u.id, sid);
+    const tasks = q("SELECT src, src_id, title, MIN(due_time) due_time FROM instances WHERE store_id=? AND orig_assignee_id=? AND date>=? GROUP BY src, src_id ORDER BY due_time", sid, u.id, L.addDays(t, -7));
+    return res.json({ mode: 'sm', store_id: sid, mine, tasks, cands: delegCands(sid), stats: delegStats(sid).find(x => x.sm_id === u.id) || null });
+  }
+  if (!['region_manager', 'ops_manager', 'coach'].includes(u.level)) return deny(res);
+  res.json({ mode: 'view', stores: visibleStores(u).map(sid => ({ id: sid, name: sname(sid), sms: delegStats(sid) })) });
+});
+app.post('/api/deleg', (req, res) => {
+  const u = req.u, b = req.body || {}, t = L.today();
+  if (u.level !== 'store_manager') return deny(res, '只有店长可以授权下转自己的任务');
+  const scope = ['one', 'task', 'all'].includes(b.scope) ? b.scope : null;
+  if (!scope) return err(res, '请选择授权范围');
+  let sid = Number(b.store_id), start = b.start || t, end = b.end || start, src = null, src_id = null, inst = null, title = '';
+  if (scope === 'one') {
+    inst = q1('SELECT * FROM instances WHERE id=?', b.inst_id);
+    if (inst?.deleg_id) return err(res, '该任务已授权');
+    if (!inst || inst.assignee_id !== u.id) return err(res, '只能授权自己名下的任务');
+    if (inst.status !== 'pending' || inst.date < t) return err(res, '只能授权今天及以后未完成的任务');
+    sid = inst.store_id; start = end = inst.date; title = inst.title;
+  }
+  if (!visibleStores(u).includes(sid) || !canManage(u, sid)) return deny(res);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start < t || end < start) return err(res, '请填写正确的起止日期（不早于今天）');
+  if (end > L.addDays(start, scope === 'all' ? 30 : 90)) return err(res, scope === 'all' ? '整体授权最长 30 天' : '按任务授权最长 90 天');
+  if (scope === 'task') {
+    const x = q1("SELECT src, src_id, title FROM instances WHERE store_id=? AND orig_assignee_id=? AND src=? AND src_id=? LIMIT 1", sid, u.id, b.src, b.src_id);
+    if (!x) return err(res, '只能授权自己负责的任务');
+    src = x.src; src_id = x.src_id; title = x.title;
+  }
+  if (scope === 'all') title = '全部亲做任务';
+  const to = q1('SELECT u.*, r.name role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.active=1', b.to_id);
+  if (!to || to.store_id !== sid || !DELEG_ROLES.includes(to.role_name)) return err(res, '只能授权给本店在职的店助或主管');
+  if (scope === 'one' && q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', to.id, start)) return err(res, `${to.name} 当天休息，请换人`);
+  const id = Number(run('INSERT INTO delegations(store_id,from_id,to_id,scope,inst_id,src,src_id,title,start,end,review,active,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)',
+    sid, u.id, to.id, scope, inst?.id || null, src, src_id, title, start, end, b.review === false || b.review === 0 ? 0 : 1, L.nowStr()).lastInsertRowid);
+  for (let d = start; d <= end && d <= L.addDays(t, 30); d = L.addDays(d, 1)) { D.ensureInstances(d, [sid]); D.applyDeleg(d); }
+  const n = q1('SELECT COUNT(*) n FROM instances WHERE deleg_id=?', id).n;
+  D.notify([to.id], 'assign', '店长授权任务', `${u.name} 将「${title}」授权给你（${start}${end !== start ? ' 至 ' + end : ''}）`, '#/my');
+  D.audit(u.id, sid, '任务授权下转', `${title} → ${to.name} ${start}~${end}`);
+  res.json({ ok: true, id, n });
+});
+app.post('/api/deleg/:id/revoke', (req, res) => {
+  const d = q1('SELECT * FROM delegations WHERE id=?', req.params.id);
+  if (!d || d.from_id !== req.u.id) return deny(res, '只有授权的店长本人可以撤销');
+  if (!d.active) return err(res, '该授权已撤销');
+  const n = run("UPDATE instances SET assignee_id=?, deleg_id=NULL, deleg_review=NULL WHERE deleg_id=? AND status='pending' AND date>=?", d.from_id, d.id, L.today()).changes;
+  run('UPDATE delegations SET active=0, revoked_at=? WHERE id=?', L.nowStr(), d.id);
+  D.notify([d.to_id], 'assign', '店长收回授权', `「${d.title}」已收回，未完成的 ${n} 项回到店长`, '#/my');
+  D.audit(req.user?.id || req.u.id, d.store_id, '撤销任务授权', d.title);
+  res.json({ ok: true, n });
+});
+
+// ---------- 巡店筛选 ----------
+const PF_OPS = { 早餐差: ['早餐', '补餐', '菜品', '餐厅'], 卫生差: ['卫生', '头发', '污渍', '打扫', '清洁', '异味'], 隔音差: ['隔音', '噪音', '吵'], 服务态度: ['态度', '服务', '冷淡', '不耐烦'], 设施故障: ['空调', '维修', '失灵', '漏水', '热水', '坏'], 前台等待: ['等待', '排队', '入住慢'] };
+const PF_SCENE = { 早餐差: '餐厅', 卫生差: '客房', 隔音差: '客房', 服务态度: '前台', 前台等待: '前台', 设施故障: '后场' };
+const PF_GROUPS = [['运营', Object.keys(PF_OPS), null], ['经营', ['RevPAR 偏低', '预算未达成', 'MPI 偏低', '统购率低'], 'biz'], ['加盟商', ['业主诉求未关', '管理费逾期', '合同快到期', '业主满意度低'], 'biz'], ['团队', ['满编率低', '离职率高', '关键岗空缺', '员工美好分低', '执行率低'], 'hrm']];
+function pfEvidence(sid, terms, from, to) {
+  if (!terms.length) return [];
+  const lk = c => '(' + terms.map(() => `${c} LIKE ?`).join(' OR ') + ')', A = terms.map(x => '%' + x + '%');
+  const ev = [];
+  q(`SELECT substr(created_at,1,10) d, src, body FROM complaints WHERE store_id=? AND substr(created_at,1,10) BETWEEN ? AND ? AND ${lk('body')} ORDER BY created_at DESC`, sid, from, to, ...A).forEach(x => ev.push({ src: '客诉', d: x.d, text: `${x.src}：${x.body}` }));
+  q(`SELECT date d, title, check_comment c FROM instances WHERE store_id=? AND check_result='bad' AND date BETWEEN ? AND ? AND ${lk("(title||' '||COALESCE(check_comment,''))")} ORDER BY date DESC`, sid, from, to, ...A).forEach(x => ev.push({ src: '抽查不合格', d: x.d, text: `${x.title}：${x.c || ''}` }));
+  q(`SELECT substr(p.done_at,1,10) d, pi.item, pi.comment FROM patrol_items pi JOIN patrols p ON p.id=pi.patrol_id WHERE p.store_id=? AND pi.result='fail' AND substr(p.done_at,1,10) BETWEEN ? AND ? AND ${lk("(COALESCE(pi.item,'')||' '||COALESCE(pi.comment,''))")}`, sid, from, to, ...A).forEach(x => ev.push({ src: '巡店不达标', d: x.d, text: `${x.item || ''}：${x.comment || ''}` }));
+  q(`SELECT substr(created_at,1,10) d, title, location FROM repairs WHERE store_id=? AND substr(created_at,1,10) BETWEEN ? AND ? AND ${lk("(COALESCE(title,'')||' '||COALESCE(body,'')||' '||COALESCE(location,''))")}`, sid, from, to, ...A).forEach(x => ev.push({ src: '报修', d: x.d, text: `${x.location || ''} ${x.title}` }));
+  q(`SELECT title, COUNT(*) n, MAX(date) d FROM instances WHERE store_id=? AND status='missed' AND date BETWEEN ? AND ? AND ${lk('title')} GROUP BY src, src_id`, sid, from, to, ...A).forEach(x => ev.push({ src: '漏做', d: x.d, text: `${x.title} 漏做 ${x.n} 次` }));
+  return ev;
+}
+const PF_W = { 客诉: 3, 抽查不合格: 2, 巡店不达标: 2, 报修: 1, 漏做: 0.5 };
+function pfMetric(sid, tag) {
+  const one = (hit, text) => hit ? [{ src: '指标', d: L.today(), text }] : [];
+  try {
+    if (['RevPAR 偏低', '预算未达成', 'MPI 偏低'].includes(tag)) { const b = storeBiz(sid);
+      if (tag === 'RevPAR 偏低') return one(b.week.revpar_delta < -3, `近 7 日 RevPAR 环比 ${b.week.revpar_delta}%`);
+      if (tag === '预算未达成') return one(b.budget.forecast_pct < 98, `月底预计完成预算 ${b.budget.forecast_pct}%`);
+      return one(b.week.mpi < 100, `近 7 日 MPI ${b.week.mpi}`); }
+    if (tag === '统购率低') { const p = procOf(sid); return one(p.rate != null && p.rate < p.target, `统购率 ${p.rate}%（目标 ${p.target}%）`); }
+    if (['业主诉求未关', '管理费逾期', '合同快到期', '业主满意度低'].includes(tag)) { if (!isFr(sid)) return [];
+      if (tag === '业主诉求未关') { const n = q1("SELECT COUNT(*) n FROM owner_reqs WHERE store_id=? AND status='open'", sid).n; return one(n > 0, `业主诉求未关闭 ${n} 条`); }
+      const f = franchiseOf(sid);
+      if (tag === '管理费逾期') return one(f.arrears > 0, `管理费逾期 ${f.arrears} 万元`);
+      if (tag === '合同快到期') return one(f.contract.days <= 365, `特许合同剩余 ${f.contract.days} 天`);
+      return one(f.sat < 80, `业主满意度 ${f.sat} 分`); }
+    if (tag === '员工美好分低') { const c = careOf(sid); return one(c.score < 75, `员工美好分 ${c.score}`); }
+    if (tag === '执行率低') { const s = storeStats([sid], L.addDays(L.today(), -7), L.addDays(L.today(), -1))[0]; return one(s && s.rate != null && s.rate < 85, `近 7 日任务完成率 ${s?.rate}%`); }
+    const h = hrStats(sid), kv = Array.isArray(h.key_vac) ? h.key_vac.length : Number(h.key_vac) || 0;
+    if (tag === '满编率低') return one(h.fill < 90, `满编率 ${h.fill}%`);
+    if (tag === '离职率高') return one(h.m_rate > 5, `月离职率 ${h.m_rate}%`);
+    if (tag === '关键岗空缺') return one(kv > 0, `关键岗空缺 ${kv} 个`);
+  } catch { return []; }
+  return [];
+}
+function pickPatrolDate(period) {
+  const t = L.today(); let a = t, b = t;
+  if (period === 'week') { b = L.addDays(t, 7 - L.weekday(t)); a = b > t ? L.addDays(t, 1) : t; }
+  if (period === 'month') { b = L.addDays(L.addDays(t.slice(0, 8) + '01', 32).slice(0, 8) + '01', -1); a = b > t ? L.addDays(t, 1) : t; }
+  let best = a, bn = 1e9;
+  for (let d = a; d <= b; d = L.addDays(d, 1)) { const n = q1("SELECT COUNT(*) n FROM patrols WHERE planned_date=? AND status='planned'", d).n; if (n < bn) { bn = n; best = d; } }
+  return best;
+}
+app.get('/api/patrol-find', (req, res) => {
+  if (!['region_manager', 'ops_manager', 'coach'].includes(req.u.level)) return deny(res);
+  const t = L.today(), days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30, from = L.addDays(t, -days);
+  const tag = String(req.query.tag || ''), kw = String(req.query.q || '').trim().slice(0, 40);
+  const groups = PF_GROUPS.filter(g => !g[2] || daCan(req.u, g[2])).map(([l, tags]) => ({ l, tags }));
+  const metric = groups.some(g => g.l !== '运营' && g.tags.includes(tag));
+  const terms = PF_OPS[tag] || (metric ? [] : kw ? kw.split(/[\s,，、]+/).filter(Boolean).slice(0, 6) : []);
+  const scores = regionScores(req.u.region_id).all;
+  const rows = visibleStores(req.u).map(sid => {
+    const ev = metric ? pfMetric(sid, tag) : pfEvidence(sid, terms, from, t);
+    const n = {}; ev.forEach(e => { n[e.src] = (n[e.src] || 0) + 1; });
+    const score = metric ? ev.length * 5 : Math.round(Object.entries(n).reduce((a, [k, v]) => a + (PF_W[k] || 1) * v, 0));
+    const last = q1("SELECT done_at, score FROM patrols WHERE store_id=? AND status='done' AND COALESCE(kind,'patrol')='patrol' ORDER BY done_at DESC LIMIT 1", sid);
+    const planned = q1("SELECT planned_date FROM patrols WHERE store_id=? AND status='planned' ORDER BY planned_date LIMIT 1", sid);
+    return { id: sid, name: sname(sid), grade: scores.find(x => x.id === sid)?.grade || '-', n, score, ev: ev.slice(0, 6), last, planned, stale: !last || last.done_at.slice(0, 10) < L.addDays(t, -30) };
+  }).filter(r => (!(terms.length || metric) || r.score > 0) && (!req.query.grade || 'CD'.includes(r.grade)) && (!req.query.stale || r.stale) && (!req.query.unplanned || !r.planned))
+    .sort((a, b) => b.score - a.score);
+  res.json({ groups, tag, q: kw, days, scene: PF_SCENE[tag] || null, rows, can_plan: rmLike(req.u) });
+});
+app.get('/api/patrol-track', (req, res) => {
+  if (!['region_manager', 'ops_manager', 'coach'].includes(req.u.level)) return deny(res);
+  const t = L.today(), sids = visibleStores(req.u), ph = sids.map(() => '?').join(',');
+  const ws = L.addDays(t, -(L.weekday(t) - 1)), ms = t.slice(0, 8) + '01', me = L.addDays(L.addDays(ms, 32).slice(0, 8) + '01', -1);
+  const per = (a, b) => { const r = q1(`SELECT COUNT(*) n, SUM(status='done') d, SUM(status='planned' AND planned_date<?) od FROM patrols WHERE store_id IN (${ph}) AND COALESCE(kind,'patrol')!='recheck' AND planned_date BETWEEN ? AND ?`, t, ...sids, a, b);
+    return { n: r.n, done: r.d || 0, overdue: r.od || 0, rate: r.n ? Math.round((r.d || 0) * 100 / r.n) : null }; };
+  const cov = q1(`SELECT COUNT(DISTINCT store_id) n FROM patrols WHERE store_id IN (${ph}) AND status='done' AND COALESCE(kind,'patrol')='patrol' AND substr(done_at,1,10)>=?`, ...sids, ms).n;
+  const effect = q(`SELECT p.id, p.store_id, p.focus, substr(p.done_at,1,10) d FROM patrols p WHERE p.store_id IN (${ph}) AND p.status='done' AND p.focus IS NOT NULL AND substr(p.done_at,1,10)>=? ORDER BY p.done_at DESC LIMIT 20`, ...sids, L.addDays(t, -60))
+    .map(p => { const terms = PF_OPS[p.focus] || p.focus.split(/[\s,，、]+/).filter(Boolean);
+      const before = pfEvidence(p.store_id, terms, L.addDays(p.d, -14), L.addDays(p.d, -1)).length, after = pfEvidence(p.store_id, terms, L.addDays(p.d, 1), L.addDays(p.d, 14)).length;
+      return { ...p, store: sname(p.store_id), before, after, days_after: Math.min(14, Math.round((Date.parse(t) - Date.parse(p.d)) / 864e5)) }; });
+  res.json({ day: per(t, t), week: per(ws, L.addDays(ws, 6)), month: per(ms, me), coverage: { done: cov, total: sids.length }, effect, ranges: { day: [t, t], week: [ws, L.addDays(ws, 6)], month: [ms, me] } });
+});
+
 app.get('/api/patrols', (req, res) => {
   const sids = visibleStores(req.u);
   if (!sids.length) return res.json([]);
@@ -1396,20 +1545,28 @@ app.get('/api/patrols/:id', (req, res) => {
   res.json({ ...p, items, focus, recheck, parent, owner: isFr(p.store_id) ? OWNERS[p.store_id]?.[0] || '业主' : null, recheck_days: cfg().recheck_days });
 });
 app.post('/api/patrols', (req, res) => {
-  if (req.u.level !== 'region_manager') return deny(res, '巡店计划由区域经理制定');
-  const { store_id, planned_date, reason } = req.body, kind = req.body.kind === 'mystery' ? 'mystery' : 'patrol';
-  if (!store_id || !planned_date) return err(res, '请选择门店和巡店日期');
-  const id = Number(run("INSERT INTO patrols(store_id,planned_date,reason,status,created_by,created_at,kind) VALUES(?,?,?,'planned',?,?,?)", store_id, planned_date, reason || '', req.u.id, L.nowStr(), kind).lastInsertRowid);
+  if (!rmLike(req.u)) return deny(res, '巡店计划由区域经理或教练制定');
+  const { store_id, reason } = req.body, kind = req.body.kind === 'mystery' ? 'mystery' : 'patrol';
+  let planned_date = req.body.planned_date;
+  if (!visibleStores(req.u).includes(Number(store_id))) return deny(res);
+  if (['day', 'week', 'month'].includes(req.body.period)) planned_date = pickPatrolDate(req.body.period);
+  if (!store_id || !/^\d{4}-\d{2}-\d{2}$/.test(planned_date || '')) return err(res, '请选择门店和巡店日期');
+  if (planned_date < L.today()) return err(res, '巡店日期不能早于今天');
+  if (q1("SELECT 1 FROM patrols WHERE store_id=? AND planned_date=? AND status='planned' AND COALESCE(kind,'patrol')=?", store_id, planned_date, kind)) return err(res, `${sname(Number(store_id))} ${planned_date} 已在巡店计划中`);
+  const focus = String(req.body.focus || '').slice(0, 40) || null;
+  const id = Number(run("INSERT INTO patrols(store_id,planned_date,reason,status,created_by,created_at,kind,focus) VALUES(?,?,?,'planned',?,?,?,?)", store_id, planned_date, String(reason || '').slice(0, 300), req.u.id, L.nowStr(), kind, focus).lastInsertRowid);
+  const sameDay = q1("SELECT COUNT(*) n FROM patrols WHERE created_by=? AND planned_date=? AND status='planned'", req.u.id, planned_date).n;
+  res.locals.extra = { planned_date, warn: sameDay > 3 ? `${planned_date} 已安排 ${sameDay} 家店，行程可能过紧` : '' };
   const store = q1('SELECT name FROM stores WHERE id=?', store_id).name;
-  if (kind === 'mystery') { D.audit(req.u.id, store_id, '安排神秘访客', planned_date); return res.json({ ok: true, id }); }
+  if (kind === 'mystery') { D.audit(req.u.id, store_id, '安排神秘访客', planned_date); return res.json({ ok: true, id, ...res.locals.extra }); }
   D.notify(D.storeManagers(store_id), 'patrol', '区域经理巡店计划', `${planned_date} 巡店 ${store}：${reason || '例行巡店'}`, '#/patrol');
   D.audit(req.u.id, store_id, '加入巡店计划', `${planned_date} ${reason || ''}`);
-  res.json({ ok: true, id });
+  res.json({ ok: true, id, ...res.locals.extra });
 });
 app.post('/api/patrols/:id/complete', (req, res) => {
   const p = q1('SELECT * FROM patrols WHERE id=?', req.params.id);
   const recheck = p?.kind === 'recheck', mystery = p?.kind === 'mystery';
-  if (!p || p.status !== 'planned' || !visibleStores(req.u).includes(p.store_id) || !(req.u.level === 'region_manager' || ((recheck || mystery) && req.u.level === 'ops_manager'))) return deny(res);
+  if (!p || p.status !== 'planned' || !visibleStores(req.u).includes(p.store_id) || !(rmLike(req.u) || ((recheck || mystery) && req.u.level === 'ops_manager'))) return deny(res);
   const res0 = req.body.results || {}, mode = recheck ? 'recheck' : mystery ? 'mystery' : ['quick', 'scene'].includes(req.body.mode) ? req.body.mode : 'full';
   const all = q("SELECT * FROM templates WHERE src='audit' AND active=1 ORDER BY code");
   const want = recheck ? new Set((p.codes || '').split(',')) : mode === 'full' ? null : new Set(Object.keys(res0));
@@ -1460,7 +1617,7 @@ app.post('/api/patrols/:id/complete', (req, res) => {
 });
 app.delete('/api/patrols/:id', (req, res) => {
   const p = q1('SELECT * FROM patrols WHERE id=?', req.params.id);
-  if (!p || req.u.level !== 'region_manager' || p.status !== 'planned') return deny(res);
+  if (!p || !rmLike(req.u) || p.status !== 'planned') return deny(res);
   run('DELETE FROM patrols WHERE id=?', p.id);
   D.audit(req.u.id, p.store_id, '取消巡店计划', p.planned_date);
   res.json({ ok: true });
@@ -1472,7 +1629,7 @@ app.get('/api/score-cfg', (req, res) => {
   res.json({ cfg: cfg(), def: CFG_DEF, dims: STORE_DIM_BASE });
 });
 app.post('/api/score-cfg', (req, res) => {
-  if (req.u.level !== 'region_manager') return deny(res, '仅区域经理可修改');
+  if (!rmLike(req.u)) return deny(res, '仅区域经理或教练可修改');
   const b = req.body || {};
   if (b.reset) { D.setSetting('score_cfg', {}); CFG_CACHE = null; D.audit(req.u.id, null, '评价口径', '恢复默认'); return res.json({ ok: true }); }
   const o = {};

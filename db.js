@@ -51,9 +51,11 @@ for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'co
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
   ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
   ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
-  ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT']]) {
+  ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
+db.exec(`CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, store_id INTEGER, from_id INTEGER, to_id INTEGER, scope TEXT, inst_id INTEGER, src TEXT, src_id INTEGER,
+  title TEXT, start TEXT, end TEXT, review INTEGER DEFAULT 1, active INTEGER DEFAULT 1, created_at TEXT, revoked_at TEXT)`);
 const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
 try { db.prepare("UPDATE stores SET stype='加盟店' WHERE id=3 AND stype='直营店'").run(); } catch { /* fresh db */ }
 db.exec("CREATE TABLE IF NOT EXISTS store_plans(id INTEGER PRIMARY KEY, store_id INTEGER, dim TEXT, title TEXT, base INTEGER, target INTEGER, owner_id INTEGER, due TEXT, status TEXT DEFAULT 'open', progress INTEGER DEFAULT 0, updates TEXT, result TEXT, created_by INTEGER, created_at TEXT, closed_at TEXT)");
@@ -165,6 +167,17 @@ const insInst = () => db.prepare(`INSERT OR IGNORE INTO instances(store_id,date,
 function ensureInstances(date, storeIds) {
   ensureInstances0(date, storeIds);
   if (date < L.today()) run("UPDATE instances SET status='missed' WHERE status='pending' AND date=?", date);
+  else applyDeleg(date);
+}
+function applyDeleg(date) {
+  const ds = q("SELECT * FROM delegations WHERE active=1 AND start<=? AND end>=?", date, date);
+  for (const d of ds) {
+    if (q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', d.to_id, date)) continue;
+    const rv = `CASE WHEN ${d.review ? 1 : 0}=1 OR (src='tpl' AND (SELECT tag FROM templates WHERE id=src_id)='清零项') THEN 1 ELSE 0 END`;
+    const w = d.scope === 'one' ? 'id=?' : d.scope === 'task' ? 'src=? AND src_id=?' : '1=1';
+    const args = d.scope === 'one' ? [d.inst_id] : d.scope === 'task' ? [d.src, d.src_id] : [];
+    run(`UPDATE instances SET assignee_id=?, deleg_id=?, deleg_review=${rv} WHERE store_id=? AND date=? AND status='pending' AND deleg_id IS NULL AND assignee_id=? AND ${w}`, d.to_id, d.id, d.store_id, date, d.from_id, ...args);
+  }
 }
 function ensureInstances0(date, storeIds) {
   if (date > L.addDays(L.today(), 30)) return;
@@ -207,9 +220,10 @@ function refreshPending(storeId) {
         if (!f) continue;
         base = f.assignee_id;
       }
-      run('UPDATE instances SET assignee_id=?, orig_assignee_id=? WHERE id=?', coverFor(base, r.date, storeId), base, r.id);
+      run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, deleg_id=NULL, deleg_review=NULL WHERE id=?', coverFor(base, r.date, storeId), base, r.id);
     }
   });
+  for (const d of new Set(rows.map(r => r.date))) applyDeleg(d);
 }
 
 function notify(userIds, kind, title, body, link) {
@@ -222,4 +236,4 @@ function audit(userId, storeId, action, detail) {
 }
 
 module.exports = { db, q, q1, run, tx, DATA_DIR, getSetting, setSetting, storeManagers, regionUsers, baseAssignee, coverFor,
-  ensureInstances, refreshPending, notify, audit };
+  ensureInstances, refreshPending, applyDeleg, notify, audit };
