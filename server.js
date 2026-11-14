@@ -1035,7 +1035,7 @@ app.post('/api/hr/suggest/:id/reply', (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/franchise/:sid', (req, res) => {
-  const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
+  const sid = Number(req.params.sid); if (!canSee(req.u, sid) || ['staff', 'hr_manager', 'ops_manager'].includes(req.u.level)) return deny(res);
   if (!isFr(sid)) return res.json({ na: true, store: sname(sid) });
   seedOwnerReqs();
   res.json({ ...franchiseOf(sid), reqs: q(REQ_SQL + ' WHERE o.store_id=? ORDER BY o.status=\'closed\', o.id DESC', sid) });
@@ -1089,7 +1089,10 @@ function weekReport(sid) {
 app.post('/api/reports', (req, res) => {
   const sid = Number(req.body.store_id); if (req.u.level !== 'store_manager' || !canManage(req.u, sid)) return deny(res);
   const body = { ...weekReport(sid), note: (req.body.note || '').trim() };
-  const id = Number(run('INSERT INTO reports(store_id,period,body,created_by,created_at) VALUES(?,?,?,?,?)', sid, body.from + '~' + body.to, JSON.stringify(body), req.u.id, L.nowStr()).lastInsertRowid);
+  const period = body.from + '~' + body.to, old = q1('SELECT id, status FROM reports WHERE store_id=? AND period=?', sid, period);
+  if (old && old.status === 'reviewed') return err(res, '本周周报已批复，不能重复提交');
+  const id = old ? (run('UPDATE reports SET body=?, created_by=?, created_at=? WHERE id=?', JSON.stringify(body), req.u.id, L.nowStr(), old.id), old.id)
+    : Number(run('INSERT INTO reports(store_id,period,body,created_by,created_at) VALUES(?,?,?,?,?)', sid, period, JSON.stringify(body), req.u.id, L.nowStr()).lastInsertRowid);
   D.notify(D.regionUsers(req.u.region_id, 'region_manager'), 'report', `${sname(sid)} 店长周报已提交`, `完成率 ${body.rate ?? '-'}% · RevPAR ${body.revpar}（${sgn(body.revpar_delta)}）`, '#/report/' + id);
   D.audit(req.u.id, sid, '提交周报', body.from + '~' + body.to);
   res.json({ ok: true, id });

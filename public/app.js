@@ -1540,7 +1540,7 @@ VIEWS.person = async id => {
 };
 
 // ---------- 全角色一体化：四板块（经营 · 运营 · 人 · 加盟商）+ 待我处理 ----------
-const PL = { biz: ['经营', '营收 · 预算 · 口碑'], ops: ['运营', '任务 · 巡查 · 整改'], ren: ['人', '画像 · 档案 · 梯队'], fr: ['加盟商', '业主 · 回报 · 诉求'] };
+const PL = { biz: ['经营', '营收 · 口碑'], ops: ['运营', '任务 · 巡查'], ren: ['人', '画像 · 梯队'], fr: ['加盟商', '业主 · 诉求'] };
 const PL_ROLE = { region_manager: ['biz', 'ops', 'ren', 'fr'], ops_manager: ['ops', 'ren'], sales_manager: ['biz', 'fr'], hr_manager: ['ren'], store_manager: ['biz', 'ops', 'ren', 'fr'], lead: ['ops', 'ren'], staff: ['ops', 'ren'] };
 const REGION_LV = ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager'];
 const isFrS = sid => (S.meta.stores.find(s => s.id === Number(sid)) || {}).stype === '加盟店';
@@ -1579,8 +1579,8 @@ async function loadInbox(sid) {
     ${xs.length > 4 ? `<details class="tgrp"><summary>其余 ${xs.length - 4} 项 <i>展开</i></summary><div class="list">${xs.slice(4).map((x, i) => row(x, i + 4)).join('')}</div></details>` : ''}` : '';
   el.querySelectorAll('[data-act]').forEach(a => a.onclick = () => inboxAct(a.dataset.act, xs[Number(a.dataset.i)], sid));
 }
-function inboxAct(act, x, sid) {
-  const [k, id] = act.split(':');
+function inboxAct(code, x, sid) {
+  const [k, id] = code.split(':');
   if (k === 'req') return replyReqModal(Number(id), x.title);
   if (k === 'report') return reportModal(sid);
   if (k === 'sugg') return formModal('人事建议 · ' + x.title, `<p class="small">${esc(x.sub)}</p><p><a href="${esc(x.link)}">查看人事档案 ›</a></p>
@@ -1670,7 +1670,7 @@ async function storeFrView(sid, sub) {
     <div class="kv">${[['合作模式', c.mode], ['合同期', `${c.start} 至 ${c.end}`], ['剩余', `${c.days} 天`], ['欠费', f.arrears ? f.arrears + ' 万元' : '无']].map(([k, v]) => `<div>${k}</div><div>${esc(v)}</div>`).join('')}</div>
     ${alertRows(f.alerts)}</div>
   <div class="sec-t2">投资回报</div><div class="ldr"><div class="wgrid">${[['总投资', f.invest, '万'], ['年营收', f.annual_rev, '万'], ['GOP 率', f.gop_rate, '%'], ['年 GOP', f.annual_gop, '万']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
-    <div class="bud"><div class="row between"><span>累计回本进度</span><b>${f.payback}%</b></div><i><em style="width:${Math.min(100, f.payback)}%"></em></i></div></div>
+    <div class="bud"><div class="row between"><span>累计回本进度</span><b>${f.payback >= 100 ? `已回本 · ${(f.payback / 100).toFixed(1)} 倍` : f.payback + '%'}</b></div><i><em style="width:${Math.min(100, f.payback)}%"></em></i></div></div>
   <div class="sec-t2">管理费缴纳 · 近 6 月</div><div class="fees">${f.fees.map(x => `<div class="${x.status === '逾期' ? 'bad' : x.status === '待缴' ? 'warn' : ''}"><span>${Number(x.ym.slice(5))}月</span><b>${x.fee}</b><small>${x.status}</small></div>`).join('')}</div>
   <div class="sec-t2 row between"><span>业主诉求与沟通</span>${sm ? '<button class="btn primary sm" id="nreq">+ 登记诉求</button>' : ''}</div>
   <div class="list">${f.reqs.map(o => `<div class="task req"><div class="b"><div class="ttl">${esc(o.title)} <span class="muted small">${esc(o.kind)}</span></div><div class="muted small">${esc(o.body || '')}</div>
@@ -1699,7 +1699,7 @@ async function regionFr() {
   <div class="sec-t2">加盟店 · 业主</div>
   ${xs.map(f => `<a class="ldr" href="#/frs/${f.store_id}"><div class="ldr-h"><span class="av">${esc(f.owner.slice(0, 1))}</span><div class="grow"><b>${esc(f.store)}</b><span class="muted small">业主 ${esc(f.owner)} · ${esc(f.company)} · 店长 ${esc(f.managers.join('、'))}</span></div><div class="ldr-s"><b class="${f.sat < 80 ? 'bad' : ''}">${f.sat}</b><span>满意度</span></div></div>
     <div class="wgrid">${[['合同剩余', f.contract.days, '天'], ['欠费', f.arrears, '万'], ['GOP 率', f.gop_rate, '%'], ['待处理诉求', f.open, '条']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
-    <div class="bud"><div class="row between"><span class="small">回本进度</span><b class="small">${f.payback}%</b></div><i><em style="width:${Math.min(100, f.payback)}%"></em></i></div>${alertRows(f.alerts)}</a>`).join('') || '<div class="list"><div class="empty">辖区没有加盟店</div></div>'}
+    <div class="bud"><div class="row between"><span class="small">回本进度</span><b class="small">${f.payback >= 100 ? `已回本 · ${(f.payback / 100).toFixed(1)} 倍` : f.payback + '%'}</b></div><i><em style="width:${Math.min(100, f.payback)}%"></em></i></div>${alertRows(f.alerts)}</a>`).join('') || '<div class="list"><div class="empty">辖区没有加盟店</div></div>'}
   <div class="sec-t2">业主诉求 · ${d.reqs.length}</div><div class="list">${d.reqs.map(o => `<div class="task req"><div class="b"><div class="ttl">${esc(o.store)}：${esc(o.title)}</div><div class="muted small">${esc(o.body || '')}</div><div class="muted small">${esc((o.created_at || '').slice(5, 16))} ${esc(o.creator || '')} ${o.escalated ? '上报' : '登记（未上报）'}</div>${o.reply ? `<div class="rply">${esc(o.replier || '')}：${esc(o.reply)}</div>` : ''}
     ${rm && o.status === 'open' ? `<div class="row" style="margin-top:6px"><button class="btn primary sm" data-rep="${o.id}">回复 / 安排沟通会</button></div>` : ''}</div><span class="tag ${REQ_ST[o.status][0]}">${REQ_ST[o.status][1]}</span></div>`).join('') || '<div class="empty">暂无</div>'}</div>
   <p class="muted small">业主、合同、费用、回报数据为模拟数据。</p>`;
