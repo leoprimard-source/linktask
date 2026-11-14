@@ -1542,7 +1542,7 @@ app.get('/api/patrols/:id', (req, res) => {
   const focus = q("SELECT id, title, active FROM flex_tasks WHERE ref=?", 'patrol:' + p.id);
   const recheck = q1("SELECT id, planned_date, status, done_at, score FROM patrols WHERE parent_id=? ORDER BY id DESC LIMIT 1", p.id);
   const parent = p.parent_id ? q1('SELECT id, done_at, score FROM patrols WHERE id=?', p.parent_id) : null;
-  res.json({ ...p, items, focus, recheck, parent, owner: isFr(p.store_id) ? OWNERS[p.store_id]?.[0] || '业主' : null, recheck_days: cfg().recheck_days });
+  res.json({ ...p, pf_focus: p.focus, items, focus, recheck, parent, owner: isFr(p.store_id) ? OWNERS[p.store_id]?.[0] || '业主' : null, recheck_days: cfg().recheck_days });
 });
 app.post('/api/patrols', (req, res) => {
   if (!rmLike(req.u)) return deny(res, '巡店计划由区域经理或教练制定');

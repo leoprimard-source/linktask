@@ -773,7 +773,7 @@ async function patrolDetail(id) {
     const pcm = Object.fromEntries((prev?.items || []).map(i => [String(i.code), i]));
     const scenes = [...new Set(base.map(c => c.scene_name))];
     const MODES = [['full', `全量审计 ${base.length} 条`], ['quick', '快速巡检'], ['scene', '专项（按场景）']];
-    const fsc = PF_SCENE[p.focus], st = { mode: mystery ? 'mystery' : fsc && scenes.includes(fsc) ? 'scene' : 'full', scene: fsc && scenes.includes(fsc) ? fsc : scenes[0] };
+    const fsc = PF_SCENE[p.pf_focus], st = { mode: mystery ? 'mystery' : fsc && scenes.includes(fsc) ? 'scene' : 'full', scene: fsc && scenes.includes(fsc) ? fsc : scenes[0] };
     const guest = base.filter(c => ['前台', '客房', '餐厅', '公区'].includes(c.scene_name) && c.tag !== '基础项');
     const pick = () => recheck ? base : mystery ? (guest.length >= 10 ? guest : base.filter(c => ['前台', '客房', '餐厅', '公区'].includes(c.scene_name))) : st.mode === 'full' ? base : st.mode === 'scene' ? base.filter(c => c.scene_name === st.scene)
       : base.filter(c => c.tag === '清零项' || c.tag === '重点项' || c.last_patrol === 'fail' || c.n_bad);
