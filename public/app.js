@@ -124,7 +124,7 @@ const NAV = {
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
   coach: [['sec', '教练'], ['coach', '本周辅导'], ['wcal', '工作日历'], ['engage', '敬业度与留任'], ['hrm', '人事指标'], ['care', '员工美好'], ['sec', '门店'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['hq', '总部视角'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['hq', '总部视角'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
@@ -134,12 +134,12 @@ const NAV = {
   region_manager: [['sec', '全局'], ['dash', '区域看板'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
-    ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
+    ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
 const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
-const CENTER = { coach: '教练中心', hq: '总部中心', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
+const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
   home: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5V14l-3 3H5.5A1.5 1.5 0 0 1 4 15.5z"/><path d="M7 8h6M7 11h4"/>',
   notices: '<path d="M4 6.5C4 5 5.3 4 7 4h6c1.7 0 3 1 3 2.5v5c0 1.5-1.3 2.5-3 2.5H9l-3.5 2.5V14C4.6 13.7 4 12.8 4 11.5z"/>',
@@ -1071,16 +1071,29 @@ VIEWS.feed = async () => {
   document.querySelectorAll('.fc').forEach(el => el.onclick = () => taskDetail(Number(el.dataset.id)));
 };
 
+const NAV_DA = { pay: 'pay', hrm: 'hrm', care: 'care', people: 'hr', diag: 'diag' };
 // ---------- 工作台 ----------
 VIEWS.work = async () => {
+  const yi = await api('/yi').catch(() => []);
   const secs = []; let cur = null;
-  for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else cur.items.push([k, l]); }
+  for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else if (S.me.level === 'staff' || !NAV_DA[k] || da(NAV_DA[k])) cur.items.push([k, l]); }
   let ci = 0;
-  $('#main').innerHTML = `<h1>工作台</h1>${secs.map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
+  $('#main').innerHTML = `<h1>工作台</h1>${yi.length ? `<div class="sec-t">易系列 · 角色模块</div>${yi.map(yiCard).join('')}` : ''}${secs.filter(sc => sc.items.length).map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
     `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}
   <div class="sec-t">内部系统</div><div class="panel tiles">${Object.entries(APPS).map(([k, x]) => `<a class="tile" href="#/app/${k}"><span class="tic" style="background:${x.color}">${x.name.replace('易', '').slice(0, 1)}</span><span>${x.name}</span></a>`).join('')}</div>`;
 };
 
+VIEWS.dataauth = async () => {
+  const d = await api('/data-auth');
+  $('#main').innerHTML = `<div class="pghd"><b>数据授权</b></div><p class="muted small" style="margin-top:-6px">按角色设定能查看哪些敏感数据。本人自己的数据始终可见；后台接口按这张表统一拦截，没有授权的数据不会返回。${d.edit ? '修改会记入操作日志。' : '只读，由区域经理或总部维护。'}</p>
+  <form id="daf">${d.roles.map(([rk, rl]) => `<div class="sec-t2">${esc(rl)}</div><div class="panel" style="display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 12px">${d.cats.map(([ck, cl]) => `<label class="small" style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" name="${rk}.${ck}" ${(d.auth[rk] || []).includes(ck) ? 'checked' : ''} ${d.edit ? '' : 'disabled'}> ${esc(cl)}</label>`).join('')}</div>`).join('')}
+  <div class="sec-t2">数据范围说明</div><div class="ldr">${d.cats.map(([, cl, cd]) => `<div class="cfr"><span>${esc(cl)}</span><small class="muted">${esc(cd)}</small></div>`).join('')}</div>
+  ${d.edit ? '<div class="row" style="gap:8px;margin-top:10px"><button type="button" class="btn" id="da-r">恢复默认</button><span class="sp"></span><button class="btn primary">保存</button></div>' : ''}</form>`;
+  if (!d.edit) return;
+  const f = $('#daf');
+  f.onsubmit = e => { e.preventDefault(); const auth = {}; for (const [rk] of d.roles) auth[rk] = d.cats.map(([ck]) => ck).filter(ck => f.elements[rk + '.' + ck].checked); act(async () => { await api('/data-auth', { auth }); await refresh(); }, '已保存'); };
+  $('#da-r').onclick = () => act(async () => { await api('/data-auth', { reset: true }); await refresh(); }, '已恢复默认');
+};
 // ---------- 我的 ----------
 VIEWS.me = async () => {
   const [mt, rs] = await Promise.all([S.me.level === 'staff' || S.me.level === 'store_manager' ? api('/my/tasks') : Promise.resolve(null), api('/rectifications?mine=1')]);
@@ -1588,14 +1601,16 @@ VIEWS.person = async id => {
 };
 
 // ---------- 全角色一体化：四板块（经营 · 运营 · 人 · 加盟商）+ 待我处理 ----------
-const PL = { ren: ['管人', '画像 · 梯队'], shop: ['管店', '门店画像'], biz: ['经营', '营收 · 口碑'], ops: ['运营', '任务 · 巡查'], fr: ['加盟商', '业主 · 诉求'] };
-const PL_ROLE = { region_manager: ['ren', 'shop', 'biz', 'ops', 'fr'], ops_manager: ['ren', 'shop', 'ops'], sales_manager: ['shop', 'biz', 'fr'], hr_manager: ['ren'], dev_manager: ['shop'], build_manager: ['shop'], train_manager: ['ren'], coach: ['ren', 'shop', 'ops'], hq: ['shop', 'biz'], store_manager: ['biz', 'ops', 'ren', 'shop'], lead: ['ops', 'ren'], staff: ['ops', 'ren'] };
+const PL = { ren: ['团队', '画像 · 梯队'], shop: ['管店', '门店画像'], biz: ['经营', '营收 · 口碑'], ops: ['运营', '任务 · 巡查'], fr: ['加盟商', '业主 · 诉求'] };
+const PL_ROLE = { region_manager: ['ren', 'shop', 'biz', 'ops', 'fr'], ops_manager: ['ren', 'shop', 'ops'], sales_manager: ['shop', 'biz', 'ren', 'fr'], hr_manager: ['ren'], dev_manager: ['shop', 'ren'], build_manager: ['shop', 'ren'], train_manager: ['ren'], coach: ['ren', 'shop', 'ops'], hq: ['shop', 'biz', 'ren'], store_manager: ['biz', 'ops', 'ren', 'shop'], lead: ['ops', 'biz', 'ren'], staff: ['ops', 'ren'] };
 const REGION_LV = ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'];
 const isFrS = sid => (S.meta.stores.find(s => s.id === Number(sid)) || {}).stype === '加盟店';
 function plList(sid) {
   const k = S.me.level === 'staff' && S.me.lead ? 'lead' : S.me.level;
-  return PL_ROLE[k] || ['ops'];
+  return (PL_ROLE[k] || ['ops']).filter(x => x !== 'biz' || da('biz'));
 }
+const da = k => (S.me.data_auth || []).includes(k);
+const regionTeam = async () => { $('#main').innerHTML = `${plBar('ren')}<div class="pghd"><b>团队</b></div>${da('hrm') || da('care') ? '' : '<p class="muted">暂无团队数据授权，可请区域经理在「数据授权」中开通。</p>'}`; };
 const plLab = k => (k === 'ren' && S.me.level === 'staff' ? (S.me.lead ? ['团队', '画像 · 预警'] : ['画像', '我的档案']) : PL[k]);
 const plBar = (on, sid) => { const a = plList(sid); return `${a.length > 1 ? `<div class="pltabs n${a.length}">${a.map(k => `<a class="${on === k ? 'on' : ''}" href="#/home?${new URLSearchParams(sid ? { pl: k, store: sid } : { pl: k })}"><b>${plLab(k)[0]}</b><span>${plLab(k)[1]}</span></a>`).join('')}</div>` : ''}<div id="inbox"></div>`; };
 const plHead = (title, sw) => `<div class="storebar"><button class="storename" ${sw ? 'id="sw"' : 'disabled'}>${esc(title)}${sw ? '<i>▾</i>' : ''}</button>
@@ -1612,14 +1627,14 @@ VIEWS.home = async () => {
   const list = plList(sid);
   let pl = p.get('pl') || (p.get('tab') === 'ren' ? 'ren' : '');
   if (!list.includes(pl)) pl = list.includes('ops') ? 'ops' : list[0];
-  if (region) await ({ ops: regionHome, biz: regionBiz, ren: lv === 'hr_manager' ? () => hrBoard(true) : lv === 'train_manager' ? VIEWS.train : regionPeople, fr: regionFr, shop: regionShop }[pl])();
+  if (region) await ({ ops: regionHome, biz: regionBiz, ren: lv === 'hr_manager' ? () => hrBoard(true) : lv === 'train_manager' ? VIEWS.train : ['sales_manager', 'dev_manager', 'build_manager', 'hq'].includes(lv) ? regionTeam : regionPeople, fr: regionFr, shop: regionShop }[pl])();
   else if (lv === 'store_manager') await ({ ops: managerHome, biz: () => storeBizView(sid), ren: () => storePeopleView(sid), shop: () => storeShopView(sid) }[pl])();
   else if (pl === 'ren') await (S.me.lead ? storePeopleView(sid) : myPortrait(sid));
+  else if (pl === 'biz') await storeBizView(sid);
   else await staffHome();
-  if (region) loadYi();
   if (lv === 'store_manager' && pl === 'ops') loadCockpit(sid);
-  if (pl === 'ren' && ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'store_manager'].includes(lv)) hrmCard(lv === 'store_manager' ? sid : 0);
-  if (pl === 'ren' && ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'store_manager'].includes(lv)) careCard(lv === 'store_manager' ? sid : 0);
+  if (pl === 'ren' && lv !== 'staff' && lv !== 'train_manager' && da('hrm')) hrmCard(lv === 'store_manager' ? sid : 0);
+  if (pl === 'ren' && lv !== 'staff' && lv !== 'train_manager' && da('care')) careCard(lv === 'store_manager' ? sid : 0);
   loadInbox(sid);
 };
 async function loadYi() {
@@ -2023,7 +2038,7 @@ VIEWS.proj = async id => {
   <div class="sec-t2">筹建预算与工期</div><div class="ldr"><div class="wgrid">${[['投资预算', p.budget, '万'], ['已付款', p.paid, '万'], ['工程变更', p.changes, '万'], ['工期', p.build_days ?? '-', `/${p.build_std}天`]].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
     <div class="bud"><i><em style="width:${Math.min(100, bud)}%"></em></i></div><div class="muted small">付款进度 ${bud}%${p.changes > p.budget * 0.05 ? ' · <b style="color:var(--warn)">工程变更超过预算 5%</b>' : ''}</div></div>
   <div class="sec-t2">开业前人员准备</div><div class="ldr"><div class="wgrid">${[['编制', p.staff_plan, '人'], ['已招聘', p.staff_hired, '人'], ['已培训认证', p.staff_trained, '人'], ['到位率', p.staff_plan ? Math.round(p.staff_hired * 100 / p.staff_plan) : 0, '%']].map(([l, v, u]) => `<div><b>${v}<small>${u}</small></b><span>${l}</span></div>`).join('')}</div>
-    <div class="muted small" style="margin-top:6px">店长：${esc(p.sm_name || '未确定')}${p.stage !== '退出' ? ' · 店长和关键岗位可从「管人」的人才梯队里调配' : ''}</div></div>
+    <div class="muted small" style="margin-top:6px">店长：${esc(p.sm_name || '未确定')}${p.stage !== '退出' ? ' · 店长和关键岗位可从「团队」的人才梯队里调配' : ''}</div></div>
   ${p.can && p.status === 'active' ? `<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="pj-up">更新预算 / 人员 / 资金</button>${rm ? '<button class="btn danger sm" id="pj-exit">解约</button>' : ''}</div>` : ''}
   <div class="sec-t2">项目记录</div><div class="list">${p.events.map(e => `<div class="task"><span class="tag">${esc(e.kind)}</span><div class="b"><div class="ttl">${esc(e.note || e.kind)}</div><div class="muted small">${esc(e.by_name || '')}</div></div><span class="muted small">${esc(e.at)}</span></div>`).join('')}</div>`;
   document.querySelectorAll('[data-nd]').forEach(b => b.onclick = () => {
