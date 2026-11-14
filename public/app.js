@@ -247,7 +247,7 @@ function kindOf(t) {
   for (const [k, re] of KINDS) if (re.test(t.standard || '')) return k;
   return '其他';
 }
-const qm = t => (t.standard ? ((S.stdMap ||= {})[t.id] = t, `<button type="button" class="qm" data-std="${t.id}" aria-label="查看说明">?</button>`) : '');
+const qm = (t, p = '') => (t.standard ? ((S.stdMap ||= {})[p + t.id] = t, `<button type="button" class="qm" data-std="${p}${t.id}" aria-label="查看说明">?</button>`) : '');
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-std]'); if (!b) return;
   e.preventDefault(); e.stopPropagation();
@@ -503,19 +503,36 @@ VIEWS.assign = async () => {
   const sid = pickStore(qs().get('store'));
   const d = await api(`/stores/${sid}/assign`);
   const manage = S.me.can.manage;
-  $('#main').innerHTML = `<div class="row between"><h1>场景分配</h1>${storeSwitch('#/assign')}</div>
-  <p class="muted small" style="margin-top:-6px">固定运营工作按场景归类。店长为每个场景指定负责人，也可以把单项工作指给具体的人；没有单独指定的，按岗位默认分配给对应的人。调整后从今天起未完成的任务立即生效，执行人会收到通知。</p>
-  ${S.meta.scenes.map(sc => {
-    const own = d.owners.find(o => o.scene_id === sc.id);
-    const tpls = d.templates.filter(t => t.scene_id === sc.id);
-    return `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc.name)}<span class="sp"></span>
-      <span class="small muted" style="font-weight:400">场景负责人</span><select data-owner="${sc.id}" ${manage ? '' : 'disabled'}>${userOptions(sid, own?.user_id, { blank: '未指定' })}</select>
-      ${manage ? `<button class="btn sm" data-apply="${sc.id}">整个场景交给负责人</button>` : ''}</div>
-      ${tpls.length ? `<div class="tbl" style="border:0;border-radius:0"><table><tr><th>时间</th><th>工作内容</th><th>频次</th><th>默认岗位</th><th>执行人</th></tr>
-      ${tpls.map(t => `<tr><td class="mono">${esc(t.due_time)}</td><td>${esc(t.title)} ${t.category === 'sales' ? '<span class="tag">销售</span>' : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}<div class="muted small">${esc(t.standard)}</div></td>
-        <td>${freqText(t.freq, t.freq_val)}</td><td>${esc(t.role_name)}</td>
-        <td><select data-tpl="${t.id}" ${manage ? '' : 'disabled'}>${userOptions(sid, t.explicit ? t.user_id : '', { blank: '按岗位默认（' + (t.user_name || '无') + '）' })}</select></td></tr>`).join('')}</table></div>` : '<div class="empty">该场景暂无固定工作</div>'}</div>`;
+  S.tf ||= {};
+  const F = [['all', '全部', () => true], ['mine', '已指定到人', t => t.explicit], ['std', '品牌标准', t => t.code], ['photo', '需拍照', t => t.need_photo]];
+  const f = F.some(x => x[0] === S.tf.asg) ? S.tf.asg : 'all';
+  const fn = F.find(x => x[0] === f)[2];
+  const row = t => `<div class="arow"><div class="gt">${esc(t.title)}${qm(t, 'tp')}</div>
+    <div class="gl">${icon('clock')}${esc(t.due_time)}<span class="gsep">·</span>${freqText(t.freq, t.freq_val)}<span class="gsep">·</span>${esc(t.role_name || '')}${t.code ? `<span class="tag">${esc(t.code)}</span>` : ''}${t.category === 'sales' ? '<span class="tag">销售</span>' : ''}${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
+    <label class="asel"><span>执行人</span><select data-tpl="${t.id}" ${manage ? '' : 'disabled'}>${userOptions(sid, t.explicit ? t.user_id : '', { blank: '按岗位默认（' + (t.user_name || '无') + '）' })}</select></label></div>`;
+  const scenes = S.meta.scenes.map(sc => ({ sc, own: d.owners.find(o => o.scene_id === sc.id), all: d.templates.filter(t => t.scene_id === sc.id) })).map(x => ({ ...x, tpls: x.all.filter(fn) }));
+  const body = ({ sc, tpls }) => {
+    if (tpls.length <= 6) return tpls.map(row).join('');
+    const kinds = {}; tpls.forEach(t => (kinds[kindOf(t)] ||= []).push(t));
+    return Object.entries(kinds).sort((a, b) => (a[0] === '其他') - (b[0] === '其他') || b[1].length - a[1].length).map(([k, xs]) => {
+      const id = `asg:${sc.id}:${k}`;
+      return `<details class="tgrp sub" data-k="${esc(id)}" ${S.open[id] ? 'open' : ''}><summary><span>${k}</span><em>${xs.length} 项</em></summary><div class="tgb">${xs.map(row).join('')}</div></details>`;
+    }).join('');
+  };
+  $('#main').innerHTML = `<div class="row between"><h1>场景分配<button type="button" class="qm" id="asgHelp" aria-label="说明">?</button></h1>${storeSwitch('#/assign')}</div>
+  <div class="tfil" data-tf="asg">${F.map(([k, l, g]) => `<a data-f="${k}" class="${f === k ? 'on' : ''}">${l}<small>${d.templates.filter(g).length}</small></a>`).join('')}</div>
+  ${scenes.map((x, i) => {
+    const id = `asg:${x.sc.id}`, open = S.open[id] ?? (i === 0);
+    const own = x.own?.user_id ? userName(x.own.user_id) : '';
+    const n = x.all.filter(t => t.explicit).length;
+    return `<details class="tgrp scn" data-k="${id}" ${open ? 'open' : ''}><summary><span>${esc(x.sc.name)}</span><em>${x.tpls.length}${f === 'all' ? '' : '/' + x.all.length} 项</em>${own ? `<span class="own">${esc(own)}</span>` : '<span class="own none">未指定负责人</span>'}</summary>
+      <div class="ahead"><label class="asel"><span>场景负责人</span><select data-owner="${x.sc.id}" ${manage ? '' : 'disabled'}>${userOptions(sid, x.own?.user_id, { blank: '未指定' })}</select></label>
+      ${manage ? `<button class="btn sm" data-apply="${x.sc.id}">整场景交给负责人</button>` : ''}</div>
+      ${n ? `<div class="muted small ahint">已单独指定到人 ${n} 项</div>` : ''}
+      <div class="tgb">${x.tpls.length ? body(x) : `<div class="empty">${x.all.length ? '没有符合筛选的工作' : '该场景暂无固定工作'}</div>`}</div></details>`;
   }).join('')}`;
+  $('#asgHelp').onclick = () => modal('场景分配说明', '<div class="stdtxt">固定运营工作按场景归类。店长为每个场景指定负责人，也可以把单项工作指给具体的人；没有单独指定的，按岗位默认分配给对应的人。\n调整后从今天起未完成的任务立即生效，执行人会收到通知。</div>');
+  bindBoard();
   document.querySelectorAll('[data-tpl]').forEach(s => s.onchange = () => act(async () => { await api(`/stores/${sid}/assign`, { template_id: Number(s.dataset.tpl), user_id: Number(s.value) || null }, 'PUT'); route(); }, '分配已更新'));
   document.querySelectorAll('[data-owner]').forEach(s => s.onchange = () => act(() => api(`/stores/${sid}/assign`, { scene_id: Number(s.dataset.owner), owner_id: Number(s.value) || null }, 'PUT'), '场景负责人已更新'));
   document.querySelectorAll('[data-apply]').forEach(b => b.onclick = () => {
