@@ -41,6 +41,15 @@ const canManage = (u, sid) => u.level === 'region_manager' || (u.level === 'stor
 const catFilter = u => (u.level === 'sales_manager' ? 'sales' : u.level === 'ops_manager' ? 'ops' : null);
 function deny(res, msg) { res.status(403).json({ error: msg || '无权限' }); }
 function err(res, msg) { res.status(400).json({ error: msg }); }
+const STAFF_ALL = ['前台经理', '前台高级', '前台中级', '前台初级', '客房经理', '客房高级', '客房中级', '客房初级', '餐厅厨师', '工程', 'PA', '保安'];
+const LEADS = { 店助: STAFF_ALL, 前台经理: ['前台高级', '前台中级', '前台初级'], 客房经理: ['客房高级', '客房中级', '客房初级', 'PA'] };
+function teamOf(u, sid) {
+  sid = Number(sid);
+  if (canManage(u, sid)) return q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' ORDER BY r.sort, u.id", sid);
+  const subs = LEADS[u.role_name]; if (!subs || u.store_id !== sid) return [];
+  return q(USER_SQL + ` WHERE u.active=1 AND u.store_id=? AND r.name IN (${subs.map(() => '?').join(',')}) ORDER BY r.sort, u.id`, sid, ...subs);
+}
+function leads(u, uid) { const t = q1(USER_SQL + ' WHERE u.id=?', uid); return !!t && t.store_id === u.store_id && (LEADS[u.role_name] || []).includes(t.role_name); }
 
 function savePhoto(dataUrl) {
   if (!dataUrl || !dataUrl.startsWith('data:image/')) return null;
@@ -80,7 +89,7 @@ app.get('/api/me', (req, res) => {
   const unread = q1('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read=0', u.id).n;
   res.json({ ...u, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
     can: { manage: ['region_manager', 'store_manager'].includes(u.level), region: isRegion(u), patrol: u.level === 'region_manager', settings: u.level === 'region_manager' },
-    category: catFilter(u) });
+    category: catFilter(u), team: u.store_id ? teamOf(u, u.store_id).map(x => x.id) : [], lead: !!LEADS[u.role_name] });
 });
 app.get('/api/meta', (req, res) => {
   const sids = visibleStores(req.u);
@@ -125,7 +134,7 @@ app.get('/api/instances/:id', (req, res) => {
 app.post('/api/instances/:id/complete', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it) return err(res, '任务不存在');
-  if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id)) return deny(res, '只能完成分配给自己的任务');
+  if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id)) return deny(res, '只能完成分配给自己的任务');
   const photo = savePhoto(req.body.photo) || it.photo;
   if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
   const tpl = it.src === 'tpl' ? q1('SELECT need_value FROM templates WHERE id=?', it.src_id) : null;
@@ -137,7 +146,7 @@ app.post('/api/instances/:id/complete', (req, res) => {
 });
 app.post('/api/instances/:id/undo', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
-  if (!it || (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id))) return deny(res);
+  if (!it || (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res);
   if (it.check_result) return err(res, '已抽查的任务不能撤回');
   run("UPDATE instances SET status='pending', done_at=NULL WHERE id=?", it.id);
   D.audit(req.u.id, it.store_id, '撤回完成', it.title);
@@ -155,7 +164,7 @@ app.post('/api/instances/:id/reassign', (req, res) => {
 });
 app.post('/api/instances/:id/check', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
-  if (!it || !canManage(req.u, it.store_id)) return deny(res, '只有店长或区域经理可以抽查');
+  if (!it || (!canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res, '只有店长、区域经理或直属上级可以点评');
   const { result, comment, rectify } = req.body;
   if (!['good', 'bad'].includes(result)) return err(res, '请选择抽查结果');
   if (result === 'bad' && !(comment || '').trim()) return err(res, '请写明不合格原因');
@@ -223,7 +232,7 @@ app.get('/api/leaves', (req, res) => {
 app.post('/api/leaves', (req, res) => {
   const { user_id, date, cover_user_id, note, days } = req.body;
   const u = q1('SELECT * FROM users WHERE id=?', user_id);
-  if (!u || !canManage(req.u, u.store_id)) return deny(res);
+  if (!u || (!canManage(req.u, u.store_id) && !leads(req.u, u.id))) return deny(res);
   if (!date) return err(res, '请选择日期');
   const n = Math.max(1, Math.min(31, Number(days) || 1));
   for (let i = 0; i < n; i++) run('INSERT INTO leaves(user_id,date,cover_user_id,note,created_by) VALUES(?,?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET cover_user_id=excluded.cover_user_id, note=excluded.note',
@@ -261,7 +270,7 @@ app.get('/api/flex', (req, res) => {
 });
 app.post('/api/flex', (req, res) => {
   const b = req.body;
-  if (!canManage(req.u, b.store_id)) return deny(res);
+  if (!canManage(req.u, b.store_id) && !(b.assignee_id && leads(req.u, Number(b.assignee_id)))) return deny(res);
   const source = b.source === 'focus' ? 'focus' : 'flex';
   if (source === 'focus' && req.u.level !== 'region_manager') return deny(res, '重点跟踪任务由区域经理创建');
   if (!(b.title || '').trim() || !b.assignee_id || !b.start_date || !b.due_time) return err(res, '请填写任务名称、执行人、开始日期和时间');
@@ -361,6 +370,79 @@ app.get('/api/home', (req, res) => {
       once: all.filter(i => i.freq === 'once' && i.date >= ms && i.date <= me),
     },
   });
+});
+
+function pstats(uid, from, to) {
+  const rs = q('SELECT i.status, i.date, i.due_time, i.done_at, i.check_result, s.name scene FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.assignee_id=? AND i.date BETWEEN ? AND ?', uid, from, to);
+  const P = (a, b) => (b ? Math.round(a * 100 / b) : null);
+  const dn = rs.filter(r => r.status === 'done'), ck = rs.filter(r => r.check_result);
+  const ot = dn.filter(r => (r.done_at || '').slice(0, 10) < r.date || ((r.done_at || '').slice(0, 10) === r.date && (r.done_at || '').slice(11, 16) <= r.due_time));
+  const sc = {};
+  for (const r of rs) { const x = sc[r.scene || '其他'] ||= { name: r.scene || '其他', total: 0, done: 0, bad: 0 }; x.total++; if (r.status === 'done') x.done++; if (r.check_result === 'bad') x.bad++; }
+  const training = q1("SELECT COUNT(*) n FROM rectifications WHERE assignee_id=? AND created_at>=? AND training!=''", uid, from).n;
+  return { total: rs.length, done: dn.length, rate: P(dn.length, rs.length), ontime: P(ot.length, dn.length), pass: P(ck.filter(r => r.check_result === 'good').length, ck.length),
+    good: ck.filter(r => r.check_result === 'good').length, bad: ck.filter(r => r.check_result === 'bad').length, training,
+    scenes: Object.values(sc).map(x => ({ ...x, rate: P(x.done, x.total) })).sort((a, b) => b.total - a.total) };
+}
+app.get('/api/team', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today(), hm = L.nowHM();
+  const team = teamOf(req.u, sc.sid);
+  res.json(team.map(m => {
+    const ts = q('SELECT status, due_time, date FROM instances WHERE assignee_id=? AND date=?', m.id, t);
+    return { id: m.id, name: m.name, role_name: m.role_name, leave: !!q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', m.id, t),
+      today: { total: ts.length, done: ts.filter(x => x.status === 'done').length, overdue: ts.filter(x => x.status !== 'done' && x.due_time < hm).length },
+      s30: pstats(m.id, L.addDays(t, -30), L.addDays(t, -1)) };
+  }));
+});
+app.get('/api/person/:id', (req, res) => {
+  const m = q1(USER_SQL + ' WHERE u.id=?', req.params.id);
+  if (!m || !(m.id === req.u.id || canManage(req.u, m.store_id) || leads(req.u, m.id))) return deny(res);
+  const t = L.today();
+  res.json({ user: { id: m.id, name: m.name, role_name: m.role_name, store_id: m.store_id }, leave: !!q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', m.id, t),
+    s30: pstats(m.id, L.addDays(t, -30), L.addDays(t, -1)),
+    today: decorate(q(INST_SQL + ' WHERE i.assignee_id=? AND i.date=? ORDER BY i.due_time', m.id, t)),
+    checks: decorate(q(INST_SQL + ' WHERE i.assignee_id=? AND i.check_result IS NOT NULL ORDER BY i.checked_at DESC LIMIT 8', m.id)),
+    rects: q('SELECT r.*, i.title FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id WHERE r.assignee_id=? ORDER BY r.id DESC LIMIT 6', m.id) });
+});
+app.get('/api/must', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today(), y = L.addDays(t, -1);
+  const mgr = canManage(req.u, sc.sid), ids = new Set(teamOf(req.u, sc.sid).map(x => x.id));
+  const mine = r => mgr || ids.has(r.assignee_id);
+  const T = decorate(q(INST_SQL + ' WHERE i.store_id=? AND i.date=?', sc.sid, t)).filter(r => mine(r) || r.assignee_id === req.u.id);
+  const out = [], seen = new Set();
+  const push = (kind, reason, r) => { if (!seen.has(r.id)) { seen.add(r.id); out.push({ kind, reason, t: r }); } };
+  T.filter(r => r.assignee_id === req.u.id && r.status !== 'done').forEach(r => push('self', '我亲做', r));
+  T.filter(r => r.origin === 'focus' && r.assignee_id !== req.u.id).forEach(r => push('focus', '上级重点跟踪', r));
+  T.filter(r => r.tag === '清零项' && r.status !== 'done').forEach(r => push('zero', '清零项：当日必须完成', r));
+  T.filter(r => r.m === 'M2' && r.status === 'done' && !r.check_result).forEach(r => push('review', 'M2：待复查', r));
+  const yb = q("SELECT src, src_id FROM instances WHERE store_id=? AND date=? AND check_result='bad'", sc.sid, y);
+  T.filter(r => yb.some(b => b.src === r.src && b.src_id === r.src_id)).forEach(r => push('again', '昨日点评不合格，今日复看', r));
+  T.filter(r => r.overdue && r.status !== 'done').slice(0, 6).forEach(r => push('late', '已超时，跟进原因', r));
+  T.filter(r => r.m === 'M3' && r.status === 'done' && !r.check_result).sort((a, b) => hash(t + a.id) - hash(t + b.id)).slice(0, 3).forEach(r => push('spot', 'M3：随机抽查', r));
+  res.json(out);
+});
+app.get('/api/upper', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const t = L.today();
+  const focus = q(`SELECT f.*, u.name assignee_name, c.name creator FROM flex_tasks f LEFT JOIN users u ON u.id=f.assignee_id LEFT JOIN users c ON c.id=f.created_by
+    WHERE f.store_id=? AND f.source='focus' AND (f.end_date IS NULL OR f.end_date>=?) ORDER BY f.id DESC`, sc.sid, t)
+    .map(f => ({ ...f, today: q1("SELECT id, status FROM instances WHERE src='flex' AND src_id=? AND date=?", f.id, t) || null,
+      rate: q1("SELECT ROUND(AVG(status='done')*100) r FROM instances WHERE src='flex' AND src_id=? AND date<?", f.id, t).r }));
+  const rects = q(`SELECT r.*, u.name assignee_name, c.name creator, cr.name creator_role, i.title FROM rectifications r JOIN users c ON c.id=r.created_by JOIN roles cr ON cr.id=c.role_id
+    LEFT JOIN users u ON u.id=r.assignee_id LEFT JOIN instances i ON i.id=r.instance_id WHERE r.store_id=? AND cr.level IN ('region_manager','ops_manager','sales_manager') AND r.status!='closed' ORDER BY r.deadline`, sc.sid);
+  const patrols = q('SELECT * FROM patrols WHERE store_id=? ORDER BY COALESCE(done_at, planned_date) DESC LIMIT 4', sc.sid);
+  res.json({ focus, rects, patrols });
+});
+app.post('/api/handover', (req, res) => {
+  const to = q1(USER_SQL + ' WHERE u.id=?', req.body.to_user_id);
+  if (!to) return err(res, '请选择接手人');
+  const t = L.today();
+  const n = run("UPDATE instances SET orig_assignee_id=COALESCE(orig_assignee_id, assignee_id), assignee_id=? WHERE assignee_id=? AND date=? AND status='pending'", to.id, req.u.id, t).changes;
+  D.notify([to.id], 'assign', `${req.u.name} 向你交班`, `移交今日未完成任务 ${n} 项${req.body.note ? '：' + req.body.note : ''}`, '#/my');
+  D.audit(req.u.id, to.store_id, '一键交班', `${n} 项 → ${to.name}`);
+  res.json({ ok: true, n });
 });
 
 app.get('/api/calendar', (req, res) => {

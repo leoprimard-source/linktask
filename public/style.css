@@ -349,3 +349,21 @@ b.warn{color:var(--warn)}b.bad{color:var(--bad)}
 body.in-feishu .appbar{display:none}
 body.in-feishu .foot{display:none}
 .phone{padding-top:env(safe-area-inset-top)}
+.rhythm{display:flex;gap:6px;overflow-x:auto;margin:0 -14px 12px;padding:10px 14px;background:#fff;scrollbar-width:none}
+.rhythm div{flex:none;display:flex;flex-direction:column;align-items:center;padding:6px 10px;border-radius:12px;background:var(--bg);font-size:12px;color:var(--text-muted)}
+.rhythm div b{font-family:var(--mono);font-size:13px;color:var(--text)}.rhythm .past{opacity:.5}
+.rhythm .on{background:var(--accent);color:#fff}.rhythm .on b{color:#fff}
+.mtiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:#fff;border-radius:18px;padding:14px 8px}
+.mtiles a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px;color:var(--text);position:relative;cursor:pointer}
+.mtiles .tic{width:44px;height:44px;border-radius:14px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
+.badge{position:absolute;top:-4px;right:calc(50% - 30px);background:var(--bad);color:#fff;font-size:11px;line-height:17px;border-radius:9px;padding:0 5px}
+.scgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.scb{background:#fff;border-radius:16px;padding:12px 14px;color:var(--text);cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.scb.od{box-shadow:inset 0 3px 0 var(--bad)}.scb .big{font-size:26px;font-weight:700}.scb .big small{font-size:14px;color:var(--text-muted);font-weight:400}
+.scb .tag{align-self:flex-start}
+.crews{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.crew{background:#fff;border-radius:16px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text);text-align:center}
+.crew .av{width:42px;height:42px;font-size:17px}.crew em.bad,.small .bad,span.bad{color:var(--bad);font-style:normal}
+.scbars{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.scbars div{display:flex;align-items:center;gap:8px;font-size:13px}.scbars span{width:72px}.scbars i{flex:1;height:7px;border-radius:4px;background:var(--track);overflow:hidden}.scbars em{display:block;height:100%;background:var(--ring)}.scbars b{width:40px;text-align:right;font-weight:500}
+.chk{display:flex;gap:6px;align-items:center;font-size:14px;margin-top:6px}

@@ -130,7 +130,7 @@ const NAV = {
     ['sec', '配置'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -1027,7 +1027,7 @@ VIEWS.group = async () => {
   const h = await api(`/home?store=${sid}&date=${date}${S.me.level === 'staff' ? '&mine=1' : ''}`);
   const ts = h.tabs[tab].filter(t => (!pl || t.pillar === pl) && (tab === 'once' ? t.title : (t.scene_name || '其他')) === g);
   const manage = S.me.can.manage;
-  const btn = t => (t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? ['去完成', 'go'] : manage && t.status === 'done' && !t.check_result ? [t.m === 'M2' ? '去复查' : '去抽查', 'go'] : ['查看', 'view']);
+  const btn = t => (t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || TEAM(t)) ? ['去完成', 'go'] : TEAM(t) && t.status === 'done' && !t.check_result ? [t.m === 'M2' ? '去复查' : '去抽查', 'go'] : ['查看', 'view']);
   $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(g)}${pl ? ` · ${esc(pl)}` : ''}</div><div class="bp-body">
     <h2 class="bp-t">任务列表 (${ts.filter(t => t.status === 'done').length}/${ts.length})</h2>
     ${ts.map(t => { const [l, k] = btn(t); return `<div class="gcard ${t.status === 'done' ? 'done' : ''} ${t.overdue ? 'od' : ''}" data-id="${t.id}">
@@ -1076,7 +1076,7 @@ function aiPhoto(t) {
 function stdPoints(t) { return (t.standard || '').split(/\n|；|;|。/).map(x => x.replace(/^[\s\d.、()（）-]+/, '').trim()).filter(x => x.length > 3).slice(0, 5); }
 VIEWS.task = async id => {
   const t = await api('/instances/' + id);
-  const can = t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || S.me.can.manage);
+  const can = t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || TEAM(t));
   const apps = appsFor(t);
   let photo = null;
   $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(t.scene_name || '任务')}</div><div class="bp-body">
@@ -1097,7 +1097,7 @@ VIEWS.task = async id => {
       <button class="btn primary block">提交完成</button></form>`
     : `<div class="tk-card">${t.status === 'done' ? `<div class="gl">完成时间：${esc(t.done_at)}</div>${t.reading ? `<div class="gl">计量读数：${esc(t.reading)}</div>` : ''}${t.done_note ? `<div class="gl">完成说明：${esc(t.done_note)}</div>` : ''}${t.photo ? `<img class="tk-img" src="${esc(t.photo)}" alt="">` : ''}
       ${t.check_result ? `<div class="note">${t.check_result === 'good' ? '店长肯定' : '不合格'}：${esc(t.check_comment || '')}（${esc(t.checker_name || '')}）</div>` : ''}` : `<div class="muted">${t.date > S.me.today ? '未到执行日期' : '该任务由 ' + esc(t.assignee_name || '-') + ' 负责'}</div>`}
-      <div class="row" style="margin-top:10px"><span class="sp"></span>${S.me.can.manage && t.status === 'done' && !t.check_result ? `<button class="btn primary" id="chk">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn" id="det">完整记录</button></div></div>`}
+      <div class="row" style="margin-top:10px"><span class="sp"></span>${TEAM(t) && t.assignee_id !== S.me.id && t.status === 'done' && !t.check_result ? `<button class="btn primary" id="chk">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn" id="det">完整记录</button></div></div>`}
   </div></div>`;
   if ($('#det')) $('#det').onclick = () => taskDetail(t.id);
   if ($('#chk')) $('#chk').onclick = () => checkModal(t);
@@ -1189,7 +1189,8 @@ VIEWS.home = async () => {
   const lv = S.me.level, p = qs();
   if (['region_manager', 'ops_manager', 'sales_manager'].includes(lv) && p.get('view') !== 'store') return regionHome();
   if (lv === 'staff') return staffHome();
-  return storeHome();
+  if (p.get('view') === 'store') return storeHome();
+  return managerHome();
 };
 async function regionHome() {
   const [d, iss, pts] = await Promise.all([api('/dashboard'), api('/issues'), S.me.level === 'sales_manager' ? Promise.resolve([]) : api('/patrols')]);
@@ -1248,11 +1249,131 @@ async function staffHome() {
   <div class="sec-t2">今日工作</div><div class="timeline">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length;
     return `<div class="tl ${ts.some(t => t.overdue) ? 'od' : d2 === ts.length ? 'ok' : ''}"><i class="dot"></i><div class="tcard" data-go="${esc(g)}"><div class="th"><b>${esc(g)}</b><span class="tt2">${esc(ts.map(t => t.due_time).sort()[0])}</span></div>
       <div class="tp"><span>已完成 <b>${d2}/${ts.length}</b></span></div><div class="segbar">${ts.map(t => `<i class="${t.status === 'done' ? 'd' : t.overdue ? 'b' : ''}"></i>`).join('')}</div><div class="tmore">${ts.length - d2 ? `待完成 ${ts.length - d2} 项` : '全部完成'} ›</div></div></div>`; }).join('') || '<div class="empty">没有任务</div>'}</div>
+  ${S.me.lead ? `<div id="lead"></div>` : ''}
   ${apps.length ? `<div class="sec-t2">常用系统</div><div class="approw">${apps.map(k => `<a href="#/app/${k}" class="appchip"><span style="background:${APPS[k].color}">${APPS[k].name.replace('易', '').slice(0, 1)}</span>${APPS[k].name}</a>`).join('')}</div>` : ''}`;
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?date=' + d; });
+  if (S.me.lead) Promise.all([api(`/team?store=${sid}`), api(`/must?store=${sid}`)]).then(([team, must]) => {
+    const rv = must.filter(x => x.kind !== 'self');
+    $('#lead').innerHTML = `<div class="sec-t2 row between"><span>待我点评 / 跟进</span><a href="#/must" class="small">全部 ${rv.length} ›</a></div><div class="list">${rv.slice(0, 4).map(mustRow).join('') || '<div class="empty">下级今天暂无待点评</div>'}</div>
+      <div class="sec-t2 row between"><span>我的团队 · ${team.length} 人</span><a href="#/crew" class="small">全部 ›</a></div><div class="crews">${team.slice(0, 6).map(crewCard).join('')}</div>`;
+  });
   document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
 }
+
+// ---------- 店长 / 负一级管理者 ----------
+const TEAM = t => S.me.can.manage || (S.me.team || []).includes(t.assignee_id);
+const RHYTHM = [['08:30', '早会交班'], ['09:00', '早餐高峰'], ['11:00', '预抵核对'], ['14:00', '退房查房'], ['18:00', '入住高峰'], ['21:00', '日结复盘'], ['23:30', '夜审']];
+const MUST_TAG = { self: 'acc', focus: 'bad', zero: 'bad', review: 'warn', again: 'warn', late: 'bad', spot: 'acc' };
+const pct = v => (v == null ? '-' : v + '%');
+function rhythmBar() {
+  const now = S.me.now; let cur = -1; RHYTHM.forEach(([t], i) => { if (t <= now) cur = i; });
+  return `<div class="rhythm">${RHYTHM.map(([t, l], i) => `<div class="${i === cur ? 'on' : i < cur ? 'past' : ''}"><b>${t}</b><span>${l}</span></div>`).join('')}</div>`;
+}
+const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
+const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
+  ${m.leave ? '<span class="tag warn">休息</span>' : `<span class="small">${m.today.done}/${m.today.total}${m.today.overdue ? ` · <em class="bad">超时${m.today.overdue}</em>` : ''}</span>`}<span class="muted small">30天合格 ${pct(m.s30.pass)}</span></a>`;
+async function managerHome() {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const date = S.me.today;
+  const [h, team, must, up, rs] = await Promise.all([api(`/home?store=${sid}&date=${date}`), api(`/team?store=${sid}`), api(`/must?store=${sid}`), api(`/upper?store=${sid}`), api(`/rectifications?store=${sid}`)]);
+  const all = h.tabs.day, done = all.filter(t => t.status === 'done'), r = all.length ? Math.round(done.length * 100 / all.length) : null;
+  const toCheck = all.filter(t => t.status === 'done' && !t.check_result).length, od = all.filter(t => t.overdue).length;
+  const openR = rs.filter(x => x.status !== 'closed').length, upN = up.focus.length + up.rects.length;
+  const groups = {}; for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
+  const top = ts => { const c = {}; ts.forEach(t => { c[t.assignee_name] = (c[t.assignee_name] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2).map(x => x[0]).join('、'); };
+  const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['handover', '一键交班', '交', '']];
+  $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
+    <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
+  ${rhythmBar()}
+  <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
+    <div class="sf-pl">${['人', '财', '物'].map(k => { const a = all.filter(t => t.pillar === k), d2 = a.filter(t => t.status === 'done').length; return `<div><span>${k}</span><i><em style="width:${a.length ? d2 * 100 / a.length : 0}%"></em></i><b>${d2}/${a.length}</b></div>`; }).join('')}
+      <div class="small"><span class="${od ? 'bad' : 'muted'}">超时 ${od}</span> · <span class="muted">待点评 ${toCheck} · 待整改 ${openR}</span></div></div></div>
+  <div class="sec-t2">我的工作</div>
+  <div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>
+  ${upN ? `<div class="sec-t2 row between"><span>上级安排</span><a href="#/upper" class="small">全部 ${upN} ›</a></div><div class="list">${up.focus.slice(0, 2).map(f => `<a class="task" href="#/upper"><div class="b"><div class="ttl">${esc(f.title)}</div><div class="muted small">${esc(f.creator || '区域')} 下发 · 每日 ${esc(f.due_time)} · ${esc(f.assignee_name || '')} 落实 · 历史执行 ${pct(f.rate)}</div></div>${f.today ? `<span class="tag ${f.today.status === 'done' ? 'ok' : 'warn'}">${f.today.status === 'done' ? '今日已落实' : '今日待落实'}</span>` : ''}</a>`).join('')}
+    ${up.rects.slice(0, 2).map(x => `<a class="task" href="#/rect"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.creator_role)} ${esc(x.creator)} · ${esc(x.assignee_name || '')} · 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</a>`).join('')}</div>` : ''}
+  <div class="sec-t2 row between"><span>今日必做推荐</span><a href="#/must" class="small">全部 ${must.length} ›</a></div>
+  <div class="list">${must.slice(0, 5).map(mustRow).join('') || '<div class="empty">今天没有推荐巡查项</div>'}</div>
+  <div class="sec-t2">场景运营</div>
+  <div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
+    return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>
+  <div class="sec-t2 row between"><span>我的团队</span><a href="#/crew" class="small">全部 ${team.length} ›</a></div>
+  <div class="crews">${team.slice(0, 8).map(crewCard).join('')}</div>`;
+  $('#more').onclick = e => moreMenu(e.currentTarget);
+  if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
+  $('#ho').onclick = () => handoverModal(team);
+  document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
+}
+function formModal(title, body, onSubmit) {
+  modal(title, `<form id="mf">${body}<div class="row" style="margin-top:12px"><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button class="btn primary">确定</button></form>`);
+  $('#mf').onsubmit = async e => { e.preventDefault(); if (await onSubmit(formData(e.target))) { closeModal(); route(); } };
+}
+function handoverModal(team) {
+  formModal('一键交班', `<p class="muted small">把我今天未完成的任务全部移交给接手人，接手人会收到提醒，任务显示为「顶岗」。</p>
+    <label class="f"><span>接手人</span><select name="to" required>${team.filter(m => !m.leave).map(m => `<option value="${m.id}">${esc(m.name)} · ${esc(m.role_name)}</option>`).join('')}</select></label>
+    <label class="f"><span>交班说明</span><textarea name="note" placeholder="例如：812 房投诉待回访，晚班请跟进"></textarea></label>`,
+  d => act(() => api('/handover', { to_user_id: Number(d.to), note: d.note }), '已交班'));
+}
+function assignModal(u, sid) {
+  const scenes = S.meta.scenes || [];
+  formModal(`给 ${u.name} 派任务`, `<label class="f"><span>任务名称</span><input name="title" required placeholder="例如：每日 9:00 早餐台补餐检查"></label>
+    <label class="f"><span>执行标准</span><textarea name="standard" placeholder="写清楚做到什么程度、怎么反馈"></textarea></label>
+    <div class="row" style="gap:8px"><label class="f" style="flex:1"><span>场景</span><select name="scene_id">${scenes.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
+    <label class="f" style="flex:1"><span>频次</span><select name="recur"><option value="once">一次性</option><option value="daily">每天</option><option value="weekly">每周</option></select></label></div>
+    <div class="row" style="gap:8px"><label class="f" style="flex:1"><span>开始日期</span><input type="date" name="start_date" value="${S.me.today}"></label><label class="f" style="flex:1"><span>完成时间</span><input type="time" name="due_time" value="15:00"></label></div>
+    <label class="chk"><input type="checkbox" name="need_photo"> 需要拍照反馈</label>`,
+  d => act(() => api('/flex', { ...d, store_id: sid, assignee_id: u.id, scene_id: Number(d.scene_id) || null, recur_val: d.recur === 'weekly' ? new Date(d.start_date + 'T00:00:00').getDay() || 7 : null, need_photo: !!d.need_photo }), '已派发'));
+}
+function trainModal(u, sid, topic) {
+  formModal(`给 ${u.name} 安排培训`, `<label class="f"><span>培训内容</span><textarea name="c" required>${esc(topic || '')}</textarea></label>
+    <div class="row" style="gap:8px"><label class="f" style="flex:1"><span>培训日期</span><input type="date" name="d" value="${S.me.today}"></label><label class="f" style="flex:1"><span>时间</span><input type="time" name="tm" value="16:00"></label></div>
+    <p class="muted small">员工学完后在任务里确认（需拍照或写心得），由你复查后关闭。</p>`,
+  d => act(() => api('/flex', { store_id: sid, assignee_id: u.id, title: '【培训】' + d.c.split('\n')[0].slice(0, 30), standard: d.c + '\n完成后写明学习要点，由上级复查。', recur: 'once', start_date: d.d, due_time: d.tm }), '已安排培训'));
+}
+VIEWS.upper = async () => {
+  const sid = pickStore(qs().get('store'));
+  const up = await api(`/upper?store=${sid}`);
+  $('#main').innerHTML = `<h1>上级安排 · ${esc(storeName(sid))}</h1>
+  <div class="sec-t2">重点跟踪任务</div><div class="list">${up.focus.map(f => `<div class="task"><div class="b"><div class="ttl">${esc(f.title)}</div><div class="muted small">${esc(f.creator || '')} 下发 · ${f.recur === 'once' ? '一次性' : '每日'} ${esc(f.due_time)} · 落实人 ${esc(f.assignee_name || '-')} · 历史执行率 ${pct(f.rate)}</div><div class="small">${esc(f.standard || '')}</div></div>
+      ${f.today ? `<a class="tag ${f.today.status === 'done' ? 'ok' : 'warn'}" href="#/task/${f.today.id}">${f.today.status === 'done' ? '今日已落实' : '今日待落实 ›'}</a>` : '<span class="tag">今日无</span>'}</div>`).join('') || '<div class="empty">暂无</div>'}</div>
+  <div class="sec-t2">上级下发的整改</div><div class="list">${up.rects.map(x => `<a class="task" href="#/rect"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.creator_role)} ${esc(x.creator)} · ${esc(x.reason || '')} · ${esc(x.assignee_name || '')} 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</a>`).join('') || '<div class="empty">暂无</div>'}</div>
+  <div class="sec-t2">巡店</div><div class="list">${up.patrols.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc((x.done_at || x.planned_date || '').slice(5, 10))}</div><div class="b"><div class="ttl">${x.status === 'done' ? '巡店报告' : '计划巡店'}</div><div class="muted small">${esc(x.reason || x.summary || '')}</div></div>${x.status === 'done' ? `<span class="tag ${x.score >= 90 ? 'ok' : 'warn'}">${x.score} 分</span>` : '<span class="tag acc">待巡店</span>'}</a>`).join('') || '<div class="empty">暂无</div>'}</div>`;
+};
+VIEWS.must = async () => {
+  const sid = pickStore(qs().get('store'));
+  const must = await api(`/must?store=${sid}`);
+  const K = [['self', '我亲做'], ['focus', '上级重点跟踪'], ['zero', '清零项'], ['review', 'M2 待复查'], ['again', '昨日不合格复看'], ['late', '超时跟进'], ['spot', 'M3 随机抽查']];
+  $('#main').innerHTML = `<h1>今日必做推荐</h1><p class="muted small">系统根据清零项、上级安排、M2 复查、昨日不合格、超时和随机抽查自动排出，逐项点进去完成、复查或点评。</p>
+  ${K.map(([k, l]) => { const xs = must.filter(x => x.kind === k); return xs.length ? `<div class="sec-t2">${l} · ${xs.length}</div><div class="list">${xs.map(mustRow).join('')}</div>` : ''; }).join('') || '<div class="list"><div class="empty">今天没有推荐项</div></div>'}`;
+};
+VIEWS.crew = async () => {
+  const sid = pickStore(qs().get('store'));
+  const team = await api(`/team?store=${sid}`);
+  $('#main').innerHTML = `<h1>我的团队 · ${team.length} 人</h1><div class="crews">${team.map(crewCard).join('') || '<div class="empty">暂无下级</div>'}</div>`;
+};
+VIEWS.person = async id => {
+  const d = await api('/person/' + id), u = d.user, s = d.s30, sid = u.store_id;
+  const self = u.id === S.me.id;
+  const best = s.scenes.filter(x => x.total >= 3).sort((a, b) => b.rate - a.rate);
+  $('#main').innerHTML = `<div class="pf-hd"><span class="pf-av">${esc(u.name.slice(0, 1))}</span><div><b>${esc(u.name)}</b><div class="muted">${esc(u.role_name)} · ${esc(storeName(sid))}${d.leave ? ' · <span class="tag warn">今日休息</span>' : ''}</div></div></div>
+  ${self ? '' : `<div class="row" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="as">派任务</button><button class="btn" id="tr">安排培训</button><a class="btn" href="#/leave">休息 / 顶岗</a></div>`}
+  <div class="panel"><div class="sec-t2" style="margin-top:0">近 30 天能力画像</div>
+    <div class="rings">${[['完成', s.rate], ['准时', s.ontime], ['合格', s.pass]].map(([l, r]) => `<div class="ring">${gauge(r, 84, 8, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${l}</span></div></div>`).join('')}</div>
+    <div class="c3"><div><span>任务</span><b>${s.done}/${s.total}</b></div><div><span>获肯定</span><b>${s.good}</b></div><div><span>需改进 / 培训</span><b>${s.bad} / ${s.training}</b></div></div>
+    ${best.length ? `<div class="small" style="margin-top:6px">擅长：${best.slice(0, 2).map(x => `<span class="tag ok">${esc(x.name)} ${x.rate}%</span>`).join(' ')}　薄弱：${(best.length > 1 ? best.slice(-1) : []).filter(x => x.rate < 95 || x.bad).map(x => `<span class="tag warn">${esc(x.name)} ${x.rate}%${x.bad ? ' · 不合格 ' + x.bad : ''}</span>`).join(' ') || '暂无'}</div>` : ''}
+    <div class="scbars">${s.scenes.map(x => `<div><span>${esc(x.name)}</span><i><em style="width:${x.rate || 0}%"></em></i><b>${pct(x.rate)}</b></div>`).join('')}</div></div>
+  <div class="sec-t2">今日任务 ${d.today.filter(t => t.status === 'done').length}/${d.today.length}</div>
+  <div class="list">${d.today.map(t => `<div class="task"><div class="t mono">${esc(t.due_time)}</div><div class="b"><div class="ttl">${esc(t.title)}</div><div>${statusTag(t)} ${checkTag(t)} ${stdTags(t)}</div></div>
+    ${!self && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-ck="${t.id}">点评</button>` : `<a class="btn sm" href="#/task/${t.id}">查看</a>`}</div>`).join('') || '<div class="empty">今日无任务</div>'}</div>
+  <div class="sec-t2">最近点评</div><div class="list">${d.checks.map(t => `<a class="task" href="#/task/${t.id}"><div class="t mono">${esc(t.date.slice(5))}</div><div class="b"><div class="ttl">${esc(t.title)}</div><div class="muted small">${esc(t.check_comment || '')} · ${esc(t.checker_name || '')}</div></div>${checkTag(t)}</a>`).join('') || '<div class="empty">暂无</div>'}</div>
+  <div class="sec-t2">培训与整改</div><div class="list">${d.rects.map(x => `<div class="task"><div class="b"><div class="ttl">${esc(x.task)}</div><div class="muted small">${esc(x.title || '')}${x.training ? ' · 培训：' + esc(x.training) : ''} · 截止 ${esc(x.deadline)}</div></div>${rectStatus(x)}</div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
+  if (self) return;
+  $('#as').onclick = () => assignModal(u, sid);
+  $('#tr').onclick = () => trainModal(u, sid, best.length ? `${best[best.length - 1].name}场景标准复训` : '');
+  document.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => checkModal(d.today.find(t => t.id === Number(b.dataset.ck))));
+};
 
 // 飞书企业自建应用适配：在飞书 / Lark 容器内隐藏自带顶栏，后续在此接入 h5sdk 免登（tt.requestAuthCode → 后端换取 user_access_token）
 const IN_FEISHU = /Lark|Feishu/i.test(navigator.userAgent) || new URLSearchParams(location.search).get('feishu') === '1';
