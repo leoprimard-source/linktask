@@ -1446,14 +1446,13 @@ async function regionHome() {
       <div class="r"><b>${s.revpar}</b><span class="small ${s.revpar_delta < 0 ? 'bad' : 'muted'}">RevPAR ${s.revpar_delta > 0 ? '+' : ''}${s.revpar_delta}%</span></div></a>`).join('')
     : [...today].sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1)).map((s, i) => `<a class="rank" href="${toStore(s.id)}"><span class="no">${i + 1}</span>${gauge(s.rate, 40, 5, rateColor(s.rate))}<div class="b"><b>${esc(s.name)}</b><div class="muted small">${esc((s.managers || []).join('、'))} · 已完成 ${s.done}/${s.total}${s.overdue ? ` · <span style="color:var(--bad)">超时 ${s.overdue}</span>` : ''}</div></div>
       <div class="r"><b>${s.rate ?? '-'}%</b><span class="small ${s.rect_late ? 'bad' : 'muted'}">整改 ${s.rect_open}${s.rect_late ? ` / 逾期 ${s.rect_late}` : ''}</span></div></a>`).join('')}</div>
-  <div class="sec-t2 row between"><span>${rm ? '重点关注 · 问题门店' : '问题门店筛选'}</span><a href="#/issues" class="small">全部 ›</a></div>
-  ${iss.length ? iss.map(x => `<div class="iss"><a class="iss-h" href="${toStore(x.store.id)}"><b>${esc(x.store.name)}</b><span class="muted small">${esc((x.store.managers || []).join('、'))} · 完成率 ${x.store.rate ?? '-'}% · 合格率 ${x.store.pass_rate ?? '-'}%</span><i>›</i></a>
+  <div class="sec-t2 row between"><span>${rm ? '重点关注 · 问题门店' : '问题门店筛选'}</span><a href="#/issues" class="small">全部 ${iss.length} 家 ›</a></div>
+  ${iss.length ? iss.slice(0, 3).map(x => `<div class="iss"><a class="iss-h" href="${toStore(x.store.id)}"><b>${esc(x.store.name)}</b><span class="muted small">${esc((x.store.managers || []).join('、'))} · 完成率 ${x.store.rate ?? '-'}% · 合格率 ${x.store.pass_rate ?? '-'}%</span><i>›</i></a>
       ${x.issues.slice(0, 3).map(i => `<div class="iss-i"><span class="tag ${lvl(i.level)}">${esc(i.type)}</span><span>${esc(i.text)}</span></div>`).join('')}${x.issues.length > 3 ? `<div class="muted small">还有 ${x.issues.length - 3} 项…</div>` : ''}
       <div class="row iss-a"><a class="btn sm" href="#/tasks?store=${x.store.id}">任务明细</a><a class="btn sm" href="#/rect?store=${x.store.id}">整改</a>${rm ? `<a class="btn sm" href="#/patrol?new=1&store=${x.store.id}">加入巡店计划</a><a class="btn sm" data-follow="${x.store.id}">指派跟进</a><a class="btn primary sm" href="#/focus?new=1&store=${x.store.id}">重点跟踪</a>` : ''}</div></div>`).join('') : '<div class="list"><div class="empty">暂无问题门店</div></div>'}
-  ${sales ? '' : `<div class="sec-t2 row between"><span>巡店计划</span><a href="#/patrol" class="small">${rm ? '新建 / 全部' : '全部'} ›</a></div>
-  <div class="list">${planned.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc(x.planned_date.slice(5))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc(x.reason || '例行巡店')}</div></div><span class="tag acc">待巡店</span></a>`).join('')}
-    ${done.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc((x.done_at || '').slice(5, 10))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc((x.summary || '').slice(0, 40))}</div></div><span class="tag ${x.score >= 90 ? 'ok' : x.score >= 80 ? 'warn' : 'bad'}">${x.score} 分</span></a>`).join('') || '<div class="empty">暂无巡店</div>'}</div>`}
-  <div class="sec-t2">进入门店</div><div class="panel tiles">${today.map((s, i) => `<a class="tile" href="${toStore(s.id)}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${esc(s.name.slice(2, 3))}</span><span>${esc(s.name)}</span></a>`).join('')}</div>`;
+  ${sales ? '' : `<div class="sec-t2 row between"><span>巡店计划${planned.length ? ' · 待巡 ' + planned.length : ''}</span><a href="#/patrol" class="small">${rm ? '新建 / 全部' : '全部'} ›</a></div>
+  <div class="list">${planned.slice(0, 3).map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc(x.planned_date.slice(5))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc(x.reason || '例行巡店')}</div></div><span class="tag acc">待巡店</span></a>`).join('')}
+    ${done.map(x => `<a class="task" href="#/patrol/${x.id}"><div class="t mono">${esc((x.done_at || '').slice(5, 10))}</div><div class="b"><div class="ttl">${esc(x.store_name)}</div><div class="muted small">${esc((x.summary || '').slice(0, 40))}</div></div><span class="tag ${x.score >= 90 ? 'ok' : x.score >= 80 ? 'warn' : 'bad'}">${x.score} 分</span></a>`).join('') || '<div class="empty">暂无巡店</div>'}</div>`}`;
   $('#more').onclick = e => moreMenu(e.currentTarget);
   bindFollow();
 }
@@ -1593,8 +1592,7 @@ async function staffHome() {
   if (S.me.lead) Promise.all([api(`/team?store=${sid}`), api(`/must?store=${sid}`)]).then(([team, must]) => {
     $('#asg').onclick = () => sheet(team.map(m => [`${esc(m.name)} <span class="muted small">${esc(m.role_name)}</span>`, () => assignModal(m, sid)]), '派任务给');
     const rv = must.filter(x => x.kind !== 'self');
-    $('#lead').innerHTML = `<div class="sec-t2 row between"><span>待我点评 / 跟进</span><a href="#/must" class="small">全部 ${rv.length} ›</a></div><div class="list">${rv.slice(0, 4).map(mustRow).join('') || '<div class="empty">下级今天暂无待点评</div>'}</div>
-      <div class="sec-t2 row between"><span>我的团队 · ${team.length} 人</span><a href="#/crew" class="small">全部 ›</a></div><div class="crews">${team.slice(0, 6).map(crewCard).join('')}</div>`;
+    $('#lead').innerHTML = `<div class="sec-t2 row between"><span>待我点评 / 跟进</span><a href="#/must" class="small">全部 ${rv.length} ›</a></div><div class="list">${rv.slice(0, 4).map(mustRow).join('') || '<div class="empty">下级今天暂无待点评</div>'}</div>`;
   });
   document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
 }
@@ -1634,9 +1632,7 @@ async function managerHome() {
   <div class="list">${must.slice(0, 5).map(mustRow).join('') || '<div class="empty">今天没有推荐巡查项</div>'}</div>
   <div class="sec-t2">场景运营</div>
   <div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
-    return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>
-  <div class="sec-t2 row between"><span>我的团队</span><a href="#/crew" class="small">全部 ${team.length} ›</a></div>
-  <div class="crews">${team.slice(0, 8).map(crewCard).join('')}</div>`;
+    return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
@@ -1724,7 +1720,7 @@ function plList(sid) {
 const da = k => (S.me.data_auth || []).includes(k);
 const regionTeam = async () => { $('#main').innerHTML = `${plBar('ren')}<div class="pghd"><b>团队</b></div>${da('hrm') || da('care') ? '' : '<p class="muted">暂无团队数据授权，可请区域经理在「数据授权」中开通。</p>'}`; };
 const plLab = k => (k === 'ren' && S.me.level === 'staff' ? (S.me.lead ? ['团队', '画像 · 预警'] : ['画像', '我的档案']) : PL[k]);
-const plBar = (on, sid, top = '') => { const a = plList(sid); return `${a.length > 1 ? `<div class="pltabs n${a.length}">${a.map(k => `<a class="${on === k ? 'on' : ''}" href="#/home?${new URLSearchParams(sid ? { pl: k, store: sid } : { pl: k })}"><b>${plLab(k)[0]}</b><span>${plLab(k)[1]}</span></a>`).join('')}</div>` : ''}${top}<div id="inbox"></div>`; };
+const plBar = (on, sid, top = '') => { const a = plList(sid); return `${a.length > 1 ? `<div class="pltabs n${a.length}">${a.map(k => `<a class="${on === k ? 'on' : ''}" href="#/home?${new URLSearchParams(sid ? { pl: k, store: sid } : { pl: k })}"><b>${plLab(k)[0]}</b><span>${plLab(k)[1]}</span></a>`).join('')}</div>` : ''}${top}${on === (a.includes('ops') ? 'ops' : a[0]) ? '<div id="inbox"></div>' : ''}`; };
 const plHead = (title, sw) => `<div class="storebar"><button class="storename" ${sw ? 'id="sw"' : 'disabled'}>${esc(title)}${sw ? '<i>▾</i>' : ''}</button>
   <a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>`;
 function bindHead() {
@@ -1822,7 +1818,7 @@ async function storeBizView(sid, sub) {
 }
 VIEWS.sbiz = id => storeBizView(Number(id), true);
 async function storePeopleView(sid) {
-  const d = await api(`/store/${sid}/people`), L = d.list, sm = S.me.level === 'store_manager';
+  const sm = S.me.level === 'store_manager', [d, team] = await Promise.all([api(`/store/${sid}/people`), sm || S.me.lead ? api(`/team?store=${sid}`).catch(() => []) : []]), L = d.list;
   const al = L.flatMap(x => x.alerts.map(a => ({ ...a, who: x })));
   const lvo = { high: 0, mid: 1, low: 2 }; al.sort((a, b) => lvo[a.level] - lvo[b.level]);
   const tiers = ['可晋升', '稳定', '需辅导'];
@@ -1831,6 +1827,7 @@ async function storePeopleView(sid) {
   <section class="brief rg"><div class="btabs"><a class="on">${sm ? '本店人员' : '我的团队'}</a><span class="muted small">与人事档案同一份数据</span></div>
     <div class="rkpi">${[['在册', L.length, '人'], ['预警', L.filter(x => x.alerts.length).length, '人'], ['试用期', L.filter(x => x.in_probation).length, '人'], ...tiers.map(t => [t, L.filter(x => x.tier === t).length, '人'])]
       .map(([l, v, u], i) => `<a class="${i === 1 && v ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div></section>
+  ${team.length ? `<div class="sec-t2 row between"><span>团队今日进度 · ${team.length} 人</span><a href="#/crew" class="small">全部 ›</a></div><div class="crews">${team.slice(0, 8).map(crewCard).join('')}</div>` : ''}
   <div class="sec-t2">人员预警 · ${al.length}</div><div class="list">${al.slice(0, 5).map(arow).join('') || '<div class="empty">暂无预警</div>'}</div>
   ${al.length > 5 ? `<details class="tgrp"><summary>其余 ${al.length - 5} 条 <i>展开</i></summary><div class="list">${al.slice(5).map(arow).join('')}</div></details>` : ''}
   ${d.bench.length ? `<div class="sec-t2">关键岗位储备</div><div class="ldr bench">${d.bench.filter(r => r.role !== '店长').map(r => `<div><b>${esc(r.role)}</b>${r.candidates.length ? r.candidates.map(c => `<a class="tag ok" href="#/hrp/${c.id}">${esc(c.name)}</a>`).join(' ') : '<span class="tag bad">无储备</span>'}</div>`).join('')}</div>` : ''}
@@ -1997,13 +1994,14 @@ async function storeShopView(sid) {
   bindHead(); bindSp(d);
   document.querySelectorAll('[data-lic]').forEach(x => x.onclick = () => { const l = d.licenses[Number(x.dataset.lic)]; taskPreset(sid, `【证照续办】${l.name}`, `${l.name}有效期至 ${l.expire}，请准备材料并办理续期 / 年检，上传新证照照片。`); });
 }
+const enterStores = () => `<div class="sec-t2 row between"><span>进入门店 · ${S.meta.stores.length}</span><span class="muted small">左右滑动</span></div><div class="estores">${S.meta.stores.map((s, i) => `<a href="#/home?view=store&store=${s.id}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${esc(s.name.replace(/店$/, '').slice(-2, -1) || s.name.slice(0, 1))}</span><span>${esc(s.name)}</span></a>`).join('')}</div>`;
 async function regionShop() {
   const lv = S.me.level, tab = qs().get('lc') || (['dev_manager', 'build_manager'].includes(lv) ? 'pipe' : 'run');
   const [d, lcd] = await Promise.all([api('/region/stores'), api('/lifecycle')]), tf = qs().get('tag') || '', A = d.avg;
   if (tab !== 'run') { $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}${tab === 'pipe' ? funnelHtml(lcd) + await lcPipe(lcd) : lcFlow(lcd)}`; bindHead(); if ($('#npj')) $('#npj').onclick = projNew; if (tab === 'pipe') bindFunnel(lcd); return; }
   const xs = d.stores.filter(x => !tf || x.tags.includes(tf)), used = d.tag_opts.filter(t => d.stores.some(x => x.tags.includes(t)));
   const plansOpen = d.stores.reduce((a, x) => a + x.plans.filter(p => p.status === 'open').length, 0);
-  $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}
+  $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}${enterStores()}
   <section class="brief rg"><div class="btabs"><a class="on">门店画像</a><span class="tag acc">实验</span><span class="sp"></span><span class="muted small">区域均分 ${A.total}</span></div>
     <div class="rkpi">${[['S / A 店', d.stores.filter(x => 'SA'.includes(x.grade)).length, '家'], ['C / D 店', d.stores.filter(x => 'CD'.includes(x.grade)).length, '家'], ['等级下降', d.stores.filter(x => x.drop).length, '家'], ['连续下滑', d.stores.filter(x => x.declines.length).length, '家'], ['提升计划', plansOpen, '项'], ['改造提醒', d.stores.filter(x => x.reno).length, '家']]
       .map(([l, v, u], i) => `<a class="${[1, 2, 3].includes(i) && v ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div></section>

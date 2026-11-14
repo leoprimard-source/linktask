@@ -665,3 +665,6 @@ label.f>span{font-size:13px;color:var(--text)}
 label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius:6px}
 .modal h1{font-size:17px;border-bottom:1px solid var(--border);margin:-4px -16px 12px;padding:6px 16px 10px}
 .cslot>.grow{flex:1;min-width:0}
+.estores{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}.estores::-webkit-scrollbar{display:none}
+.estores a{flex:none;width:76px;display:flex;flex-direction:column;align-items:center;gap:4px;background:#fff;border-radius:10px;padding:10px 4px;color:var(--text);font-size:12px;text-align:center}
+.estores a span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
