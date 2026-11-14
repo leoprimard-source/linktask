@@ -1610,7 +1610,7 @@ VIEWS.person = async id => {
 
 // ---------- 全角色一体化：四板块（经营 · 运营 · 人 · 加盟商）+ 待我处理 ----------
 const PL = { ren: ['团队', '画像 · 梯队'], shop: ['管店', '门店画像'], biz: ['经营', '营收 · 口碑'], ops: ['运营', '任务 · 巡查'], fr: ['加盟商', '业主 · 诉求'] };
-const PL_ROLE = { region_manager: ['ren', 'shop', 'biz', 'ops', 'fr'], ops_manager: ['ren', 'shop', 'ops'], sales_manager: ['shop', 'biz', 'ren', 'fr'], hr_manager: ['ren'], dev_manager: ['shop', 'ren'], build_manager: ['shop', 'ren'], train_manager: ['ren'], coach: ['ren', 'shop', 'ops'], hq: ['shop', 'biz', 'ren'], store_manager: ['biz', 'ops', 'ren', 'shop'], lead: ['ops', 'biz', 'ren'], staff: ['ops', 'ren'] };
+const PL_ROLE = { region_manager: ['ren', 'shop', 'biz', 'ops', 'fr'], ops_manager: ['ren', 'shop', 'ops'], sales_manager: ['shop', 'biz', 'ren', 'fr'], hr_manager: ['ren'], dev_manager: ['shop', 'ren'], build_manager: ['shop', 'ren'], train_manager: ['ren'], coach: ['ren', 'shop', 'biz', 'ops', 'fr'], hq: ['shop', 'biz', 'ren'], store_manager: ['biz', 'ops', 'ren', 'shop'], lead: ['ops', 'biz', 'ren'], staff: ['ops', 'ren'] };
 const REGION_LV = ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'];
 const isFrS = sid => (S.meta.stores.find(s => s.id === Number(sid)) || {}).stype === '加盟店';
 function plList(sid) {
