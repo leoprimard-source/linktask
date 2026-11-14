@@ -124,7 +124,7 @@ const NAV = {
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  build_manager: [['sec', '门店筹建'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
+  build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   hr_manager: [['sec', '人事'], ['people', '人员档案与梯队'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
@@ -136,7 +136,7 @@ const NAV = {
 const HOME = { dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
 const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
-const CENTER = { dev_manager: '发展中心', build_manager: '筹建中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
+const CENTER = { dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
   home: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5V14l-3 3H5.5A1.5 1.5 0 0 1 4 15.5z"/><path d="M7 8h6M7 11h4"/>',
   notices: '<path d="M4 6.5C4 5 5.3 4 7 4h6c1.7 0 3 1 3 2.5v5c0 1.5-1.3 2.5-3 2.5H9l-3.5 2.5V14C4.6 13.7 4 12.8 4 11.5z"/>',
@@ -721,9 +721,10 @@ VIEWS.issues = async () => {
 function planModal(storeId, reason) {
   modal('加入巡店计划', `<form id="f"><label class="f"><span>门店</span><select name="store_id">${storeOptions(storeId)}</select></label>
     <label class="f"><span>计划日期</span><input type="date" name="planned_date" value="${addDays(S.me.today, 1)}" required></label>
+    <label class="f"><span>类型</span><select name="kind"><option value="patrol">例行巡店（提前通知店长）</option><option value="mystery">神秘访客（不通知，按宾客视角检查）</option></select></label>
     <label class="f"><span>巡店重点</span><textarea name="reason">${esc(reason || '')}</textarea></label>
     <div class="row"><span class="sp"></span><button class="btn primary">加入计划</button></div></form>`, m => {
-    m.querySelector('#f').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/patrols', formData(e.target)), '已加入巡店计划，店长已收到通知')) { closeModal(); location.hash = '#/patrol'; } };
+    m.querySelector('#f').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/patrols', formData(e.target)), '已加入计划')) { closeModal(); location.hash = '#/patrol'; } };
   });
 }
 
@@ -733,10 +734,10 @@ VIEWS.patrol = async id => {
   const list = await api('/patrols');
   const rm = S.me.level === 'region_manager', ops = S.me.level === 'ops_manager';
   const planned = list.filter(p => p.status === 'planned'), done = list.filter(p => p.status === 'done');
-  const pr = p => `<div class="task"><div class="b"><div class="ttl">${esc(p.store_name)} ${p.kind === 'recheck' ? '<span class="tag warn">复查</span>' : ''}${p.planned_date < S.me.today ? '<span class="tag bad">已过期</span>' : p.planned_date === S.me.today ? '<span class="tag acc">今天</span>' : ''}</div>
+  const pr = p => `<div class="task"><div class="b"><div class="ttl">${esc(p.store_name)} ${p.kind === 'recheck' ? '<span class="tag warn">复查</span>' : p.kind === 'mystery' ? '<span class="tag acc">神秘访客</span>' : ''}${p.planned_date < S.me.today ? '<span class="tag bad">已过期</span>' : p.planned_date === S.me.today ? '<span class="tag acc">今天</span>' : ''}</div>
     <div class="muted small">${esc(p.planned_date)} · ${esc(p.reason || '例行巡店')}</div></div>
-    <div class="row" style="gap:6px;flex:none">${rm || (p.kind === 'recheck' && ops) ? `<a class="btn sm primary" href="#/patrol/${p.id}">${p.kind === 'recheck' ? '开始复查' : '开始巡店'}</a>${rm ? `<button class="btn sm" data-cancel="${p.id}">取消</button>` : ''}` : `<a class="btn sm" href="#/patrol/${p.parent_id || p.id}">查看</a>`}</div></div>`;
-  const dr = p => `<a class="task" href="#/patrol/${p.id}"><div class="b"><div class="ttl">${esc(p.store_name)} ${p.kind === 'recheck' ? '<span class="tag warn">复查</span>' : p.recheck_result ? `<span class="tag ok">复查 ${esc(p.recheck_result)}</span>` : ''}</div>
+    <div class="row" style="gap:6px;flex:none">${rm || (['recheck', 'mystery'].includes(p.kind) && ops) ? `<a class="btn sm primary" href="#/patrol/${p.id}">${p.kind === 'recheck' ? '开始复查' : p.kind === 'mystery' ? '开始暗访' : '开始巡店'}</a>${rm ? `<button class="btn sm" data-cancel="${p.id}">取消</button>` : ''}` : `<a class="btn sm" href="#/patrol/${p.parent_id || p.id}">查看</a>`}</div></div>`;
+  const dr = p => `<a class="task" href="#/patrol/${p.id}"><div class="b"><div class="ttl">${esc(p.store_name)} ${p.kind === 'recheck' ? '<span class="tag warn">复查</span>' : p.kind === 'mystery' ? '<span class="tag acc">神秘访客</span>' : p.recheck_result ? `<span class="tag ok">复查 ${esc(p.recheck_result)}</span>` : ''}</div>
     <div class="muted small">${esc(p.done_at)} · ${esc(p.creator_name || '')}</div><div class="small clamp2">${esc(p.summary)}</div></div><b class="pscore" style="${p.score < 85 ? 'color:var(--bad)' : ''}">${p.score}</b></a>`;
   $('#main').innerHTML = `<div class="pghd row between"><b>${rm ? '巡店计划' : '巡店与复查'}</b>${rm ? '<button class="btn primary sm" id="np">新增巡店计划</button>' : ''}</div>
   ${rm ? '<p class="small"><a href="#/issues">从问题门店筛选 ›</a></p>' : ''}
@@ -748,8 +749,8 @@ VIEWS.patrol = async id => {
 };
 async function patrolDetail(id) {
   const p = await api('/patrols/' + id);
-  const rm = S.me.level === 'region_manager', recheck = p.kind === 'recheck';
-  const canDo = p.status === 'planned' && (rm || (recheck && S.me.level === 'ops_manager'));
+  const rm = S.me.level === 'region_manager', recheck = p.kind === 'recheck', mystery = p.kind === 'mystery';
+  const canDo = p.status === 'planned' && (rm || ((recheck || mystery) && S.me.level === 'ops_manager'));
   if (canDo) {
     const std = await api('/standards?store=' + p.store_id);
     const codes = recheck ? new Set((p.codes || '').split(',')) : null;
@@ -758,15 +759,16 @@ async function patrolDetail(id) {
     const pcm = Object.fromEntries((prev?.items || []).map(i => [String(i.code), i]));
     const scenes = [...new Set(base.map(c => c.scene_name))];
     const MODES = [['full', `全量审计 ${base.length} 条`], ['quick', '快速巡检'], ['scene', '专项（按场景）']];
-    const st = { mode: 'full', scene: scenes[0] };
-    const pick = () => recheck ? base : st.mode === 'full' ? base : st.mode === 'scene' ? base.filter(c => c.scene_name === st.scene)
+    const st = { mode: mystery ? 'mystery' : 'full', scene: scenes[0] };
+    const guest = base.filter(c => ['前台', '客房', '餐厅', '公区'].includes(c.scene_name) && c.tag !== '基础项');
+    const pick = () => recheck ? base : mystery ? (guest.length >= 10 ? guest : base.filter(c => ['前台', '客房', '餐厅', '公区'].includes(c.scene_name))) : st.mode === 'full' ? base : st.mode === 'scene' ? base.filter(c => c.scene_name === st.scene)
       : base.filter(c => c.tag === '清零项' || c.tag === '重点项' || c.last_patrol === 'fail' || c.n_bad);
     const draw = () => {
       const rows = pick(), groups = {};
       for (const c of rows) (groups[c.scene_name] ||= []).push(c);
-      $('#main').innerHTML = `<div class="pghd"><b>${recheck ? '巡店复查' : '品牌审计巡店'} · ${esc(p.store_name)}</b></div>
+      $('#main').innerHTML = `<div class="pghd"><b>${recheck ? '巡店复查' : mystery ? '神秘访客检查' : '品牌审计巡店'} · ${esc(p.store_name)}</b></div>
       <p class="muted small" style="margin-top:-6px">计划 ${esc(p.planned_date)} · ${esc(p.reason || '例行巡店')}。${recheck ? '只复查上次不达标的项，通过后对应整改自动闭环。' : '默认达标；不达标项必须写明问题，可拍照，并默认现场生成整改任务。'}</p>
-      ${recheck ? '' : `<div class="tfil">${MODES.map(([k, l]) => `<a class="${st.mode === k ? 'on' : ''}" data-md="${k}">${l}</a>`).join('')}</div>
+      ${mystery ? '<p class="muted small">按宾客视角检查前台、客房、餐厅、公区的清零项和重点项；店长事先不知情，结果单独计分（占品牌标准分 30%）。</p>' : ''}${recheck || mystery ? '' : `<div class="tfil">${MODES.map(([k, l]) => `<a class="${st.mode === k ? 'on' : ''}" data-md="${k}">${l}</a>`).join('')}</div>
       ${st.mode === 'scene' ? `<div class="tfil">${scenes.map(s => `<a class="${st.scene === s ? 'on' : ''}" data-scn="${esc(s)}">${esc(s)}</a>`).join('')}</div>` : ''}
       ${st.mode === 'quick' ? '<p class="muted small">快速巡检：清零项、重点项、上次巡店不达标、近 14 天抽查不合格的条款。</p>' : ''}`}
       <div class="scorebox" id="sb"></div>
@@ -819,7 +821,7 @@ async function patrolDetail(id) {
   for (const i of items) (groups[i.scene_name || '其他'] ||= []).push(i);
   const RS = { open: ['warn', '整改中'], submitted: ['acc', '待复查'], closed: ['ok', '已闭环'] };
   const focusBtn = i => (rm && !owner ? `<a class="btn sm" href="#/focus?${new URLSearchParams({ new: 1, store: p.store_id, scene: i.scene_id || '', title: '每日检查：' + (i.code ? `No.${i.code} ` : '') + i.item, standard: i.comment ? '针对巡店问题：' + i.comment : '', ref: 'patrol:' + p.id })}">转为重点跟踪</a>` : '');
-  const MODE_L = { full: '全量审计', quick: '快速巡检', scene: '专项', recheck: '复查' };
+  const MODE_L = { full: '全量审计', quick: '快速巡检', scene: '专项', recheck: '复查', mystery: '神秘访客' };
   if (p.status !== 'done') { $('#main').innerHTML = `<div class="pghd"><b>${recheck ? '巡店复查' : '巡店计划'} · ${esc(p.store_name)}</b></div><p class="muted">计划 ${esc(p.planned_date)}：${esc(p.reason)}</p>${recheck ? `<p class="small"><a href="#/patrol/${p.parent_id}">查看原巡店报告 ›</a></p>` : ''}`; return; }
   const rc = p.recheck;
   $('#main').innerHTML = `<div class="pghd"><b>${owner ? '业主版巡店报告' : recheck ? '巡店复查结果' : '巡店报告'} · ${esc(p.store_name)}</b></div>
@@ -1852,7 +1854,7 @@ async function storeShopView(sid) {
 async function regionShop() {
   const lv = S.me.level, tab = qs().get('lc') || (['dev_manager', 'build_manager'].includes(lv) ? 'pipe' : 'run');
   const [d, lcd] = await Promise.all([api('/region/stores'), api('/lifecycle')]), tf = qs().get('tag') || '', A = d.avg;
-  if (tab !== 'run') { $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}${tab === 'pipe' ? await lcPipe(lcd) : lcFlow(lcd)}`; bindHead(); if ($('#npj')) $('#npj').onclick = projNew; return; }
+  if (tab !== 'run') { $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}${tab === 'pipe' ? funnelHtml(lcd) + await lcPipe(lcd) : lcFlow(lcd)}`; bindHead(); if ($('#npj')) $('#npj').onclick = projNew; if (tab === 'pipe') bindFunnel(lcd); return; }
   const xs = d.stores.filter(x => !tf || x.tags.includes(tf)), used = d.tag_opts.filter(t => d.stores.some(x => x.tags.includes(t)));
   const plansOpen = d.stores.reduce((a, x) => a + x.plans.filter(p => p.status === 'open').length, 0);
   $('#main').innerHTML = `${plHead(regionTitle())}${plBar('shop')}${lcHead(lcd, tab)}
@@ -1934,6 +1936,8 @@ VIEWS.scorecfg = async () => {
   <div class="sec-t2">扣分规则</div><div class="ldr">${row('运营执行：每条整改逾期扣', num('pen.rect_late', c.pen.rect_late, '分'), def.pen.rect_late)}${row('运营执行：每条整改未闭环扣', num('pen.rect_open', c.pen.rect_open, '分'), def.pen.rect_open)}${row('安全合规：每单报修超时扣', num('pen.repair_late', c.pen.repair_late, '分'), def.pen.repair_late)}</div>
   <div class="sec-t2">预警与时限</div><div class="ldr">${row('改造提醒：开业或上次改造满', num('reno_years', c.reno_years, '年', 20), def.reno_years)}${row('提升计划：到期前提醒', num('plan_days', c.plan_days, '天', 30), def.plan_days)}${row('巡店不达标：自动复查间隔', num('recheck_days', c.recheck_days, '天', 30), def.recheck_days)}
     ${row('报修时限：紧急', num('sla.urgent', c.sla.urgent, '小时', 240), def.sla.urgent)}${row('报修时限：一般', num('sla.normal', c.sla.normal, '小时', 240), def.sla.normal)}${row('报修时限：不急', num('sla.low', c.sla.low, '小时', 240), def.sla.low)}</div>
+  <div class="sec-t2">员工提成 · 售卡 / 打扫</div><div class="ldr">${row('前台：银卡每张', num('comm.card_silver', c.comm.card_silver, '元', 999), def.comm.card_silver)}${row('前台：金卡每张', num('comm.card_gold', c.comm.card_gold, '元', 999), def.comm.card_gold)}${row('前台：铂金卡每张', num('comm.card_plat', c.comm.card_plat, '元', 999), def.comm.card_plat)}${row('前台：月售卡达到', num('comm.tier_cards', c.comm.tier_cards, '张', 999), def.comm.tier_cards)}${row('前台：达标后提成上浮', num('comm.tier_bonus', c.comm.tier_bonus, '%'), def.comm.tier_bonus)}
+    ${row('客房：标准房每间', num('comm.room_std', c.comm.room_std, '元', 99), def.comm.room_std)}${row('客房：套房每间', num('comm.room_suite', c.comm.room_suite, '元', 99), def.comm.room_suite)}${row('客房：查房不合格每间扣', num('comm.room_fail', c.comm.room_fail, '元', 99), def.comm.room_fail)}</div>
   ${rm ? '<div class="row" style="gap:8px"><button type="button" class="btn" id="cf-r">恢复默认</button><span class="sp"></span><button class="btn primary">保存并重新计算</button></div>' : ''}</form>`;
   const f = $('#cf'), sum = p => [...f.querySelectorAll(`[name^="${p}."]`)].reduce((a, i) => a + Number(i.value || 0), 0);
   const upd = () => { for (const [p, el] of [['dims', '#s-d'], ['mgr', '#s-m']]) { const n = sum(p); $(el).innerHTML = `合计 <b style="color:${n === 100 ? 'var(--ok)' : 'var(--bad)'}">${n}</b> / 100`; } };
@@ -1958,7 +1962,7 @@ function lcHead(d, tab) {
   <div class="tfil">${[['run', '在营 · 画像'], ['pipe', '管道 · 筹备'], ['flow', '周转记录']].map(([k, l]) => `<a class="${tab === k ? 'on' : ''}" href="#/home?pl=shop&lc=${k}">${l}</a>`).join('')}</div>`;
 }
 const projCard = p => `<a class="ldr" href="#/proj/${p.id}"><div class="ldr-h"><span class="av">${esc(p.name.slice(0, 2))}</span><div class="grow"><b>${esc(p.name)} <span class="tag ${STG_C[p.stage]}">${p.stage}</span>${p.health ? ` <span class="tag ${HC[p.health][0]}">${HC[p.health][1]}</span>` : ''}</b>
-  <span class="muted small">${esc(p.stype)} · ${p.rooms} 间 · 开发 ${esc(p.dev_name || '-')} · 筹建 ${esc(p.build_name || '-')}</span></div><div class="ldr-s"><b>${p.progress}<small>%</small></b><span>节点</span></div></div>
+  <span class="muted small">${esc(p.stype)} · ${p.rooms} 间 · 开发 ${esc(p.dev_name || '-')} · 项目经理 ${esc(p.build_name || '-')}</span></div><div class="ldr-s"><b>${p.progress}<small>%</small></b><span>节点</span></div></div>
   <div class="bud"><i><em style="width:${p.progress}%;background:${p.health === 'red' ? 'var(--bad)' : p.health === 'yellow' ? 'var(--warn)' : 'var(--ok)'}"></em></i></div>
   <div class="muted small">${p.cur ? `当前：${esc(p.cur.name)}（计划 ${p.cur.plan_date}${p.cur.late ? `，逾期 ${p.cur.slip} 天` : ''}）· ` : ''}签约 ${p.sign_date} · 预计开业 ${p.predicted_open}${p.shift ? `（顺延 ${p.shift} 天）` : ''}</div>
   ${p.why.length ? `<div class="stags">${p.why.map(([c, t]) => `<span class="tag ${c}">${esc(t)}</span>`).join('')}</div>` : ''}</a>`;
@@ -1983,7 +1987,7 @@ function projNew() {
     <div class="row" style="gap:8px"><label class="f" style="flex:1"><span>业主</span><input name="owner"></label><label class="f" style="flex:1"><span>投资预算（万）</span><input type="number" name="budget"></label></div>
     <label class="f"><span>业主公司</span><input name="owner_company"></label>
     <label class="chk"><input type="checkbox" name="fund_ok"> 业主资金已到位</label>
-    <p class="muted small">保存后按标准节奏生成 9 个节点计划（签约到开业约 190 天），开发经理、筹建经理和区域经理会收到提醒。业主信息开业后带入加盟商档案。${us.length ? '' : ''}</p>`,
+    <p class="muted small">保存后按标准节奏生成 9 个节点计划（签约到开业约 190 天），开发经理、项目经理和区域经理会收到提醒。业主信息开业后带入加盟商档案。${us.length ? '' : ''}</p>`,
   f => act(async () => { const r = await api('/projects', { ...f, rooms: Number(f.rooms), budget: Number(f.budget) || 0 }); setTimeout(() => { location.hash = '#/proj/' + r.id; }, 0); }, '签约项目已录入'));
 }
 VIEWS.proj = async id => {
@@ -1992,7 +1996,7 @@ VIEWS.proj = async id => {
   $('#main').innerHTML = `<div class="pghd"><b>${esc(p.name)}</b></div>
   <div class="ldr"><div class="ldr-h"><span class="av">${esc(p.name.slice(0, 2))}</span><div class="grow"><b>${esc(p.name)} <span class="tag ${STG_C[p.stage]}">${p.stage}</span>${p.health ? ` <span class="tag ${HC[p.health][0]}">${HC[p.health][1]}</span>` : ''}</b><span class="muted small">${esc(p.brand)} · ${esc(p.stype)} · ${p.rooms} 间 · ${esc(p.city)}</span></div><div class="ldr-s"><b>${p.progress}<small>%</small></b><span>节点</span></div></div>
     ${p.why.length ? `<div class="stags">${p.why.map(([c, t]) => `<span class="tag ${c}">${esc(t)}</span>`).join('')}</div>` : ''}
-    <div class="kv" style="margin-top:8px">${[['签约', p.sign_date], ['计划开业', p.plan_open], ['预计开业', p.predicted_open + (p.shift ? `（顺延 ${p.shift} 天）` : '')], ['业主', `${p.owner || '-'}${p.owner_company && p.owner_company !== '-' ? ' · ' + p.owner_company : ''}`], ['资金', p.fund_ok ? '已到位' : '未到位'], ['开发经理', p.dev_name || '-'], ['筹建经理', p.build_name || '-'], ...(p.exit_note ? [['解约原因', p.exit_note]] : [])].map(([k, v]) => `<div>${k}</div><div>${esc(v)}</div>`).join('')}</div></div>
+    <div class="kv" style="margin-top:8px">${[['签约', p.sign_date], ['计划开业', p.plan_open], ['预计开业', p.predicted_open + (p.shift ? `（顺延 ${p.shift} 天）` : '')], ['业主', `${p.owner || '-'}${p.owner_company && p.owner_company !== '-' ? ' · ' + p.owner_company : ''}`], ['资金', p.fund_ok ? '已到位' : '未到位'], ['开发经理', p.dev_name || '-'], ['项目经理', p.build_name || '-'], ...(p.exit_note ? [['解约原因', p.exit_note]] : [])].map(([k, v]) => `<div>${k}</div><div>${esc(v)}</div>`).join('')}</div></div>
   ${p.store_id ? `<a class="ldr" href="#/sp/${p.store_id}"><b>已开业，查看门店画像 ›</b></a>` : ''}
   <div class="sec-t2">签约到开业 · 节点</div><div class="list">${p.nodes.map(n => `<div class="task lcn ${n.actual_date ? 'done' : n === cur ? 'cur' : ''}"><span class="dot"></span><div class="b"><div class="ttl">${esc(n.name)} ${n.late ? `<span class="tag bad">逾期 ${n.slip} 天</span>` : n.actual_date && n.slip ? `<span class="tag warn">晚 ${n.slip} 天</span>` : ''}</div>
     <div class="muted small">计划 ${n.plan_date}${n.actual_date ? ` · 完成 ${n.actual_date}` : ''} · ${esc(n.owner_name || '-')}</div>
@@ -2008,7 +2012,7 @@ VIEWS.proj = async id => {
     const n = p.nodes.find(x => x.key === b.dataset.nd);
     if (n.key === 'accept') {
       const G = {}; for (const c of p.accept_items) (G[c.scene || '其他'] ||= []).push(c);
-      modal('品牌验收 · ' + p.name, `<form id="af"><p class="muted small">开业版验收：品牌审计标准中的清零项和重点项共 ${p.accept_items.length} 条，勾选不合格项。全部合格才算通过；有不合格项会通知筹建经理整改后复验。</p>
+      modal('品牌验收 · ' + p.name, `<form id="af"><p class="muted small">开业版验收：品牌审计标准中的清零项和重点项共 ${p.accept_items.length} 条，勾选不合格项。全部合格才算通过；有不合格项会通知项目经理整改后复验。</p>
         ${Object.entries(G).map(([sc, cs]) => `<details class="pg"><summary><b>${esc(sc)}</b><span class="muted small">${cs.length} 条</span></summary>${cs.map(c => `<label class="chk small"><input type="checkbox" name="f_${c.code}" ${n.data.fails?.includes(String(c.code)) ? 'checked' : ''}> No.${c.code} ${esc(c.title)}</label>`).join('')}</details>`).join('')}
         <label class="f"><span>验收说明</span><textarea name="note"></textarea></label><div class="row"><span class="sp"></span><button class="btn primary">提交验收结果</button></div></form>`, m => {
         m.querySelector('#af').onsubmit = async e => { e.preventDefault(); const d = formData(e.target), fails = p.accept_items.filter(c => d['f_' + c.code]).map(c => String(c.code));
@@ -2030,7 +2034,7 @@ VIEWS.proj = async id => {
 function lcBlock(d) {
   const lc = d.lc, rm = S.me.level === 'region_manager', I = d.info, r = lc.ramp;
   const order = ['签约', '筹备', '爬坡', '成熟', '改造', '续约评估', '退出'], at = order.indexOf(lc.stage);
-  return `<div class="sec-t2 row between"><span>全生命周期 · ${esc(lc.stage)}</span>${lc.project_id ? `<a class="small" href="#/proj/${lc.project_id}">筹建档案 ›</a>` : ''}</div>
+  return `<div class="sec-t2 row between"><span>全生命周期 · ${esc(lc.stage)}</span>${lc.project_id ? `<a class="small" href="#/proj/${lc.project_id}">项目档案 ›</a>` : ''}</div>
   <div class="ldr"><div class="lcline">${order.map((k, i) => `<span class="${i < at ? 'past' : i === at ? 'now' : ''}">${k}</span>`).join('')}</div>
     ${r ? `<div class="sec-t3">新店爬坡 · 开业第 ${r.days} 天</div>${rampChart(r)}` : ''}
     <div class="lcev">${lc.events.slice().reverse().slice(0, 6).map(e => `<div><span class="muted small">${esc(e.at)}</span><b>${esc(e.kind)}</b><span class="small">${esc(e.note || '')}</span></div>`).join('')}</div>
@@ -2046,6 +2050,70 @@ function bindLc(d) {
       转让: ['转让（换业主）', '记录新业主和交接事项。', '新业主、交接事项'], 解约: ['解约 / 摘牌', '门店退出后不再参与区域排名，历史数据保留。', '原因、交接事项、摘牌日期'] }[op];
     formModal(T[0] + ' · ' + I.name, `<p class="small">${esc(T[1])}</p>${op === '解约' ? '<label class="f"><span>类型</span><select name="k"><option>解约</option><option>摘牌</option></select></label>' : ''}<label class="f"><span>${T[2]}</span><textarea name="note" ${['解约', '转让'].includes(op) ? 'required' : ''}></textarea></label>`,
       f => act(() => api(`/store/${I.id}/stage`, { op: op === '解约' ? f.k : op, note: f.note }), '已记录'));
+  });
+}
+
+
+// ---------- 执行分 · 提成 ----------
+const commCard = c => c ? `<div class="ldr"><div class="row between"><b>${esc(c.kind)}</b><b class="amt">¥${c.amount}</b></div>
+  <div class="cmi">${c.items.map(i => `<div><span>${esc(i.l)}</span><b>${i.n}</b><small>${i.unit > 0 ? '×¥' + i.unit : '−¥' + Math.abs(i.unit)}</small></div>`).join('')}</div><div class="muted small">本月 ${c.count} ${c.unit_label} · ${esc(c.tip)}</div></div>` : '';
+async function fillExec(uid) {
+  const el = $('#exs'); if (!el) return;
+  const d = await api('/exec/' + uid).catch(() => null); if (!d || !$('#exs')) return;
+  const m = d.me;
+  el.innerHTML = `${m ? `<div class="sec-t2 row between"><span>我的执行分 · 本月激励</span><span class="muted small">${d.rank ? `全店第 ${d.rank}/${d.of}` : ''}</span></div>
+  <div class="ldr"><div class="ldr-h"><span class="sgd ${m.score >= 90 ? 'gS' : m.score >= 80 ? 'gA' : m.score >= 70 ? 'gB' : 'gD'} lg">${m.score}</span><div class="grow"><b>${m.level}员工</b><span class="muted small">完成率 ${m.parts.rate ?? '-'}% · 准时率 ${m.parts.ontime ?? '-'}% · 合格率 ${m.parts.pass ?? '-'}% · 获肯定 ${m.parts.good}</span></div></div>
+    <div class="bud"><i><em style="width:${Math.min(100, m.month_good * 100 / m.star_need)}%"></em></i></div><div class="muted small">${m.star_left ? `本月获肯定 ${m.month_good} 次，再 ${m.star_left} 次可评「月度星级员工」` : '本月已达「月度星级员工」标准'}</div></div>` : ''}${commCard(d.comm)}`;
+}
+{ const f0 = staffHome; staffHome = async () => { await f0(); const a = document.querySelector('.mtiles'); if (a && !$('#exs')) { const d = document.createElement('div'); d.id = 'exs'; a.before(d); } fillExec(S.me.id); }; }
+{ const f0 = storePeopleView; storePeopleView = async sid => {
+  await f0(sid);
+  const xs = await api(`/store/${sid}/exec`).catch(() => null); if (!xs || !$('#main')) return;
+  const box = document.createElement('div');
+  const cm = xs.filter(x => x.comm).sort((a, b) => b.comm.amount - a.comm.amount);
+  box.innerHTML = `<div class="sec-t2 row between"><span>执行分排行 · 近 30 天</span><span class="muted small">&lt;70 自动提醒辅导</span></div><div class="list">${xs.map(x => `<a class="task" href="#/hrp/${x.id}"><span class="rk">${x.rank}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span></div><div class="muted small">完成 ${x.parts.rate ?? '-'}% · 准时 ${x.parts.ontime ?? '-'}% · 获肯定 ${x.parts.good}</div></div><b class="pscore" style="color:${rateColor(x.score)}">${x.score}</b></a>`).join('') || '<div class="empty">暂无数据</div>'}</div>
+  ${cm.length ? `<div class="sec-t2">本月提成 · 售卡 / 打扫</div><div class="list">${cm.map(x => `<a class="task" href="#/hrp/${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span></div><div class="muted small">${esc(x.comm.kind)} · ${x.comm.count} ${x.comm.unit_label} · ${esc(x.comm.tip)}</div></div><b class="amt">¥${x.comm.amount}</b></a>`).join('')}</div>` : ''}`;
+  const foot = $('#main').querySelector('.foot'); foot ? foot.before(box) : $('#main').appendChild(box);
+}; }
+
+// ---------- 职级路径 ----------
+const careerHtml = c => c ? `<div class="sec-t2 row between"><span>职级路径 · ${esc(c.current)}</span>${c.next ? `<span class="muted small">晋升「${esc(c.next)}」 ${c.pct}%</span>` : ''}</div>
+  <div class="ldr"><div class="lcline">${c.path.map(k => `<span class="${k === c.current ? 'now' : c.path.indexOf(k) < c.path.indexOf(c.current) ? 'past' : ''}">${k}</span>`).join('')}</div>
+  ${c.conds.map(x => `<div class="iss-i"><span class="tag ${x.ok ? 'ok' : 'warn'}">${x.ok ? '已达成' : '未达成'}</span><span>${esc(x.t)} <small class="muted">（${esc(x.v)}）</small></span></div>`).join('')}</div>` : '';
+async function appendCareer(id) {
+  const c = await api('/career/' + id).catch(() => null); if (!c || !$('#main')) return;
+  const box = document.createElement('div'); box.innerHTML = careerHtml(c);
+  const hd = $('#main').querySelector('.pghd'); (hd ? hd.nextElementSibling || hd : $('#main').firstChild).after(box);
+}
+{ const f0 = VIEWS.leader; VIEWS.leader = async id => { await f0(id); appendCareer(id); }; }
+{ const f0 = VIEWS.hrp; VIEWS.hrp = async id => { await f0(id); const u = (S.meta.users || []).find(x => x.id === Number(id)); if (u && (['店助', '前台经理', '客房经理'].includes(u.role_name) || u.level === 'store_manager')) appendCareer(id); }; }
+{ const f0 = regionPeople; regionPeople = async () => {
+  await f0();
+  const xs = await api('/career-pool').catch(() => null); if (!xs || !$('#main')) return;
+  const box = document.createElement('div');
+  box.innerHTML = `<div class="sec-t2 row between"><span>储备店长池</span><span class="muted small">店助 / 部门经理 · 按晋升条件达成度</span></div><div class="list">${xs.map(x => `<a class="task" href="#/hrp/${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)} · ${esc(x.store)}</span></div><div class="muted small">${x.conds.filter(c => !c.ok).map(c => esc(c.t)).join('；') || '条件已全部达成，可安排带店实习'}</div></div><b class="pscore" style="color:${rateColor(x.pct)}">${x.pct}<small>%</small></b></a>`).join('')}</div>`;
+  const foot = $('#main').querySelector('.foot'); foot ? foot.before(box) : $('#main').appendChild(box);
+}; }
+
+// ---------- 开发漏斗 ----------
+function funnelHtml(d) {
+  const f = d.funnel, mx = Math.max(1, f.steps[0].n), dev = ['region_manager', 'dev_manager'].includes(S.me.level);
+  const leads = d.projects.filter(p => ['线索', '意向'].includes(p.stage));
+  return `<div class="sec-t2 row between"><span>开发漏斗</span>${f.lead_to_sign != null ? `<span class="muted small">线索到签约平均 ${f.lead_to_sign} 天</span>` : ''}</div>
+  <div class="ldr">${f.steps.map(s => `<div class="fnl"><span>${s.l}</span><i><em style="width:${Math.max(6, s.n * 100 / mx)}%"></em></i><b>${s.n}</b><small class="muted">${s.rate != null ? s.rate + '%' : ''}</small></div>`).join('')}</div>
+  <div class="row between sec-t2"><span>线索 · 意向 ${leads.length}</span>${dev ? '<button class="btn sm" id="nld">录入线索</button>' : ''}</div>
+  <div class="list">${leads.map(p => `<div class="task"><div class="b"><div class="ttl">${esc(p.name)} <span class="tag ${p.stage === '意向' ? 'acc' : ''}">${p.stage}</span></div><div class="muted small">${esc(p.city)} · ${p.rooms || '-'} 间 · 业主 ${esc(p.owner || '-')} · 开发 ${esc(p.dev_name || '-')}${p.exit_note ? ' · ' + esc(p.exit_note) : ''}</div></div>
+    ${dev ? `<div class="row" style="gap:6px;flex:none">${p.stage === '线索' ? `<button class="btn sm" data-ld="intent:${p.id}">转意向</button>` : `<button class="btn primary sm" data-ld="sign:${p.id}">签约</button>`}<button class="btn sm" data-ld="drop:${p.id}">放弃</button></div>` : ''}</div>`).join('') || '<div class="empty">暂无线索</div>'}</div>
+  <div class="sec-t2">节点贡献 · 结果回溯到人</div><div class="list">${d.contrib.map(c => `<div class="task"><div class="b"><div class="ttl">${esc(c.name)} <span class="muted small">${esc(c.role)}</span></div><div class="muted small">签约 ${c.signed} · 完成节点 ${c.nodes}${c.ontime_rate != null ? ` · 准时 ${c.ontime_rate}%` : ''}${c.opened.length ? ' · 开业店：' + c.opened.map(o => `${esc(o.name)}${o.gap != null ? `（爬坡 ${o.gap >= 0 ? '+' : ''}${o.gap}）` : ''}`).join('、') : ''}</div></div></div>`).join('')}</div>`;
+}
+function bindFunnel(d) {
+  if ($('#nld')) $('#nld').onclick = () => formModal('录入开发线索', `<label class="f"><span>项目名称</span><input name="name" required></label><div class="row" style="gap:8px"><label class="f" style="flex:1"><span>城市</span><input name="city"></label><label class="f" style="flex:1"><span>房量</span><input type="number" name="rooms"></label></div><label class="f"><span>业主</span><input name="owner"></label><label class="f"><span>说明</span><textarea name="note"></textarea></label>`, f => act(() => api('/leads', f), '线索已录入'));
+  document.querySelectorAll('[data-ld]').forEach(b => b.onclick = () => {
+    const [op, id] = b.dataset.ld.split(':'), p = d.projects.find(x => x.id === Number(id));
+    if (op === 'intent') return formModal('转为意向 · ' + p.name, '<label class="f"><span>说明</span><textarea name="note" placeholder="例如：意向书已签、已看样板店"></textarea></label>', f => act(() => api(`/leads/${id}/intent`, f), '已转意向'));
+    if (op === 'drop') return formModal('放弃线索 · ' + p.name, '<label class="f"><span>放弃原因</span><textarea name="note" required></textarea></label>', f => act(() => api(`/leads/${id}/drop`, f), '已放弃'));
+    formModal('签约 · ' + p.name, `<div class="row" style="gap:8px"><label class="f" style="flex:1"><span>签约日期</span><input type="date" name="sign_date" value="${S.me.today}"></label><label class="f" style="flex:1"><span>房量</span><input type="number" name="rooms" value="${p.rooms || ''}" required></label></div><label class="f"><span>投资预算（万）</span><input type="number" name="budget"></label><label class="chk"><input type="checkbox" name="fund_ok"> 业主资金已到位</label><p class="muted small">签约后生成 9 个节点，进入管道店。</p>`,
+      f => act(() => api(`/leads/${id}/sign`, { ...f, rooms: Number(f.rooms) }), '已签约，进入管道店'));
   });
 }
 
