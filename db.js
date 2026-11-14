@@ -49,12 +49,17 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT, user_id INTEGE
 
 for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
-  ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT']]) {
+  ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
+  ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
+  ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
 try { db.prepare("UPDATE stores SET stype='加盟店' WHERE id=3 AND stype='直营店'").run(); } catch { /* fresh db */ }
 db.exec("CREATE TABLE IF NOT EXISTS store_plans(id INTEGER PRIMARY KEY, store_id INTEGER, dim TEXT, title TEXT, base INTEGER, target INTEGER, owner_id INTEGER, due TEXT, status TEXT DEFAULT 'open', progress INTEGER DEFAULT 0, updates TEXT, result TEXT, created_by INTEGER, created_at TEXT, closed_at TEXT)");
+db.exec(`CREATE TABLE IF NOT EXISTS repairs(id INTEGER PRIMARY KEY, store_id INTEGER, location TEXT, title TEXT, body TEXT, urgency TEXT DEFAULT 'normal', photo TEXT,
+  status TEXT DEFAULT 'open', created_by INTEGER, created_at TEXT, due_at TEXT, assignee_id INTEGER, accepted_at TEXT, done_at TEXT, done_note TEXT, done_photo TEXT,
+  closed_at TEXT, rating INTEGER, esc_level INTEGER DEFAULT 0, log TEXT)`);
 try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */ }
 for (const [id, t] of [[1, '标杆复制'], [2, '店长兼管'], [3, '重点帮扶,改造规划']]) db.prepare('UPDATE stores SET tags=? WHERE id=? AND tags IS NULL').run(t, id);
 for (const [id, v] of Object.entries(STORE_INFO)) try { db.prepare('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=? AND brand IS NULL').run(...v, Number(id)); } catch { /* fresh db */ }
