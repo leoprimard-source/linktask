@@ -1586,7 +1586,7 @@ async function staffHome() {
   <div class="sec-t2">今日工作 · 按场景</div><div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">最早 ${esc(ts.map(t => t.due_time).sort()[0])}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('') || '<div class="empty">没有任务</div>'}</div>
   ${S.me.lead ? `<div id="lead"></div>` : ''}
-  ${apps.length ? `<div class="sec-t2">常用系统</div><div class="approw">${apps.map(k => `<a href="#/app/${k}" class="appchip"><span style="background:${APPS[k].color}">${APPS[k].name.replace('易', '').slice(0, 1)}</span>${APPS[k].name}</a>`).join('')}</div>` : ''}`;
+  `;
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?date=' + d; });
   if (S.me.lead) Promise.all([api(`/team?store=${sid}`), api(`/must?store=${sid}`)]).then(([team, must]) => {
@@ -1827,12 +1827,12 @@ async function storePeopleView(sid) {
   <section class="brief rg"><div class="btabs"><a class="on">${sm ? '本店人员' : '我的团队'}</a><span class="muted small">与人事档案同一份数据</span></div>
     <div class="rkpi">${[['在册', L.length, '人'], ['预警', L.filter(x => x.alerts.length).length, '人'], ['试用期', L.filter(x => x.in_probation).length, '人'], ...tiers.map(t => [t, L.filter(x => x.tier === t).length, '人'])]
       .map(([l, v, u], i) => `<a class="${i === 1 && v ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div></section>
-  ${team.length ? `<div class="sec-t2 row between"><span>团队今日进度 · ${team.length} 人</span><a href="#/crew" class="small">全部 ›</a></div><div class="crews">${team.slice(0, 8).map(crewCard).join('')}</div>` : ''}
-  <div class="sec-t2">人员预警 · ${al.length}</div><div class="list">${al.slice(0, 5).map(arow).join('') || '<div class="empty">暂无预警</div>'}</div>
-  ${al.length > 5 ? `<details class="tgrp"><summary>其余 ${al.length - 5} 条 <i>展开</i></summary><div class="list">${al.slice(5).map(arow).join('')}</div></details>` : ''}
+  ${team.length ? `<div class="sec-t2 row between"><span>团队今日进度 · ${team.length} 人</span><a href="#/crew" class="small">全部 ›</a></div><div class="crews">${[...team].sort((a, b) => (b.today.overdue || 0) - (a.today.overdue || 0)).slice(0, 4).map(crewCard).join('')}</div>` : ''}
+  <div class="sec-t2">人员预警 · ${al.length}</div><div class="list">${al.slice(0, 3).map(arow).join('') || '<div class="empty">暂无预警</div>'}</div>
+  ${al.length > 3 ? `<details class="tgrp"><summary>其余 ${al.length - 3} 条 <i>展开</i></summary><div class="list">${al.slice(3).map(arow).join('')}</div></details>` : ''}
   ${d.bench.length ? `<div class="sec-t2">关键岗位储备</div><div class="ldr bench">${d.bench.filter(r => r.role !== '店长').map(r => `<div><b>${esc(r.role)}</b>${r.candidates.length ? r.candidates.map(c => `<a class="tag ok" href="#/hrp/${c.id}">${esc(c.name)}</a>`).join(' ') : '<span class="tag bad">无储备</span>'}</div>`).join('')}</div>` : ''}
   <div class="sec-t2 row between"><span>员工画像 · 按梯队</span><span class="muted small">近 3 月均分</span></div>
-  ${tiers.map((t, ti) => { const xs = L.filter(x => x.tier === t); return xs.length ? `<details class="tgrp" ${ti !== 1 ? 'open' : ''}><summary><span class="tag ${TIER_TAG[t]}">${t}</span> <em>${xs.length} 人</em><i>${ti !== 1 ? '收起' : '展开'}</i></summary><div class="tgb">${xs.map(x => `<a class="task hrow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span>${x.alerts.length ? ` <span class="tag warn">${x.alerts.length} 预警</span>` : ''}</div>
+  ${tiers.map((t, ti) => { const xs = L.filter(x => x.tier === t); return xs.length ? `<details class="tgrp"><summary><span class="tag ${TIER_TAG[t]}">${t}</span> <em>${xs.length} 人</em><i>展开</i></summary><div class="tgb">${xs.map(x => `<a class="task hrow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span>${x.alerts.length ? ` <span class="tag warn">${x.alerts.length} 预警</span>` : ''}</div>
     <div class="muted small">司龄 ${x.tenure} 年${x.in_probation ? ' · 试用期' : ''} · 30 天完成 ${pct(x.s30.rate)} · 合格 ${pct(x.s30.pass)} · 肯定 ${x.s30.good}</div></div><div class="r">${spark(x.trend)}<b class="gd g${x.avg3 >= 92 ? 'A' : x.avg3 >= 85 ? 'B' : x.avg3 >= 75 ? 'C' : 'D'}">${x.avg3}</b></div></a>`).join('')}</div></details>` : ''; }).join('')}
   ${d.suggests.length ? `<div class="sec-t2">提交给人事的建议</div><div class="list">${d.suggests.map(h => `<a class="task" href="#/hrp/${h.user_id}"><div class="b"><div class="ttl">${esc(h.name)} · ${esc(h.kind)}建议</div><div class="muted small">${esc(h.note)}${h.reply ? ` · 人事：${esc(h.reply)}` : ''}</div></div><span class="tag ${h.status === 'open' ? 'warn' : h.status === 'approved' ? 'ok' : 'bad'}">${h.status === 'open' ? '待人事处理' : h.status === 'approved' ? '已同意' : '已退回'}</span></a>`).join('')}</div>` : ''}
   <p class="muted small">点进员工可查看完整档案，并派任务、安排培训、提交转正 / 晋升建议。档案资料与证照为模拟数据。</p>`;
@@ -2210,6 +2210,11 @@ async function fillExec(uid) {
     <div class="bud"><i><em style="width:${Math.min(100, m.month_good * 100 / m.star_need)}%"></em></i></div><div class="muted small">${m.star_left ? `本月获肯定 ${m.month_good} 次，再 ${m.star_left} 次可评「月度星级员工」` : '本月已达「月度星级员工」标准'}</div></div>` : ''}${commCard(d.comm)}`;
 }
 { const f0 = staffHome; staffHome = async () => { await f0(); const a = $('#topw') || document.querySelector('.mtiles'); if (a && !$('#exs')) { const d = document.createElement('div'); d.id = 'exs'; a.id === 'topw' ? a.after(d) : a.before(d); } fillExec(S.me.id); }; }
+function foldList(el, n, u) {
+  const ex = [...el.children].slice(n); if (!ex.length) return;
+  const dt = document.createElement('details'); dt.className = 'tgrp'; dt.innerHTML = `<summary>其余 ${ex.length} ${u} <i>展开</i></summary><div class="list"></div>`;
+  ex.forEach(e => dt.lastElementChild.appendChild(e)); el.after(dt);
+}
 { const f0 = storePeopleView; storePeopleView = async sid => {
   await f0(sid);
   const xs = await api(`/store/${sid}/exec`).catch(() => null); if (!xs || !$('#main')) return;
@@ -2217,6 +2222,7 @@ async function fillExec(uid) {
   const cm = xs.filter(x => x.comm).sort((a, b) => b.comm.amount - a.comm.amount);
   box.innerHTML = `<div class="sec-t2 row between"><span>执行分排行 · 近 30 天</span><span class="muted small">&lt;70 自动提醒辅导</span></div><div class="list">${xs.map(x => `<a class="task" href="#/hrp/${x.id}"><span class="rk">${x.rank}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span></div><div class="muted small">完成 ${x.parts.rate ?? '-'}% · 准时 ${x.parts.ontime ?? '-'}% · 获肯定 ${x.parts.good}</div></div><b class="pscore" style="color:${rateColor(x.score)}">${x.score}</b></a>`).join('') || '<div class="empty">暂无数据</div>'}</div>
   ${cm.length ? `<div class="sec-t2">本月提成 · 售卡 / 打扫</div><div class="list">${cm.map(x => `<a class="task" href="#/hrp/${x.id}"><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span></div><div class="muted small">${esc(x.comm.kind)} · ${x.comm.count} ${x.comm.unit_label} · ${esc(x.comm.tip)}</div></div><b class="amt">¥${x.comm.amount}</b></a>`).join('')}</div>` : ''}`;
+  const ls = box.querySelectorAll(':scope > .list'); if (ls[0]) foldList(ls[0], 5, '人'); if (ls[1]) foldList(ls[1], 3, '人');
   const foot = $('#main').querySelector('.foot'); foot ? foot.before(box) : $('#main').appendChild(box);
 }; }
 
