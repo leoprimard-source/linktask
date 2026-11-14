@@ -627,3 +627,15 @@ details.fdone>summary::after{content:'›';margin-left:auto;transform:rotate(90d
 .fck.ing::after,.frow.done .fck::after{content:'';position:absolute;left:6px;top:2.5px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .frow.done .ttl{color:var(--text-muted);text-decoration:line-through}
 .frow .chev{color:#BBBFC4;font-size:18px;line-height:20px}
+/* 审批 / 工作台 */
+.acard{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--border)}
+.acard .ah{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.atype{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:1px 6px}
+.acard .at{font-size:15px;font-weight:600;margin-bottom:6px}
+.akv{display:grid;grid-template-columns:64px 1fr;gap:4px 10px;font-size:13px}.akv span{color:var(--text-muted)}.akv b{font-weight:400;word-break:break-word}
+.aph{max-width:120px;border-radius:6px;margin-top:8px}
+.aact{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.aact .btn{min-width:72px;justify-content:center}
+.tic{position:relative}
+.fvb{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#fff;font-style:normal;font-size:13px;line-height:15px;text-align:center}
+.fvb.rm{background:var(--bad)}

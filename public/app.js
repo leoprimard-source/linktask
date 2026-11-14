@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'todo', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
+const COMMON = ['home', 'work', 'me', 'notices', 'todo', 'appr', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -156,13 +156,13 @@ const ICON = {
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
 const TILE_COLORS = ['#3C7BF4', '#14A38B', '#F29A2E', '#7C6CF2', '#E5534B', '#2BA6DE', '#C2843A', '#5B8C5A'];
-const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', todo: '任务', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
+const navLabel = k => { for (const [kk, l] of NAV[S.me.level]) if (kk === k) return l; return { work: '工作台', me: CENTER[S.me.level], notices: '消息', todo: '任务', appr: '审批', help: '说明中心', group: '任务列表', task: '任务处理', app: '内部系统' }[k] || ''; };
 
 function shell(route, html) {
   const root = ['home', 'notices', 'work', 'todo', 'me'].includes(route);
   const tabs = [['home', '首页', 'home'], ['notices', '消息', 'notices'], ['todo', '任务', 'todo'], ['work', '工作台', 'work'], ['me', '我的', 'me']];
-  const tabOn = ['my', 'my-rect', 'rect', 'must', 'task'].includes(route) ? 'todo' : route;
-  const rootTitle = { home: '宏图', notices: '消息', todo: '任务', work: '工作台', me: '我的' }[route];
+  const tabOn = ['my', 'my-rect', 'rect', 'must', 'task', 'appr'].includes(route) ? 'todo' : route;
+  const rootTitle = { home: '宏图', notices: '消息', todo: '任务', appr: '审批', work: '工作台', me: '我的' }[route];
   $('#app').innerHTML = `<div class="phone">
   <header class="appbar">${root ? '<img class="logo" src="/icon.svg" alt="">' : '<a class="back" id="back" href="javascript:void 0" aria-label="返回">‹</a>'}
     <b>${root ? rootTitle : esc(navLabel(route))}</b><span class="sp"></span>
@@ -342,11 +342,38 @@ function bindMy(list) {
 }
 VIEWS.todo = async () => {
   const seg = qs().get('seg') || 'mine', rr = rectRoute(), lv = S.me.level;
-  const segs = [['mine', '我负责的'], ...(rr === 'my-rect' || NAV[lv].some(([k]) => k === 'rect') ? [['rect', lv === 'staff' ? '我的整改' : '整改闭环']] : []), ...(lv !== 'staff' ? [['must', '待我处理']] : [])];
+  const segs = [['mine', '我负责的'], ...(rr === 'my-rect' || NAV[lv].some(([k]) => k === 'rect') ? [['rect', lv === 'staff' ? '我的整改' : '整改闭环']] : []), ['appr', '审批'], ...(lv !== 'staff' ? [['must', '待我处理']] : [])];
   const bar = `<div class="fseg">${segs.map(([k, l]) => `<a href="#/todo?seg=${k}" class="${seg === k ? 'on' : ''}">${l}</a>`).join('')}</div>`;
   if (seg === 'mine' || !segs.some(x => x[0] === seg)) { const r = await myTasks('#/todo'); $('#main').innerHTML = bar + r.html; return bindMy(r.list); }
-  await VIEWS[seg === 'rect' ? rr : 'must']();
+  await VIEWS[seg === 'rect' ? rr : seg === 'appr' ? 'appr' : 'must']();
   $('#main').insertAdjacentHTML('afterbegin', bar);
+};
+const APPR_TAGS = ['待点评', '周报', '业主诉求', '补偿审批', '物料申领', '说明反馈', '报修待确认', '授权复核', '待复核'];
+const ast = st => ({ open: ['审批中', 'acc'], submitted: ['审批中', 'acc'], accepted: ['已采纳', 'ok'], closed: ['已通过', 'ok'], rejected: ['未通过', 'bad'] }[st] || [st, '']);
+VIEWS.appr = async () => {
+  const lv = S.me.level, rr = rectRoute(), canRect = lv !== 'staff' && NAV[lv].some(([k]) => k === 'rect'), canAp = lv === 'store_manager' || ['region_manager', 'hr_manager', 'coach'].includes(lv);
+  const [rects, inbox, board, my, myr] = await Promise.all([canRect ? api('/rectifications') : [], lv !== 'staff' ? api('/inbox').catch(() => []) : [], canAp ? api('/pay-board').catch(() => null) : null, api('/pay/' + S.me.id).catch(() => null), api('/rectifications?mine=1')]);
+  const pend = [...rects.filter(r => r.status === 'submitted' && r.assignee_id !== S.me.id).map(r => ({ k: 'rect', r })), ...((board && board.appeals) || []).filter(a => a.user_id !== S.me.id).map(a => ({ k: 'ap', a })), ...inbox.filter(x => APPR_TAGS.includes(x.tag)).map(x => ({ k: 'ib', x }))];
+  const mine = [...((my && my.appeals) || []).map(a => ({ t: '绩效申诉 · ' + (a.item || '绩效'), sub: a.reason, st: a.status, at: a.created_at, reply: a.reply })), ...myr.filter(r => r.status !== 'open').map(r => ({ t: '整改复查 · ' + r.title, sub: r.submit_note, st: r.status === 'submitted' ? 'submitted' : r.status, at: r.submitted_at, reply: r.verify_comment }))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const tab = qs().get('t') || (pend.length || lv !== 'staff' ? 'todo' : 'mine');
+  const card = (p, i) => p.k === 'rect' ? `<div class="acard"><div class="ah"><span class="atype">整改复查</span><span class="muted small">${esc((p.r.submitted_at || '').slice(5, 16))}</span></div><div class="at">${esc(p.r.title)}</div>
+      <div class="akv"><span>提交人</span><b>${esc(p.r.assignee_name || '')} · ${esc(p.r.store_name || '')}</b><span>整改说明</span><b>${esc(p.r.submit_note || '')}</b></div>${p.r.submit_photo ? `<img class="aph" src="${esc(p.r.submit_photo)}" alt="">` : ''}
+      <div class="aact"><button class="btn" data-rj="${i}">退回</button><button class="btn primary" data-ok="${i}">通过</button></div></div>`
+    : p.k === 'ap' ? `<div class="acard"><div class="ah"><span class="atype">绩效申诉</span><span class="muted small">${esc((p.a.created_at || '').slice(5, 16))}</span></div><div class="at">${esc(p.a.name)} · ${esc(p.a.item || '绩效')}</div>
+      <div class="akv"><span>门店</span><b>${esc(p.a.store || '')}</b><span>申诉理由</span><b>${esc(p.a.reason)}</b></div><div class="aact"><button class="btn" data-rj="${i}">不采纳</button><button class="btn primary" data-ok="${i}">采纳</button></div></div>`
+    : `<div class="acard"><div class="ah"><span class="atype">${esc(p.x.tag)}</span></div><div class="at">${esc(p.x.title)}</div>${p.x.sub ? `<div class="akv"><span>说明</span><b>${esc(p.x.sub)}</b></div>` : ''}
+      <div class="aact">${p.x.act ? `<button class="btn primary" data-go="${i}">去处理</button>` : `<a class="btn primary" href="${esc(safeLink(p.x.link))}">去处理</a>`}</div></div>`;
+  $('#main').innerHTML = `<div class="tfil"><a href="#/${qs().get('seg') ? 'todo?seg=appr&' : 'appr?'}t=todo" class="${tab === 'todo' ? 'on' : ''}">待我审批 <small>${pend.length}</small></a><a href="#/${qs().get('seg') ? 'todo?seg=appr&' : 'appr?'}t=mine" class="${tab === 'mine' ? 'on' : ''}">我发起的 <small>${mine.length}</small></a></div>
+    ${tab === 'todo' ? (pend.length ? pend.map(card).join('') : '<div class="fgrp"><div class="empty">没有待你审批的事项</div></div>')
+      : (mine.length ? `<div class="fgrp">${mine.map(m => `<div class="frow" style="cursor:default"><div class="b"><div class="ttl">${esc(m.t)}</div><div class="fsub">${esc((m.at || '').slice(5, 16))} <span class="tag ${ast(m.st)[1]}">${ast(m.st)[0]}</span></div>${m.sub ? `<div class="fsub">${esc(m.sub)}</div>` : ''}${m.reply ? `<div class="fsub">回复：${esc(m.reply)}</div>` : ''}</div></div>`).join('')}</div>` : '<div class="fgrp"><div class="empty">你还没有发起过申诉或整改复查</div></div>')}`;
+  const P_ = i => pend[Number(i)];
+  document.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => { const p = P_(b.dataset.ok);
+    if (p.k === 'rect') act(async () => { await api(`/rectifications/${p.r.id}/verify`, { pass: true, comment: '' }); route(); }, '已通过，整改闭环');
+    else formModal('采纳申诉', '<label class="f"><span>回复（可选）</span><textarea name="r"></textarea></label>', d => act(async () => { await api(`/pay/appeal/${p.a.id}`, { status: 'accepted', reply: d.r }); route(); }, '已采纳')); });
+  document.querySelectorAll('[data-rj]').forEach(b => b.onclick = () => { const p = P_(b.dataset.rj);
+    if (p.k === 'rect') formModal('退回整改', `<label class="f"><span>退回原因</span><textarea name="c" required></textarea></label><label class="f"><span>新的整改期限</span><input type="date" name="d" required value="${addDays(S.me.today, 2)}"></label>`, d => act(async () => { await api(`/rectifications/${p.r.id}/verify`, { pass: false, comment: d.c, deadline: d.d }); route(); }, '已退回'));
+    else formModal('不采纳申诉', '<label class="f"><span>原因</span><textarea name="r" required></textarea></label>', d => act(async () => { await api(`/pay/appeal/${p.a.id}`, { status: 'rejected', reply: d.r }); route(); }, '已回复')); });
+  document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => inboxAct(P_(b.dataset.go).x.act, P_(b.dataset.go).x, S.meta.stores.length === 1 ? S.meta.stores[0].id : 0));
 };
 VIEWS.my = async () => { const r = await myTasks('#/my'); $('#main').innerHTML = r.html; bindMy(r.list); };
 function completeModal(t) { location.hash = '#/task/' + t.id; }
@@ -1121,10 +1148,21 @@ VIEWS.work = async () => {
   const yi = await api('/yi').catch(() => []);
   const secs = []; let cur = null;
   for (const [k, l] of NAV[S.me.level]) { if (k === 'sec') { cur = { t: l, items: [] }; secs.push(cur); } else if (S.me.level === 'staff' || !NAV_DA[k] || da(NAV_DA[k])) cur.items.push([k, l]); else if (k === 'pay') cur.items.push([k, '我的绩效与薪酬']); }
-  let ci = 0;
-  $('#main').innerHTML = `<h1>工作台</h1>${yi.length ? `<div class="sec-t">易系列 · 角色模块</div>${yi.map(yiCard).join('')}` : ''}${secs.filter(sc => sc.items.length).map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) =>
-    `<a class="tile" href="#/${k}"><span class="tic" style="background:${TILE_COLORS[ci++ % TILE_COLORS.length]}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}</span><span>${esc(l)}</span></a>`).join('')}</div>`).join('')}
-  <div class="sec-t">内部系统</div><div class="panel tiles">${Object.entries(APPS).map(([k, x]) => `<a class="tile" href="#/app/${k}"><span class="tic" style="background:${x.color}">${x.name.replace('易', '').slice(0, 1)}</span><span>${x.name}</span></a>`).join('')}</div>`;
+  const all = secs.flatMap(sc => sc.items), byK = Object.fromEntries(all);
+  if (S.me.level !== 'staff' && !byK.wcal) { secs.unshift({ t: '日程', items: [['wcal', '工作日历']] }); all.unshift(['wcal', '工作日历']); byK.wcal = '工作日历'; }
+  const fk = 'lt_fav_' + S.me.id; let fav; try { fav = JSON.parse(localStorage[fk]); } catch (e) { fav = null; }
+  fav = (Array.isArray(fav) ? fav : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
+  const ed = !!S.workEdit, col = k => TILE_COLORS[[...k].reduce((a, c) => a + c.charCodeAt(0), 0) % TILE_COLORS.length];
+  const tile = (k, l, e) => `<a class="tile" ${e ? `href="javascript:void 0" data-fv="${k}"` : `href="#/${k}"`}><span class="tic" style="background:${col(k)}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}${e ? `<i class="fvb ${fav.includes(k) ? 'rm' : ''}">${fav.includes(k) ? '−' : '+'}</i>` : ''}</span><span>${esc(l)}</span></a>`;
+  $('#main').innerHTML = `<input class="fsearch" id="ws" placeholder="搜索应用" autocomplete="off" style="width:100%;margin-bottom:4px"><div id="wres"></div><div id="wbody">
+  <div class="sec-t row between"><span>常用</span><a href="javascript:void 0" id="wed" class="small">${ed ? '完成' : '编辑'}</a></div>
+  <div class="panel tiles">${fav.length ? fav.map(k => tile(k, byK[k], ed)).join('') : '<div class="empty small" style="grid-column:1/-1">点「编辑」把应用加入常用</div>'}</div>
+  ${secs.filter(sc => sc.items.length).map(sc => `<div class="sec-t">${esc(sc.t)}</div><div class="panel tiles">${sc.items.map(([k, l]) => tile(k, l, ed)).join('')}</div>`).join('')}
+  ${yi.length ? `<div class="sec-t">易系列 · 角色模块</div>${yi.map(yiCard).join('')}` : ''}
+  <div class="sec-t">内部系统</div><div class="panel tiles">${Object.entries(APPS).map(([k, x]) => `<a class="tile" href="#/app/${k}"><span class="tic" style="background:${x.color}">${x.name.replace('易', '').slice(0, 1)}</span><span>${x.name}</span></a>`).join('')}</div></div>`;
+  $('#ws').oninput = e => { const k = e.target.value.trim(), r = all.filter(([, l]) => l.includes(k)); $('#wbody').style.display = k ? 'none' : ''; $('#wres').innerHTML = !k ? '' : r.length ? `<div class="panel tiles" style="margin-top:8px">${r.map(([kk, l]) => tile(kk, l)).join('')}</div>` : '<div class="empty">没有找到应用</div>'; };
+  $('#wed').onclick = () => { S.workEdit = !ed; route(); };
+  document.querySelectorAll('[data-fv]').forEach(a => a.onclick = () => { const k = a.dataset.fv; localStorage[fk] = JSON.stringify(fav.includes(k) ? fav.filter(x => x !== k) : [...fav, k]); route(); });
 };
 
 VIEWS.dataauth = async () => {
