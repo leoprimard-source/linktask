@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, user_id INTEGER
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
 CREATE TABLE IF NOT EXISTS reminder_log(date TEXT, time TEXT, PRIMARY KEY(date, time));
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS owner_reqs(id INTEGER PRIMARY KEY, store_id INTEGER, kind TEXT, title TEXT, body TEXT, status TEXT DEFAULT 'open', escalated INTEGER DEFAULT 0, created_by INTEGER, created_at TEXT, reply TEXT, replied_by INTEGER, replied_at TEXT, closed_at TEXT);
+CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY, store_id INTEGER, period TEXT, body TEXT, status TEXT DEFAULT 'submitted', created_by INTEGER, created_at TEXT, comment TEXT, reviewed_by INTEGER, reviewed_at TEXT);
+CREATE TABLE IF NOT EXISTS hr_suggest(id INTEGER PRIMARY KEY, user_id INTEGER, store_id INTEGER, kind TEXT, note TEXT, status TEXT DEFAULT 'open', created_by INTEGER, created_at TEXT, reply TEXT, replied_by INTEGER, replied_at TEXT);
 CREATE TABLE IF NOT EXISTS patrols(id INTEGER PRIMARY KEY, store_id INTEGER, planned_date TEXT, reason TEXT, status TEXT DEFAULT 'planned',
   score INTEGER, summary TEXT, created_by INTEGER, created_at TEXT, done_at TEXT);
 CREATE TABLE IF NOT EXISTS patrol_items(id INTEGER PRIMARY KEY, patrol_id INTEGER, scene_id INTEGER, item TEXT, score INTEGER, max INTEGER, comment TEXT,
@@ -49,7 +52,8 @@ for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'co
   ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
-const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '直营店', '2019-04-26', 205] };
+const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
+try { db.prepare("UPDATE stores SET stype='加盟店' WHERE id=3 AND stype='直营店'").run(); } catch { /* fresh db */ }
 for (const [id, v] of Object.entries(STORE_INFO)) try { db.prepare('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=? AND brand IS NULL').run(...v, Number(id)); } catch { /* fresh db */ }
 
 

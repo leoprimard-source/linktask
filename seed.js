@@ -86,7 +86,7 @@ function seed() {
     run("INSERT INTO regions(id,name) VALUES(1,'华东一区')");
     const stores = [[1, '上海虹桥店', 'SH-HQ', '上海市闵行区申长路 88 号'], [2, '上海静安店', 'SH-JA', '上海市静安区南京西路 1266 号'], [3, '杭州西湖店', 'HZ-XH', '杭州市西湖区北山街 25 号']];
     for (const s of stores) run('INSERT INTO stores(id,region_id,name,code,address) VALUES(?,1,?,?,?)', ...s);
-    for (const [id, v] of Object.entries({ 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '直营店', '2019-04-26', 205] })) run('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=?', ...v, Number(id));
+    for (const [id, v] of Object.entries({ 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] })) run('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=?', ...v, Number(id));
     ROLES.forEach(([n, l], i) => run('INSERT INTO roles(name,level,sort) VALUES(?,?,?)', n, l, i));
     const rid = n => q1('SELECT id FROM roles WHERE name=?', n).id;
     SCENES.forEach((n, i) => run('INSERT INTO scenes(name,sort) VALUES(?,?)', n, i));

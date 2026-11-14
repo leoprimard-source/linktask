@@ -761,6 +761,7 @@ function hrSummary(u) {
   for (const c of pf.certs) if (c.expire <= L.addDays(t, 60)) alerts.push({ level: c.expire < t ? 'high' : 'mid', type: '证照到期', text: `${c.name}${c.expire < t ? '已于 ' + c.expire + ' 过期' : '将于 ' + c.expire + ' 到期'}` });
   if (s30.bad >= 2) alerts.push({ level: s30.bad >= 3 ? 'high' : 'mid', type: '多次不合格', text: `近 30 天抽查不合格 ${s30.bad} 次` });
   if (s30.total >= 20 && !s30.good) alerts.push({ level: 'low', type: '长期未获肯定', text: `近 30 天完成 ${s30.done} 项，未获一次肯定` });
+  if (u.level === 'staff' && ((pf.tenure < 0.5 && s30.bad >= 1) || (s30.total >= 20 && !s30.good && (s30.rate ?? 100) < 90) || (s30.bad >= 3 && avg3 < 80))) alerts.push({ level: 'mid', type: '离职风险', text: '近期表现波动且缺少正向反馈，建议店长谈心并同步人事' });
   return { id: u.id, name: u.name, role_name: u.role_name, level: u.level, store_id: u.store_id, store: u.store_id ? q1('SELECT name FROM stores WHERE id=?', u.store_id).name : '区域',
     hire: pf.hire, tenure: pf.tenure, edu: pf.edu, in_probation: pf.in_probation, avg3, tier, alerts, s30: { total: s30.total, rate: s30.rate, pass: s30.pass, good: s30.good, bad: s30.bad, training: s30.training },
     trend: perf.map(x => x.score) };
@@ -783,7 +784,7 @@ app.get('/api/hr/people', (req, res) => {
 });
 app.get('/api/hr/person/:id', (req, res) => {
   const u = q1(USER_SQL + ' WHERE u.id=?', req.params.id);
-  if (!u || !(canHR(req.u) || u.id === req.u.id)) return deny(res);
+  if (!u || !(canPeople(req.u, u) || u.id === req.u.id)) return deny(res);
   const sum = hrSummary(u);
   res.json({ ...sum, profile: profileOf(u), perf: perfOf(u),
     trainings: q("SELECT r.*, i.title, c.name creator FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id LEFT JOIN users c ON c.id=r.created_by WHERE r.assignee_id=? AND r.training!='' ORDER BY r.id DESC LIMIT 12", u.id),
@@ -810,7 +811,7 @@ function leaderWork(u, from) {
   return { real, items };
 }
 app.get('/api/region/people', (req, res) => {
-  if (req.u.level !== 'region_manager') return deny(res);
+  if (!['region_manager', 'ops_manager'].includes(req.u.level)) return deny(res);
   const t = L.today(), y = L.addDays(t, -1), f30 = L.addDays(t, -30), sids = visibleStores(req.u);
   const s30 = storeStats(sids, f30, y), w1 = storeStats(sids, L.addDays(t, -7), y), w0 = storeStats(sids, L.addDays(t, -14), L.addDays(t, -8));
   const leaders = q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level IN ('ops_manager','hr_manager','sales_manager','store_manager') ORDER BY r.sort, u.id", req.u.region_id);
@@ -860,6 +861,301 @@ app.post('/api/region/follow', (req, res) => {
   D.notify([to.id], 'focus', `区域经理指派跟进：${st.name}`, note, '#/home?view=store&store=' + store_id);
   D.audit(req.u.id, store_id, '指派跟进', `→${to.name}：${note}`);
   res.json({ ok: true });
+});
+
+// ---------- 四板块：门店档案 / 经营 / 证照 / 人 / 加盟商 / 门店画像（实验）/ 周报 / 待我处理（档案、预算、业主数据为模拟） ----------
+const AREAS = { 1: ['商务区', '亚朵 · 桔子水晶 · 美居'], 2: ['交通枢纽', '汉庭优佳 · 亚朵 · 智选假日'], 3: ['旅游景区', '维也纳国际 · 亚朵 · 民宿集群'] };
+const isFr = sid => q1('SELECT stype FROM stores WHERE id=?', sid)?.stype === '加盟店';
+const daysTo = d => Math.round((Date.parse(d) - Date.parse(L.today())) / 864e5);
+const canSee = (u, sid) => visibleStores(u).includes(Number(sid));
+const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
+const sname = sid => q1('SELECT name FROM stores WHERE id=?', sid)?.name || '';
+function storeInfo(sid) {
+  const s = q1('SELECT * FROM stores WHERE id=?', sid);
+  const staff = q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.level='staff'", sid).n;
+  const [area, rivals] = AREAS[sid] || ['商务区', '-'];
+  const age = Math.round((Date.parse(L.today()) - Date.parse(s.open_date || L.today())) / 864e5 / 36.5) / 10;
+  return { id: sid, name: s.name, brand: s.brand, stype: s.stype, open_date: s.open_date, age, rooms: s.rooms, area, rivals, staff, plan_staff: staff + 1 + Math.floor(hash('ps' + sid) * 3), renovate: age >= 4 ? L.addDays(s.open_date, 1460 + Math.floor(hash('rn' + sid) * 200)) : null,
+    managers: D.storeManagers(sid).map(id => q1('SELECT name FROM users WHERE id=?', id).name), owner: isFr(sid) ? OWNERS[sid]?.[0] || '' : null };
+}
+const LICS = ['营业执照', '特种行业许可证', '卫生许可证', '食品经营许可证', '电梯年检', '锅炉 / 压力容器年检', '消防设施检测'];
+function licensesOf(sid) {
+  const t = L.today();
+  return LICS.map((n, i) => { const exp = L.addDays(t, Math.floor(hash('lic' + sid + i) * 420) - 12); const d = daysTo(exp); return { name: n, expire: exp, days: d, status: d < 0 ? 'bad' : d <= 45 ? 'warn' : 'ok' }; });
+}
+function storeBiz(sid) {
+  const t = L.today(), y = L.addDays(t, -1), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid).rooms || 150;
+  const mk = (a, b) => ({ revpar: Math.round(a.revpar), occ: Math.round(a.occ * 1000) / 10, adr: Math.round(a.adr), mpi: Math.round(a.mpi * 10) / 10, bad: a.bad,
+    revpar_delta: pct(a.revpar, b.revpar), occ_delta: Math.round((a.occ - b.occ) * 1000) / 10, adr_delta: pct(a.adr, b.adr), mpi_delta: Math.round((a.mpi - b.mpi) * 10) / 10 });
+  const day = mk(bizRange(sid, y, y), bizRange(sid, L.addDays(y, -7), L.addDays(y, -7)));
+  const week = mk(bizRange(sid, L.addDays(t, -7), y), bizRange(sid, L.addDays(t, -14), L.addDays(t, -8)));
+  const month = mk(bizRange(sid, L.addDays(t, -30), y), bizRange(sid, L.addDays(t, -60), L.addDays(t, -31)));
+  const ms = t.slice(0, 8) + '01', dim = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)), 0).getDate(), el = Number(t.slice(8)) - 1;
+  const target_revpar = Math.round((BIZ_BASE[sid] || 350) * 1.04);
+  const mtd = el > 0 ? bizRange(sid, ms, y) : { revpar: 0 };
+  const w = v => Math.round(v / 1000) / 10;
+  const rev_target = w(target_revpar * rooms * dim), rev_mtd = w(mtd.revpar * rooms * el), forecast = el ? Math.round(rev_mtd / el * dim * 10) / 10 : 0;
+  const budget = { target_revpar, mtd_revpar: Math.round(mtd.revpar), rev_target, rev_mtd, forecast, days: el, dim, time_pct: Math.round(el * 100 / dim),
+    ach: rev_target ? Math.round(rev_mtd * 100 / rev_target) : 0, forecast_pct: rev_target ? Math.round(forecast * 100 / rev_target) : 0 };
+  const reviews = [];
+  for (let i = 1; i <= 14; i++) { const d = L.addDays(t, -i), b = bizDay(sid, d); if (b.bad) reviews.push({ date: d, n: b.bad, topic: REVIEW_TOPICS[b.topic][0], tip: REVIEW_TOPICS[b.topic][1] }); }
+  const score = Math.round((4.86 - month.bad * 0.01 + hash('sc' + sid) * 0.06) * 100) / 100;
+  const alerts = [];
+  if (week.revpar_delta < -3) alerts.push({ level: week.revpar_delta < -8 ? 'high' : 'mid', type: '经营下滑', text: `近 7 日 RevPAR 较前 7 日 ${sgn(week.revpar_delta)}，${week.occ_delta < 0 ? '以出租率下降为主，建议加强 OTA 曝光和协议客户回访' : '以 ADR 下降为主，建议复盘价格策略和房型结构'}` });
+  if (week.mpi < 100) alerts.push({ level: 'mid', type: 'MPI 落后', text: `近 7 日 MPI ${week.mpi}，市场份额落后竞对，建议对标 ${AREAS[sid]?.[1] || '竞对'} 调整价格` });
+  if (budget.forecast_pct < 98) alerts.push({ level: budget.forecast_pct < 93 ? 'high' : 'mid', type: '预算风险', text: `按当前节奏，月底预计完成营收预算 ${budget.forecast_pct}%` });
+  const tc = {}; reviews.forEach(r => { tc[r.topic] = (tc[r.topic] || 0) + r.n; });
+  const top = Object.entries(tc).sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] >= 3) alerts.push({ level: 'mid', type: '差评集中', text: `近 14 天「${top[0]}」差评 ${top[1]} 条，建议转整改任务` });
+  return { day, week, month, budget, reviews, score, alerts, rooms };
+}
+const OWNERS = { 2: ['周建平', '上海弘景投资有限公司', '138****6021'], 3: ['林国栋', '杭州西溪文旅置业有限公司', '139****3388'] };
+function franchiseOf(sid) {
+  const s = q1('SELECT * FROM stores WHERE id=?', sid), t = L.today(), h = k => hash(k + sid);
+  const [owner, company, phone] = OWNERS[sid] || ['业主', '-', '-'];
+  const start = s.open_date, end = L.addDays(start, 365 * 8 + 2), rooms = s.rooms || 150, base = BIZ_BASE[sid] || 350;
+  const fees = monthsBack(6).map((m, i) => {
+    const rev = Math.round(base * rooms * 30 / 1000) / 10, fee = Math.round((rev * 0.055 + 0.3) * 10) / 10;
+    const status = i === 5 ? '待缴' : i === 4 && (sid === 3 || h('f2') > 0.75) ? '逾期' : '已缴';
+    return { ym: m.slice(0, 7), rev, fee, status };
+  });
+  const arrears = Math.round(fees.filter(f => f.status === '逾期').reduce((a, f) => a + f.fee, 0) * 10) / 10;
+  const invest = Math.round(rooms * (9.5 + h('iv') * 2.5)), gop_rate = Math.round((36 + h('gop') * 10) * 10) / 10;
+  const years = (Date.parse(t) - Date.parse(start)) / 864e5 / 365;
+  const annual_rev = Math.round(base * rooms * 365 / 10000), annual_gop = Math.round(annual_rev * gop_rate / 100);
+  const payback = Math.round(annual_gop * 0.72 * years * 100 / invest);
+  const sat = Math.round(sid === 3 ? 68 + h('st') * 10 : 82 + h('st') * 12);
+  const reports = monthsBack(4).slice(0, 3).reverse().map(m => { const e = L.addDays(L.addDays(m, 32).slice(0, 8) + '01', -1), b = bizRange(sid, m, e);
+    return { ym: m.slice(0, 7), revpar: Math.round(b.revpar), occ: Math.round(b.occ * 1000) / 10, adr: Math.round(b.adr), rev: Math.round(b.revpar * rooms * 30 / 1000) / 10, gop_rate: Math.round((gop_rate + (hash('gm' + sid + m) - 0.5) * 4) * 10) / 10 }; });
+  const plans = [
+    { name: '客房软装焕新（一期 40 间）', budget: Math.round(40 * (2 + h('p1'))) + ' 万', date: L.addDays(t, 45), status: h('p1') > 0.5 ? '待业主确认' : '已立项' },
+    { name: '公区智能化升级（自助入住机 + 门锁）', budget: Math.round(18 + h('p2') * 12) + ' 万', date: L.addDays(t, 90), status: '方案沟通中' },
+  ];
+  if (years > 5) plans.unshift({ name: '全季 4.0 版本升级改造', budget: Math.round(rooms * 3.2) + ' 万', date: L.addDays(t, 150), status: '业主观望' });
+  const alerts = [];
+  if (daysTo(end) <= 365) alerts.push({ level: daysTo(end) <= 180 ? 'high' : 'mid', type: '合同到期', text: `特许经营合同 ${end} 到期，剩余 ${daysTo(end)} 天，需启动续约沟通` });
+  if (arrears) alerts.push({ level: 'high', type: '费用逾期', text: `管理费逾期 ${arrears} 万元` });
+  if (sat < 80) alerts.push({ level: 'mid', type: '满意度偏低', text: `业主满意度 ${sat} 分，建议区域经理安排沟通会` });
+  if (payback < 60 && years > 3) alerts.push({ level: 'mid', type: '回本偏慢', text: `开业 ${Math.round(years * 10) / 10} 年，累计回本 ${payback}%` });
+  return { store_id: sid, store: s.name, owner, company, phone, contract: { start, end, days: daysTo(end), mode: '特许经营 · 委托管理' }, fees, arrears,
+    invest, gop_rate, annual_rev, annual_gop, payback, sat, reports, plans, alerts };
+}
+const REQ_SQL = `SELECT o.*, s.name store, c.name creator, r.name replier FROM owner_reqs o JOIN stores s ON s.id=o.store_id LEFT JOIN users c ON c.id=o.created_by LEFT JOIN users r ON r.id=o.replied_by`;
+function seedOwnerReqs() {
+  if (q1('SELECT COUNT(*) n FROM owner_reqs').n) return;
+  const sm = sid => D.storeManagers(sid)[0], rm = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE r.level='region_manager'")?.id, t = L.today();
+  const ins = (sid, kind, title, body, status, esc_, reply, ago) => run('INSERT INTO owner_reqs(store_id,kind,title,body,status,escalated,created_by,created_at,reply,replied_by,replied_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+    sid, kind, title, body, status, esc_, sm(sid), L.addDays(t, -ago) + ' 10:20', reply, reply ? rm : null, reply ? L.addDays(t, -ago + 2) + ' 16:00' : null);
+  if (!sm(2) || !sm(3)) return;
+  ins(3, '费用', '申请下调管理费比例', '业主认为近半年经营下滑，希望管理费由 5.5% 下调至 4.5%，并要求总部给出经营提升方案。', 'open', 1, null, 3);
+  ins(3, '改造', '外立面翻新费用分摊', '外立面翻新预算 46 万，业主希望总部承担 30%。', 'replied', 1, '总部可承担设计费并协调供应商集采价，费用分摊需在续约谈判中一并讨论。', 12);
+  ins(2, '经营', '希望增加协议客户资源', '周边园区新进驻两家企业，业主希望区域营销协助对接协议价。', 'open', 0, null, 2);
+  ins(2, '人员', '前台人员流动较大', '业主关注近两个月前台离职 2 人，询问招聘和培训支持。', 'closed', 1, '人事经理已安排下周到店招聘，并提供前台标准化培训。', 20);
+}
+function storePeople(u, sid) {
+  const team = canManage(u, sid) ? null : teamOf(u, sid).map(x => x.id);
+  const us = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' ORDER BY r.sort, u.id", sid).filter(x => x.id !== u.id && (!team || team.includes(x.id)));
+  return us.map(hrSummary);
+}
+const KEY_ROLES = ['店长', '店助', '前台经理', '客房经理'];
+const benchOf = (list, sid) => KEY_ROLES.map(role => {
+  const dept = role.slice(0, 2);
+  const pool = list.filter(x => x.tier === '可晋升' && x.role_name !== role && (role === '店长' || role === '店助' ? ['店助', '前台经理', '客房经理'].includes(x.role_name) : x.role_name.startsWith(dept)) && (x.store_id === sid || role === '店长'));
+  return { role, candidates: pool.slice(0, 3).map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: x.store })) };
+});
+const STORE_DIMS = [['biz', '经营业绩', 30], ['brand', '品牌标准', 20], ['ops', '运营执行', 20], ['guest', '宾客口碑', 15], ['team', '团队人才', 10], ['safe', '安全合规', 5]];
+const STORE_TYPES = { 标杆店: ['ok', '经营和运营都好，总结经验在区域复制'], 潜力店: ['acc', '运营扎实但经营偏弱，营销经理重点发力'], 隐患店: ['warn', '经营尚可但运营偏弱，盯执行和品牌标准'], 帮扶店: ['bad', '经营和运营都偏弱，列入重点巡店和帮扶'] };
+const sgrade = s => (s >= 90 ? 'S' : s >= 85 ? 'A' : s >= 78 ? 'B' : s >= 70 ? 'C' : 'D');
+function storeScore(sid) {
+  const t = L.today(), y = L.addDays(t, -1), f30 = L.addDays(t, -30);
+  const st = storeStats([sid], f30, y)[0], b = bizRange(sid, f30, y);
+  const ach = b.revpar * 100 / ((BIZ_BASE[sid] || 350) * 1.04);
+  const patrol = q1("SELECT score FROM patrols WHERE store_id=? AND status='done' ORDER BY done_at DESC LIMIT 1", sid)?.score ?? Math.round(86 + hash('b' + sid) * 8);
+  const people = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff'", sid).map(hrSummary);
+  const lic = licensesOf(sid);
+  const coach = people.filter(x => x.tier === '需辅导').length, certBad = people.reduce((a, x) => a + x.alerts.filter(z => z.type === '证照到期' && z.level === 'high').length, 0);
+  const bench = benchOf(people, sid).filter(r => r.role !== '店长' && !r.candidates.length).length;
+  const d = {
+    biz: clamp(ach * 0.6 + (60 + (b.mpi - 92) * 1.6) * 0.4),
+    brand: clamp(patrol),
+    ops: clamp((st.rate ?? 80) * 0.4 + (st.pass_rate ?? 80) * 0.3 + (100 - st.rect_late * 4 - st.rect_open) * 0.3),
+    guest: clamp(100 - b.bad * 2.2),
+    team: clamp(100 - coach * 100 / Math.max(1, people.length) * 0.8 - certBad * 4 - bench * 6),
+    safe: clamp(100 - lic.filter(x => x.status === 'bad').length * 25 - lic.filter(x => x.status === 'warn').length * 8),
+  };
+  const total = Math.round(STORE_DIMS.reduce((a, [k, , w]) => a + d[k] * w, 0) / 100);
+  const bx = Math.round((d.biz + d.guest) / 2), ox = Math.round((d.brand + d.ops) / 2), TH = 82;
+  const type = bx >= TH && ox >= TH ? '标杆店' : ox >= TH ? '潜力店' : bx >= TH ? '隐患店' : '帮扶店';
+  const why = { biz: `近 30 天 RevPAR 达成 ${Math.round(ach)}%，MPI ${Math.round(b.mpi)}`, brand: `最近一次巡店 ${patrol} 分`, ops: `完成率 ${st.rate ?? '-'}% · 合格率 ${st.pass_rate ?? '-'}% · 整改逾期 ${st.rect_late}`,
+    guest: `近 30 天差评 ${b.bad} 条`, team: `需辅导 ${coach} 人 · 证照过期 ${certBad} · 关键岗位无储备 ${bench}`, safe: `证照年检过期 ${lic.filter(x => x.status === 'bad').length} · 临期 ${lic.filter(x => x.status === 'warn').length}` };
+  const weak = STORE_DIMS.map(([k, l]) => ({ k, l, v: d[k], why: why[k] })).sort((a, b2) => a.v - b2.v).slice(0, 2);
+  const trend = [5, 4, 3, 2, 1].map(i => Math.round(total + (hash(i + 'sg' + sid) - 0.5) * 8)).concat(total).map(v => ({ v, g: sgrade(v) }));
+  return { id: sid, name: sname(sid), dims: d, total, grade: sgrade(total), axes: { biz: bx, ops: ox }, type, type_tag: STORE_TYPES[type][0], tactic: STORE_TYPES[type][1], weak, why, trend };
+}
+app.get('/api/store/:sid/profile', (req, res) => {
+  const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
+  const all = visibleStores(req.u).length > 1 || isRegion(req.u) ? q('SELECT id FROM stores WHERE region_id=?', q1('SELECT region_id FROM stores WHERE id=?', sid).region_id).map(s => storeScore(s.id)) : [storeScore(sid)];
+  all.sort((a, b) => b.total - a.total);
+  const me = all.find(x => x.id === sid); me.rank = all.indexOf(me) + 1; me.of = all.length;
+  res.json({ info: storeInfo(sid), score: me, licenses: licensesOf(sid), dim_def: STORE_DIMS, types: STORE_TYPES });
+});
+app.get('/api/region/stores', (req, res) => {
+  if (!isRegion(req.u)) return deny(res);
+  const xs = visibleStores(req.u).map(storeScore).sort((a, b) => b.total - a.total);
+  xs.forEach((x, i) => { x.rank = i + 1; x.info = storeInfo(x.id); });
+  res.json({ stores: xs, types: STORE_TYPES, dim_def: STORE_DIMS });
+});
+app.get('/api/store/:sid/biz', (req, res) => {
+  const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
+  res.json({ ...storeBiz(sid), info: storeInfo(sid), licenses: licensesOf(sid), reports: q('SELECT r.*, u.name reviewer FROM reports r LEFT JOIN users u ON u.id=r.reviewed_by WHERE r.store_id=? ORDER BY r.id DESC LIMIT 4', sid).map(r => ({ ...r, body: JSON.parse(r.body) })) });
+});
+app.get('/api/store/:sid/people', (req, res) => {
+  const sid = Number(req.params.sid);
+  if (!(canManage(req.u, sid) || (req.u.store_id === sid && LEADS[req.u.role_name]))) return deny(res);
+  const list = storePeople(req.u, sid);
+  res.json({ list, bench: canManage(req.u, sid) ? benchOf(list, sid) : [], suggests: q('SELECT h.*, u.name, u2.name replier FROM hr_suggest h JOIN users u ON u.id=h.user_id LEFT JOIN users u2 ON u2.id=h.replied_by WHERE h.store_id=? ORDER BY h.id DESC LIMIT 8', sid) });
+});
+const canPeople = (u, m) => canHR(u) || (u.level === 'ops_manager' && m.level === 'store_manager') || (m.store_id && canManage(u, m.store_id)) || leads(u, m.id);
+app.post('/api/hr/suggest', (req, res) => {
+  const m = q1(USER_SQL + ' WHERE u.id=?', req.body.user_id), { kind, note } = req.body;
+  if (!m || !(canManage(req.u, m.store_id) || leads(req.u, m.id))) return deny(res);
+  if (!kind || !(note || '').trim()) return err(res, '请选择建议类型并填写理由');
+  run('INSERT INTO hr_suggest(user_id,store_id,kind,note,created_by,created_at) VALUES(?,?,?,?,?,?)', m.id, m.store_id, kind, note.trim(), req.u.id, L.nowStr());
+  D.notify(D.regionUsers(req.u.region_id, 'hr_manager'), 'hr', `${sname(m.store_id)} ${req.u.name} 提交${kind}建议`, `${m.name}（${m.role_name}）：${note}`, '#/hrp/' + m.id);
+  D.audit(req.u.id, m.store_id, '人事建议', `${kind}：${m.name}`);
+  res.json({ ok: true });
+});
+app.post('/api/hr/suggest/:id/reply', (req, res) => {
+  const h = q1('SELECT * FROM hr_suggest WHERE id=?', req.params.id);
+  if (!h || req.u.level !== 'hr_manager') return deny(res);
+  const st = req.body.status === 'rejected' ? 'rejected' : 'approved';
+  run('UPDATE hr_suggest SET status=?, reply=?, replied_by=?, replied_at=? WHERE id=?', st, req.body.reply || '', req.u.id, L.nowStr(), h.id);
+  const m = q1('SELECT name FROM users WHERE id=?', h.user_id);
+  D.notify([h.created_by], 'hr', `人事经理已${st === 'approved' ? '同意' : '退回'}${h.kind}建议：${m.name}`, req.body.reply || '', '#/home?pl=ren');
+  res.json({ ok: true });
+});
+app.get('/api/franchise/:sid', (req, res) => {
+  const sid = Number(req.params.sid); if (!canSee(req.u, sid) || req.u.level === 'staff') return deny(res);
+  if (!isFr(sid)) return res.json({ na: true, store: sname(sid) });
+  seedOwnerReqs();
+  res.json({ ...franchiseOf(sid), reqs: q(REQ_SQL + ' WHERE o.store_id=? ORDER BY o.status=\'closed\', o.id DESC', sid) });
+});
+app.get('/api/region/franchise', (req, res) => {
+  if (!['region_manager', 'sales_manager'].includes(req.u.level)) return deny(res);
+  seedOwnerReqs();
+  const sids = visibleStores(req.u).filter(isFr);
+  res.json({ stores: sids.map(sid => { const f = franchiseOf(sid); delete f.reports; return { ...f, managers: D.storeManagers(sid).map(id => q1('SELECT name FROM users WHERE id=?', id).name), open: q1("SELECT COUNT(*) n FROM owner_reqs WHERE store_id=? AND status='open'", sid).n }; }),
+    reqs: sids.length ? q(REQ_SQL + ` WHERE o.store_id IN (${sids.map(() => '?').join(',')}) ORDER BY o.status='closed', o.status='replied', o.id DESC`, ...sids) : [] });
+});
+app.post('/api/owner-reqs', (req, res) => {
+  const b = req.body || {}; if (!canManage(req.u, b.store_id) || !isFr(b.store_id)) return deny(res);
+  if (!(b.title || '').trim()) return err(res, '请填写诉求');
+  const id = Number(run('INSERT INTO owner_reqs(store_id,kind,title,body,escalated,created_by,created_at) VALUES(?,?,?,?,?,?,?)', b.store_id, b.kind || '其他', b.title.trim(), b.body || '', b.escalate ? 1 : 0, req.u.id, L.nowStr()).lastInsertRowid);
+  if (b.escalate) D.notify(D.regionUsers(req.u.region_id, 'region_manager'), 'owner', `${sname(b.store_id)} 上报业主诉求`, b.title, '#/home?pl=fr');
+  D.audit(req.u.id, b.store_id, '业主诉求', b.title);
+  res.json({ ok: true, id });
+});
+app.post('/api/owner-reqs/:id/:op', (req, res) => {
+  const o = q1('SELECT * FROM owner_reqs WHERE id=?', req.params.id), op = req.params.op, b = req.body || {};
+  if (!o) return deny(res);
+  if (op === 'escalate' && canManage(req.u, o.store_id)) {
+    run('UPDATE owner_reqs SET escalated=1 WHERE id=?', o.id);
+    D.notify(D.regionUsers(req.u.region_id, 'region_manager'), 'owner', `${sname(o.store_id)} 上报业主诉求`, o.title, '#/home?pl=fr');
+  } else if (op === 'reply' && req.u.level === 'region_manager') {
+    if (!(b.reply || '').trim()) return err(res, '请填写回复');
+    run("UPDATE owner_reqs SET status='replied', reply=?, replied_by=?, replied_at=?, escalated=1 WHERE id=?", b.reply.trim(), req.u.id, L.nowStr(), o.id);
+    const sm = D.storeManagers(o.store_id);
+    if (b.meeting) {
+      const sc = q1('SELECT id FROM scenes ORDER BY id LIMIT 1')?.id || null;
+      run(`INSERT INTO flex_tasks(store_id,scene_id,title,standard,assignee_id,recur,recur_val,start_date,end_date,due_time,need_photo,source,created_by,created_at,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        o.store_id, sc, '【业主沟通会】' + o.title, `区域经理安排：${b.reply.trim()}\n会后上传会议纪要照片，并在诉求中更新结果。`, sm[0], 'once', null, b.meeting, b.meeting, '15:00', 1, 'flex', req.u.id, L.nowStr(), null);
+      if (b.meeting <= L.today()) D.ensureInstances(L.today(), [o.store_id]);
+    }
+    D.notify(sm, 'owner', `区域经理已回复业主诉求：${o.title}`, b.reply + (b.meeting ? `（${b.meeting} 召开业主沟通会）` : ''), '#/home?pl=fr');
+    D.audit(req.u.id, o.store_id, '回复业主诉求', o.title);
+  } else if (op === 'close' && canManage(req.u, o.store_id)) {
+    run("UPDATE owner_reqs SET status='closed', closed_at=? WHERE id=?", L.nowStr(), o.id);
+    if (o.escalated) D.notify(D.regionUsers(req.u.region_id, 'region_manager'), 'owner', `${sname(o.store_id)} 业主诉求已关闭`, o.title + (b.note ? '：' + b.note : ''), '#/home?pl=fr');
+  } else return deny(res);
+  res.json({ ok: true });
+});
+function weekReport(sid) {
+  const t = L.today(), y = L.addDays(t, -1), f = L.addDays(t, -7);
+  const st = storeStats([sid], f, y)[0], bz = storeBiz(sid), sc = storeScore(sid);
+  return { from: f, to: y, rate: st.rate, pass: st.pass_rate, overdue: st.overdue, rect_open: st.rect_open, rect_late: st.rect_late, revpar: bz.week.revpar, revpar_delta: bz.week.revpar_delta,
+    occ: bz.week.occ, adr: bz.week.adr, mpi: bz.week.mpi, bad: bz.week.bad, ach: bz.budget.ach, forecast_pct: bz.budget.forecast_pct, grade: sc.grade, total: sc.total,
+    risks: [...bz.alerts.map(a => a.text), ...sc.weak.map(w => `${w.l}偏弱：${w.why}`)].slice(0, 4) };
+}
+app.post('/api/reports', (req, res) => {
+  const sid = Number(req.body.store_id); if (req.u.level !== 'store_manager' || !canManage(req.u, sid)) return deny(res);
+  const body = { ...weekReport(sid), note: (req.body.note || '').trim() };
+  const id = Number(run('INSERT INTO reports(store_id,period,body,created_by,created_at) VALUES(?,?,?,?,?)', sid, body.from + '~' + body.to, JSON.stringify(body), req.u.id, L.nowStr()).lastInsertRowid);
+  D.notify(D.regionUsers(req.u.region_id, 'region_manager'), 'report', `${sname(sid)} 店长周报已提交`, `完成率 ${body.rate ?? '-'}% · RevPAR ${body.revpar}（${sgn(body.revpar_delta)}）`, '#/report/' + id);
+  D.audit(req.u.id, sid, '提交周报', body.from + '~' + body.to);
+  res.json({ ok: true, id });
+});
+app.get('/api/reports/:id', (req, res) => {
+  const r = q1('SELECT r.*, s.name store, u.name creator, v.name reviewer FROM reports r JOIN stores s ON s.id=r.store_id LEFT JOIN users u ON u.id=r.created_by LEFT JOIN users v ON v.id=r.reviewed_by WHERE r.id=?', req.params.id);
+  if (!r || !canSee(req.u, r.store_id) || req.u.level === 'staff') return deny(res);
+  res.json({ ...r, body: JSON.parse(r.body) });
+});
+app.post('/api/reports/:id/review', (req, res) => {
+  const r = q1('SELECT * FROM reports WHERE id=?', req.params.id);
+  if (!r || req.u.level !== 'region_manager') return deny(res);
+  run("UPDATE reports SET status='reviewed', comment=?, reviewed_by=?, reviewed_at=? WHERE id=?", req.body.comment || '已阅', req.u.id, L.nowStr(), r.id);
+  D.notify([r.created_by], 'report', '区域经理已批复周报', req.body.comment || '已阅', '#/report/' + r.id);
+  res.json({ ok: true });
+});
+app.get('/api/inbox', (req, res) => {
+  const u = req.u, t = L.today(), hm = L.nowHM(), out = [], add = (tag, lv, title, sub, link, act) => out.push({ tag, lv, title, sub, link, act });
+  const sids = visibleStores(u), sid = Number(req.query.store) || sids[0];
+  if (u.level === 'staff') {
+    const od = q("SELECT id,title,due_time FROM instances WHERE assignee_id=? AND date=? AND status='pending' AND due_time<? ORDER BY due_time", u.id, t, hm);
+    od.slice(0, 3).forEach(x => add('超时', 'bad', x.title, `应于 ${x.due_time} 完成`, '#/task/' + x.id));
+    q("SELECT task, deadline FROM rectifications WHERE assignee_id=? AND status='open' ORDER BY deadline LIMIT 3", u.id).forEach(x => add('整改', x.deadline < t ? 'bad' : 'warn', x.task, '截止 ' + x.deadline, '#/my-rect'));
+    q("SELECT title FROM notifications WHERE user_id=? AND read=0 AND kind IN ('assign','cover') ORDER BY id DESC LIMIT 2", u.id).forEach(x => add('新任务', 'acc', x.title, '', '#/my'));
+  }
+  if (u.level === 'staff' && LEADS[u.role_name] && u.store_id) {
+    const ids = teamOf(u, u.store_id).map(x => x.id);
+    if (ids.length) { const n = q1(`SELECT COUNT(*) n FROM instances WHERE date=? AND status='done' AND check_result IS NULL AND assignee_id IN (${ids.map(() => '?').join(',')})`, t, ...ids).n; if (n) add('待点评', 'warn', `下级今日已完成 ${n} 项待点评`, '', '#/must'); }
+  }
+  if (u.level === 'store_manager' && sid) {
+    const fx = q("SELECT i.id, i.title FROM instances i WHERE i.store_id=? AND i.date=? AND i.origin='focus' AND i.status='pending'", sid, t);
+    if (fx.length) add('上级安排', 'bad', `重点跟踪今日待落实 ${fx.length} 项`, fx[0].title, '#/upper');
+    const ck = q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND status='done' AND check_result IS NULL", sid, t).n;
+    if (ck) add('待点评', 'warn', `今日已完成 ${ck} 项待点评`, '', '#/must');
+    const rv = q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status='submitted'", sid).n;
+    if (rv) add('待复查', 'warn', `整改已提交待复查 ${rv} 项`, '', '#/rect');
+    q("SELECT * FROM patrols WHERE store_id=? AND status='planned' ORDER BY planned_date LIMIT 1", sid).forEach(p => add('巡店', 'acc', `区域经理 ${p.planned_date} 巡店`, p.reason || '例行巡店', '#/patrol/' + p.id));
+    licensesOf(sid).filter(x => x.status !== 'ok').slice(0, 2).forEach(x => add('证照', x.status, `${x.name}${x.days < 0 ? '已过期' : x.days + ' 天后到期'}`, '到期日 ' + x.expire, '#/home?pl=biz&store=' + sid));
+    if (isFr(sid)) { seedOwnerReqs(); q("SELECT * FROM owner_reqs WHERE store_id=? AND status='replied'", sid).forEach(o => add('区域回复', 'acc', o.title, '区域经理已回复，确认后关闭', '#/home?pl=fr&store=' + sid)); }
+    q("SELECT h.*, m.name FROM hr_suggest h JOIN users m ON m.id=h.user_id WHERE h.store_id=? AND h.status!='open' AND h.replied_at>=?", sid, L.addDays(t, -7) + ' 00:00').forEach(h => add('人事回复', h.status === 'approved' ? 'ok' : 'warn', `${h.name} ${h.kind}建议${h.status === 'approved' ? '已同意' : '被退回'}`, h.reply || '', '#/home?pl=ren&store=' + sid));
+    q("SELECT * FROM reports WHERE store_id=? AND status='reviewed' AND reviewed_at>=?", sid, L.addDays(t, -7) + ' 00:00').forEach(r => add('周报批复', 'ok', `周报 ${r.period} 已批复`, r.comment, '#/report/' + r.id));
+    const lw = q1('SELECT MAX(created_at) at FROM reports WHERE store_id=?', sid).at;
+    if (!lw || lw < L.addDays(t, -6)) add('周报', 'acc', '本周周报未提交', '系统已汇总好数据，一键提交区域经理', '#/home?pl=biz&store=' + sid, 'report');
+  }
+  if (u.level === 'region_manager') {
+    seedOwnerReqs();
+    q(REQ_SQL + " WHERE o.escalated=1 AND o.status='open' ORDER BY o.id DESC").forEach(o => add('业主诉求', 'bad', `${o.store}：${o.title}`, (o.body || '').slice(0, 40), '#/home?pl=fr', 'req:' + o.id));
+    q("SELECT r.*, s.name store FROM reports r JOIN stores s ON s.id=r.store_id WHERE r.status='submitted' ORDER BY r.id DESC").forEach(r => add('周报', 'warn', `${r.store} 店长周报待批复`, r.period, '#/report/' + r.id));
+    q("SELECT p.*, s.name store FROM patrols p JOIN stores s ON s.id=p.store_id WHERE p.status='planned' AND p.planned_date<=? ORDER BY p.planned_date", L.addDays(t, 2)).forEach(p => add('巡店', 'acc', `${p.planned_date} 巡店 ${p.store}`, p.reason || '', '#/patrol/' + p.id));
+    sids.filter(isFr).forEach(s => franchiseOf(s).alerts.filter(a => a.level === 'high').forEach(a => add(a.type, 'bad', `${sname(s)}：${a.text}`, '', '#/home?pl=fr')));
+  }
+  if (u.level === 'ops_manager') {
+    q("SELECT r.task, r.deadline, s.name store FROM rectifications r JOIN stores s ON s.id=r.store_id WHERE r.status='open' AND r.deadline<? ORDER BY r.deadline LIMIT 4", t).forEach(r => add('整改逾期', 'bad', `${r.store}：${r.task}`, '截止 ' + r.deadline, '#/rect?st=late'));
+    q("SELECT title, body FROM notifications WHERE user_id=? AND kind='focus' AND read=0 ORDER BY id DESC LIMIT 3", u.id).forEach(n => add('指派跟进', 'warn', n.title, n.body, '#/notices'));
+  }
+  if (u.level === 'sales_manager') {
+    sids.forEach(s => storeBiz(s).alerts.filter(a => a.type !== '差评集中').slice(0, 1).forEach(a => add(a.type, a.level === 'high' ? 'bad' : 'warn', `${sname(s)}：${a.text}`, '', '#/home?pl=biz')));
+    q("SELECT title, body FROM notifications WHERE user_id=? AND kind='focus' AND read=0 ORDER BY id DESC LIMIT 3", u.id).forEach(n => add('指派跟进', 'warn', n.title, n.body, '#/notices'));
+  }
+  if (u.level === 'hr_manager') {
+    const hi = q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level IN ('staff','store_manager')", u.region_id).map(hrSummary).filter(x => x.alerts.some(a => a.level === 'high'));
+    if (hi.length) add('人员预警', 'bad', `${hi.length} 人有高风险预警`, hi.slice(0, 3).map(x => x.name).join('、'), '#/home?pl=ren');
+    q("SELECT h.*, m.name, m2.name creator, s.name store FROM hr_suggest h JOIN users m ON m.id=h.user_id JOIN users m2 ON m2.id=h.created_by LEFT JOIN stores s ON s.id=h.store_id WHERE h.status='open' ORDER BY h.id DESC").forEach(h => add(h.kind + '建议', 'warn', `${h.store} ${h.name}`, `${h.creator}：${h.note}`, '#/hrp/' + h.user_id, 'sugg:' + h.id));
+    q("SELECT title, body FROM notifications WHERE user_id=? AND kind='focus' AND read=0 ORDER BY id DESC LIMIT 3", u.id).forEach(n => add('指派跟进', 'warn', n.title, n.body, '#/notices'));
+  }
+  res.json(out);
 });
 
 // ---------- patrols ----------
