@@ -52,12 +52,12 @@ function savePhoto(dataUrl) {
 }
 
 const INST_SQL = `SELECT i.*, s.name AS scene_name, st.name AS store_name, a.name AS assignee_name, ar.name AS assignee_role,
-  o.name AS orig_name, c.name AS checker_name,
+  o.name AS orig_name, c.name AS checker_name, tp.code, tp.tag, tp.score AS tscore, tp.m, tp.l, tp.f, tp.sub, tp.need_value,
   (SELECT id FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_id,
   (SELECT status FROM rectifications WHERE instance_id=i.id ORDER BY id DESC LIMIT 1) AS rect_status,
   CASE WHEN i.src='tpl' THEN (SELECT freq FROM templates WHERE id=i.src_id) ELSE (SELECT recur FROM flex_tasks WHERE id=i.src_id) END AS freq
   FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=i.store_id
-  LEFT JOIN users a ON a.id=i.assignee_id LEFT JOIN roles ar ON ar.id=a.role_id LEFT JOIN users o ON o.id=i.orig_assignee_id LEFT JOIN users c ON c.id=i.checked_by`;
+  LEFT JOIN users a ON a.id=i.assignee_id LEFT JOIN roles ar ON ar.id=a.role_id LEFT JOIN users o ON o.id=i.orig_assignee_id LEFT JOIN users c ON c.id=i.checked_by LEFT JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id`;
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
   return rows.map(r => ({ ...r, overdue: r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
@@ -80,7 +80,7 @@ app.get('/api/meta', (req, res) => {
     roles: q('SELECT * FROM roles ORDER BY sort, id'),
     stores: q(`SELECT * FROM stores WHERE id IN (${ph}) ORDER BY id`, ...sids),
     users: q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${ph}) OR u.id IN (SELECT user_id FROM user_stores WHERE store_id IN (${ph}))) ORDER BY r.sort, u.id`, ...sids, ...sids),
-    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), patrol_checklist: D.getSetting('patrol_checklist', []) },
+    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
   });
 });
 
@@ -118,7 +118,10 @@ app.post('/api/instances/:id/complete', (req, res) => {
   if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id)) return deny(res, '只能完成分配给自己的任务');
   const photo = savePhoto(req.body.photo) || it.photo;
   if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
-  run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=? WHERE id=?", L.nowStr(), req.body.note || '', photo, it.id);
+  const tpl = it.src === 'tpl' ? q1('SELECT need_value FROM templates WHERE id=?', it.src_id) : null;
+  const reading = (req.body.reading || '').trim();
+  if (tpl && tpl.need_value && !reading) return err(res, '该任务需要填写计量读数');
+  run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=?, reading=? WHERE id=?", L.nowStr(), req.body.note || '', photo, reading || null, it.id);
   D.audit(req.u.id, it.store_id, '完成任务', it.title);
   res.json({ ok: true });
 });
@@ -411,6 +414,13 @@ app.get('/api/brief', (req, res) => {
     const unchecked = q1(`SELECT COUNT(*) n FROM instances i WHERE i.date=? AND i.status='done' AND i.check_result IS NULL${sc.w}`, t, ...sc.p).n;
     if (unchecked && !sc.cat) items.push({ level: 'acc', title: `今日 ${unchecked} 项已完成待抽查`, body: '建议随机抽查 3-5 项，合格的给予肯定，不合格的写明原因并安排整改。', link: '#/desk' });
   }
+  const zero = q(`SELECT i.title, tp.code FROM instances i JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id WHERE i.date BETWEEN ? AND ? AND tp.tag='清零项'
+    AND ((i.status='pending' AND i.date<?) OR i.check_result='bad')${sc.w}`, from, to, t, ...sc.p);
+  if (zero.length) items.unshift({ level: 'bad', title: `清零项未达标 ${zero.length} 项`, body: `品牌审计第 ${zero.slice(0, 3).map(z => z.code).join('、')} 条「${zero[0].title}」${zero.length > 1 ? '等' : ''}${label}未完成或抽查不合格，审计中触发即整店清零，请优先处理。`, link: '#/standards?tag=' + encodeURIComponent('清零项') });
+  if (!sc.mine && !sc.cat) {
+    const rv = q1(`SELECT COUNT(*) n FROM instances i JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id WHERE i.date BETWEEN ? AND ? AND tp.m='M2' AND i.status='done' AND i.check_result IS NULL${sc.w}`, L.addDays(t, -2), t, ...sc.p).n;
+    if (rv) items.push({ level: 'acc', title: `M2 待店长复查 ${rv} 项`, body: '「下级做 + 店长复查」类品牌标准需要店长逐条复查，合格给予肯定，不合格写明原因并下发整改。', link: '#/tasks?m=M2&st=unchecked' });
+  }
   const focus = q(`SELECT title, id FROM flex_tasks WHERE store_id=? AND source='focus' AND active=1 AND (end_date IS NULL OR end_date>=?)`, sc.sid, t);
   for (const f of focus.slice(0, 2)) {
     const r = q1(`SELECT COUNT(*) total, SUM(status='done') done FROM instances WHERE src='flex' AND src_id=? AND date BETWEEN ? AND ?`, f.id, L.addDays(t, -7), y);
@@ -439,6 +449,31 @@ app.get('/api/brief', (req, res) => {
   res.json({ mode: week ? 'week' : 'day', from, to, ops, biz });
 });
 const S_FOCUS = u => (['region_manager', 'ops_manager', 'store_manager'].includes(u.level) ? '#/focus' : '#/home');
+
+// ---------- brand standards (品牌审计 M-L-F) ----------
+app.get('/api/standards', (req, res) => {
+  const sids = visibleStores(req.u);
+  const sid = Number(req.query.store) || sids[0];
+  if (sid && !sids.includes(sid)) return deny(res);
+  const t = L.today(), from = L.addDays(t, -14);
+  const rows = q(`SELECT tp.*, r.name role_name, s.name scene_name, s.sort scene_sort,
+      (SELECT COUNT(*) FROM instances i WHERE i.src='tpl' AND i.src_id=tp.id AND i.store_id=? AND i.date BETWEEN ? AND ?) n_total,
+      (SELECT COUNT(*) FROM instances i WHERE i.src='tpl' AND i.src_id=tp.id AND i.store_id=? AND i.date BETWEEN ? AND ? AND i.status='done') n_done,
+      (SELECT COUNT(*) FROM instances i WHERE i.src='tpl' AND i.src_id=tp.id AND i.store_id=? AND i.date BETWEEN ? AND ? AND i.check_result='bad') n_bad,
+      (SELECT result FROM patrol_items pi JOIN patrols p ON p.id=pi.patrol_id WHERE pi.code=tp.code AND p.store_id=? AND p.status='done' ORDER BY p.done_at DESC LIMIT 1) last_patrol
+    FROM templates tp LEFT JOIN roles r ON r.id=tp.role_id LEFT JOIN scenes s ON s.id=tp.scene_id WHERE tp.src='audit' ORDER BY tp.code`,
+    sid, from, L.addDays(t, -1), sid, from, L.addDays(t, -1), sid, from, L.addDays(t, -1), sid);
+  res.json({ store: sid, from, rows });
+});
+app.get('/api/feed', (req, res) => {
+  const sids = visibleStores(req.u);
+  const sid = Number(req.query.store) || sids[0];
+  if (!sids.includes(sid)) return deny(res);
+  const date = req.query.date || L.today();
+  D.ensureInstances(date, [sid]);
+  const rows = decorate(q(INST_SQL + " WHERE i.store_id=? AND i.date=? AND tp.f LIKE '%F4%' ORDER BY i.status='done' DESC, i.done_at DESC, i.due_time", sid, date));
+  res.json({ store: sid, date, rows });
+});
 
 // ---------- dashboard & issues ----------
 function storeStats(sids, from, to, cat) {
@@ -539,17 +574,25 @@ app.post('/api/patrols', (req, res) => {
 app.post('/api/patrols/:id/complete', (req, res) => {
   const p = q1('SELECT * FROM patrols WHERE id=?', req.params.id);
   if (!p || req.u.level !== 'region_manager') return deny(res);
-  const items = req.body.items || [];
-  const scenes = q('SELECT * FROM scenes');
+  const res0 = req.body.results || {};
+  const tpls = q("SELECT * FROM templates WHERE src='audit' AND active=1 ORDER BY code");
+  let earned = 0, max = 0, zero = [];
   D.tx(() => {
     run('DELETE FROM patrol_items WHERE patrol_id=?', p.id);
-    for (const it of items) run('INSERT INTO patrol_items(patrol_id,scene_id,item,score,max,comment) VALUES(?,?,?,?,?,?)', p.id,
-      scenes.find(s => s.name === it.scene)?.id || null, it.item, Number(it.score) || 0, Number(it.max) || 0, it.comment || '');
-    const total = items.reduce((a, i) => a + (Number(i.score) || 0), 0);
-    const max = items.reduce((a, i) => a + (Number(i.max) || 0), 0) || 100;
-    run("UPDATE patrols SET status='done', score=?, summary=?, done_at=? WHERE id=?", Math.round(total * 100 / max), req.body.summary || '', L.nowStr(), p.id);
+    for (const t of tpls) {
+      const r = res0[t.code] || {};
+      const result = ['pass', 'fail', 'na'].includes(r.result) ? r.result : 'pass';
+      const mx = /^\d+$/.test(t.score) ? Number(t.score) : 0;
+      if (result === 'fail' && !(r.comment || '').trim()) throw new Error(`第 ${t.code} 条「${t.title}」不达标，请写明问题`);
+      if (result !== 'na') { max += mx; if (result === 'pass') earned += mx; }
+      if (result === 'fail' && t.tag === '清零项') zero.push(t.code);
+      run('INSERT INTO patrol_items(patrol_id,scene_id,item,score,max,comment,code,tag,result) VALUES(?,?,?,?,?,?,?,?,?)', p.id, t.scene_id, t.title,
+        result === 'pass' ? mx : 0, mx, r.comment || '', t.code, t.tag, result);
+    }
+    const score = zero.length ? 0 : Math.round(earned * 100 / (max || 1));
+    run("UPDATE patrols SET status='done', score=?, summary=?, done_at=? WHERE id=?", score, req.body.summary || '', L.nowStr(), p.id);
   });
-  D.notify([...D.storeManagers(p.store_id), ...D.regionUsers(req.u.region_id, 'ops_manager')], 'patrol', '巡店报告已出', req.body.summary || '', '#/patrol/' + p.id);
+  D.notify([...D.storeManagers(p.store_id), ...D.regionUsers(req.u.region_id, 'ops_manager')], 'patrol', zero.length ? '巡店报告：触发清零项' : '巡店报告已出', req.body.summary || '', '#/patrol/' + p.id);
   D.audit(req.u.id, p.store_id, '完成巡店', req.body.summary || '');
   res.json({ ok: true });
 });
@@ -582,6 +625,7 @@ app.post('/api/templates', onlyRM, (req, res) => {
   if (!(b.title || '').trim() || !b.scene_id || !b.role_id || !b.due_time) return err(res, '请填写完整');
   const vals = [b.scene_id, b.role_id, b.title.trim(), b.standard || '', b.due_time, b.freq || 'daily', b.freq_val || null, b.category || 'ops', b.need_photo ? 1 : 0, b.active === 0 ? 0 : 1];
   if (b.id) run('UPDATE templates SET scene_id=?,role_id=?,title=?,standard=?,due_time=?,freq=?,freq_val=?,category=?,need_photo=?,active=? WHERE id=?', ...vals, b.id);
+  if (b.id && b.m) run('UPDATE templates SET m=?, f=?, need_value=? WHERE id=?', b.m, b.f || 'F1', b.need_value ? 1 : 0, b.id);
   else run('INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo,active) VALUES(?,?,?,?,?,?,?,?,?,?)', ...vals);
   if (b.id && b.active === 0) run("DELETE FROM instances WHERE src='tpl' AND src_id=? AND date>=? AND status='pending'", b.id, L.today());
   D.audit(req.u.id, null, b.id ? '修改固定工作' : '新增固定工作', b.title);

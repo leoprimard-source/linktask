@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT, role_id INTE
 CREATE TABLE IF NOT EXISTS user_stores(user_id INTEGER, store_id INTEGER, PRIMARY KEY(user_id, store_id));
 CREATE TABLE IF NOT EXISTS scenes(id INTEGER PRIMARY KEY, name TEXT, sort INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS templates(id INTEGER PRIMARY KEY, scene_id INTEGER, role_id INTEGER, title TEXT, standard TEXT,
-  due_time TEXT, freq TEXT DEFAULT 'daily', freq_val INTEGER, category TEXT DEFAULT 'ops', need_photo INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
+  due_time TEXT, freq TEXT DEFAULT 'daily', freq_val INTEGER, category TEXT DEFAULT 'ops', need_photo INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
+  src TEXT DEFAULT 'std', code TEXT, area TEXT, sub TEXT, score TEXT, tag TEXT, m TEXT, l TEXT, f TEXT, need_value INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS assignments(store_id INTEGER, template_id INTEGER, user_id INTEGER, PRIMARY KEY(store_id, template_id));
 CREATE TABLE IF NOT EXISTS scene_owners(store_id INTEGER, scene_id INTEGER, user_id INTEGER, PRIMARY KEY(store_id, scene_id));
 CREATE TABLE IF NOT EXISTS leaves(id INTEGER PRIMARY KEY, user_id INTEGER, date TEXT, cover_user_id INTEGER, note TEXT, created_by INTEGER, UNIQUE(user_id, date));
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS flex_tasks(id INTEGER PRIMARY KEY, store_id INTEGER, 
 CREATE TABLE IF NOT EXISTS instances(id INTEGER PRIMARY KEY, store_id INTEGER, date TEXT, src TEXT, src_id INTEGER, scene_id INTEGER, title TEXT,
   standard TEXT, category TEXT, origin TEXT, assignee_id INTEGER, orig_assignee_id INTEGER, due_time TEXT, need_photo INTEGER DEFAULT 0,
   status TEXT DEFAULT 'pending', done_at TEXT, done_note TEXT, photo TEXT, check_result TEXT, check_comment TEXT, checked_by INTEGER, checked_at TEXT,
-  escalated INTEGER DEFAULT 0, UNIQUE(src, src_id, store_id, date));
+  escalated INTEGER DEFAULT 0, reading TEXT, UNIQUE(src, src_id, store_id, date));
 CREATE INDEX IF NOT EXISTS idx_inst_date ON instances(date, store_id);
 CREATE INDEX IF NOT EXISTS idx_inst_user ON instances(assignee_id, date);
 CREATE TABLE IF NOT EXISTS rectifications(id INTEGER PRIMARY KEY, instance_id INTEGER, store_id INTEGER, assignee_id INTEGER, reason TEXT, training TEXT,
@@ -38,9 +39,16 @@ CREATE TABLE IF NOT EXISTS reminder_log(date TEXT, time TEXT, PRIMARY KEY(date, 
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS patrols(id INTEGER PRIMARY KEY, store_id INTEGER, planned_date TEXT, reason TEXT, status TEXT DEFAULT 'planned',
   score INTEGER, summary TEXT, created_by INTEGER, created_at TEXT, done_at TEXT);
-CREATE TABLE IF NOT EXISTS patrol_items(id INTEGER PRIMARY KEY, patrol_id INTEGER, scene_id INTEGER, item TEXT, score INTEGER, max INTEGER, comment TEXT);
+CREATE TABLE IF NOT EXISTS patrol_items(id INTEGER PRIMARY KEY, patrol_id INTEGER, scene_id INTEGER, item TEXT, score INTEGER, max INTEGER, comment TEXT,
+  code TEXT, tag TEXT, result TEXT);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT, user_id INTEGER, store_id INTEGER, action TEXT, detail TEXT);
 `);
+
+for (const [t, c] of [['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
+  ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
+  ['instances', 'reading TEXT'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT']]) {
+  try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
+}
 
 const q = (sql, ...p) => db.prepare(sql).all(...p);
 const q1 = (sql, ...p) => db.prepare(sql).get(...p);

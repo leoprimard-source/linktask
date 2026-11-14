@@ -1,6 +1,7 @@
 const D = require('./db');
 const L = require('./lib');
 const { q, q1, run, tx } = D;
+const A = require('./audit');
 
 function rnd(seed) { let s = seed; return () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; }; }
 
@@ -10,7 +11,7 @@ const ROLES = [
   ['客房经理', 'staff'], ['客房高级', 'staff'], ['客房中级', 'staff'], ['客房初级', 'staff'],
   ['餐厅厨师', 'staff'], ['工程', 'staff'], ['PA', 'staff'], ['保安', 'staff'],
 ];
-const SCENES = ['前台', '餐厅', '客房', '公区', '外围', '后场'];
+const SCENES = A.SCENES;
 // [scene, role, title, standard, due, freq, freq_val, category, photo]
 const TPLS = [
   ['前台', '店长', '店长晨会及当日工作分配', '09:00 前完成晨会，明确当日各场景负责人与重点事项，记录到交班本', '09:15', 'daily', null, 'ops', 0],
@@ -58,14 +59,24 @@ const NAMES = ['张伟', '王芳', '李娜', '刘强', '陈静', '杨磊', '黄�
   '胡军', '郭洁', '何勇', '高燕', '林涛', '罗佳', '郑浩', '梁雪', '谢斌', '宋颖', '唐亮', '韩梅', '冯凯', '曹雨',
   '彭飞', '曾慧', '董鹏', '萧然', '田甜', '袁博', '潘悦', '蒋帆', '蔡琴', '余晨', '杜宇', '叶青'];
 
+function importAudit() {
+  if (q1("SELECT 1 FROM templates WHERE src='audit'")) return;
+  tx(() => {
+    for (const n of SCENES) if (!q1('SELECT 1 FROM scenes WHERE name=?', n)) run('INSERT INTO scenes(name,sort) VALUES(?,?)', n, q1('SELECT COALESCE(MAX(sort),0)+1 m FROM scenes').m);
+    const id = (t, n) => q1(`SELECT id FROM ${t} WHERE name=?`, n)?.id || null;
+    for (const c of A.CLAUSES) run(`INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo,src,code,area,sub,score,tag,m,l,f,need_value)
+      VALUES(?,?,?,?,?,?,?,'ops',?,'audit',?,?,?,?,?,?,?,?,?)`, id('scenes', c.scene), id('roles', c.role), c.item, c.standard, c.due_time, c.freq, c.freq_val, c.need_photo,
+      c.code, c.area, c.sub, c.score, c.tag, c.m, c.l, c.f, c.need_value);
+  });
+}
+
 function seed() {
-  if (q1('SELECT 1 FROM regions')) return false;
+  if (q1('SELECT 1 FROM regions')) { importAudit(); return false; }
   const T = L.today();
   const r = rnd(42);
   tx(() => {
     D.setSetting('reminder_times', ['10:00', '15:00', '21:00']);
     D.setSetting('escalate_minutes', 30);
-    D.setSetting('patrol_checklist', CHECKLIST);
     run("INSERT INTO regions(id,name) VALUES(1,'华东一区')");
     const stores = [[1, '上海虹桥店', 'SH-HQ', '上海市闵行区申长路 88 号'], [2, '上海静安店', 'SH-JA', '上海市静安区南京西路 1266 号'], [3, '杭州西湖店', 'HZ-XH', '杭州市西湖区北山街 25 号']];
     for (const s of stores) run('INSERT INTO stores(id,region_id,name,code,address) VALUES(?,1,?,?,?)', ...s);
@@ -75,6 +86,9 @@ function seed() {
     const sid = n => q1('SELECT id FROM scenes WHERE name=?', n).id;
     for (const t of TPLS) run('INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo) VALUES(?,?,?,?,?,?,?,?,?)',
       sid(t[0]), rid(t[1]), t[2], t[3], t[4], t[5], t[6], t[7], t[8]);
+    for (const c of A.CLAUSES) run(`INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo,src,code,area,sub,score,tag,m,l,f,need_value)
+      VALUES(?,?,?,?,?,?,?,'ops',?,'audit',?,?,?,?,?,?,?,?,?)`, sid(c.scene), rid(c.role), c.item, c.standard, c.due_time, c.freq, c.freq_val, c.need_photo,
+      c.code, c.area, c.sub, c.score, c.tag, c.m, c.l, c.f, c.need_value);
     const addUser = (name, role, store) => Number(run('INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES(?,?,1,?,?)', name, rid(role), store, '138' + String(10000000 + Math.floor(r() * 89999999))).lastInsertRowid);
     addUser('王建国', '区域经理', null);
     addUser('李敏', '运营经理', null);
@@ -85,7 +99,7 @@ function seed() {
     let ni = 0;
     for (const s of [1, 2, 3]) for (const [role] of STAFF) addUser(NAMES[ni++ % NAMES.length], role, s);
     // scene owners: 前台→前台经理, 餐厅→厨师, 客房→客房经理, 公区→店助, 外围→保安, 后场→工程
-    const ownerRole = { 前台: '前台经理', 餐厅: '餐厅厨师', 客房: '客房经理', 公区: '店助', 外围: '保安', 后场: '工程' };
+    const ownerRole = { 前台: '前台经理', 餐厅: '餐厅厨师', 客房: '客房经理', 公区: '店助', 外围: '保安', 后场: '工程', 营业功能区: '客房经理' };
     for (const s of [1, 2, 3]) for (const sc of SCENES) {
       const u = q1('SELECT id FROM users WHERE store_id=? AND role_id=?', s, rid(ownerRole[sc]));
       run('INSERT INTO scene_owners VALUES(?,?,?)', s, sid(sc), u.id);
@@ -99,12 +113,17 @@ function seed() {
     const chef3 = q1('SELECT id FROM users WHERE store_id=3 AND role_id=?', rid('餐厅厨师')).id;
     const p1 = Number(run("INSERT INTO patrols(store_id,planned_date,reason,status,score,summary,created_by,created_at,done_at) VALUES(3,?,?, 'done', 78, ?, 1, ?, ?)",
       L.addDays(T, -6), '近 7 日完成率偏低，早餐投诉 2 起', '早餐 8:20 左右热菜断档 2 个品种，补餐不及时；OK 房抽查 2 间卫生间有毛发。', L.addDays(T, -8) + ' 10:00', L.addDays(T, -6) + ' 11:30').lastInsertRowid);
-    const scores = [9, 9, 8, 9, 10, 8, 9, 5, 11];
-    CHECKLIST.forEach(([sc, item, max], i) => {
-      const s = [10, 9, 8, 9, 10, 8, 9, 5, 10][i];
-      const comment = i === 2 ? '8:20 热菜断档 2 个品种' : i === 4 ? '2 间卫生间有毛发' : '';
-      run('INSERT INTO patrol_items(patrol_id,scene_id,item,score,max,comment) VALUES(?,?,?,?,?,?)', p1, sid(sc), item, i === 2 ? 8 : i === 4 ? 10 : Math.min(scores[i], max), max, comment);
-    });
+    const FAILS = { '020': '8:20 热菜断档 2 个品种，补餐不及时', '019': '特色品种未按标准出品', '029': '抽查 2 间 OK 房卫生间有毛发', '101': '早餐高峰地面有残渣未及时清理',
+      '047': '1 间客房一次性用品缺牙刷', '119': '早餐宣传牌信息过期' };
+    const NA = new Set(['049', '113', '201']);
+    let earned = 0, maxSum = 0;
+    for (const c of A.CLAUSES) {
+      const result = NA.has(c.code) ? 'na' : FAILS[c.code] ? 'fail' : 'pass';
+      if (result !== 'na') { maxSum += c.max; if (result === 'pass') earned += c.max; }
+      run('INSERT INTO patrol_items(patrol_id,scene_id,item,score,max,comment,code,tag,result) VALUES(?,?,?,?,?,?,?,?,?)', p1, sid(c.scene), c.item,
+        result === 'pass' ? c.max : 0, c.max, FAILS[c.code] || '', c.code, c.tag, result);
+    }
+    run('UPDATE patrols SET score=? WHERE id=?', Math.round(earned * 100 / maxSum), p1);
     run("INSERT INTO flex_tasks(store_id,scene_id,title,standard,assignee_id,recur,start_date,end_date,due_time,need_photo,source,created_by,created_at,ref) VALUES(3,?,?,?,?,'daily',?,?,'09:00',1,'focus',?,?,?)",
       sid('餐厅'), '【重点跟踪】每日 9:00 早餐不断档检查', '9:00 拍照上传早餐台全景，所有热菜、主食剩余量不低于 1/3', chef3, L.addDays(T, -5), L.addDays(T, 24), rm, L.addDays(T, -6) + ' 12:00', 'patrol:' + p1);
     run("INSERT INTO patrols(store_id,planned_date,reason,status,created_by,created_at) VALUES(3,?,?,'planned',1,?)", L.addDays(T, 2), '复查早餐断档整改效果', L.addDays(T, -1) + ' 18:00');
@@ -129,6 +148,8 @@ function seed() {
   run('INSERT INTO leaves(user_id,date,cover_user_id,note,created_by) VALUES(?,?,?,?,4)', u2, T, c2, '病假');
   // history: last 14 days
   const storeQuality = { 1: 0.93, 2: 0.88, 3: 0.74 };
+  const tplInfo = Object.fromEntries(q('SELECT id, m, need_value FROM templates').map(t => [t.id, t]));
+  const CHECK_RATE = { M1: 0, M2: 0.9, M3: 0.25, M4: 0.3 };
   for (let d = -14; d <= 0; d++) {
     const date = L.addDays(T, d);
     D.ensureInstances(date);
@@ -143,7 +164,8 @@ function seed() {
           const late = r() < 0.15 ? 25 : -Math.floor(r() * 20);
           const doneAt = date + ' ' + L.addMinutes(it.due_time, late);
           let check = null, comment = null, by = null;
-          if (r() < 0.25) {
+          const ti = it.src === 'tpl' ? tplInfo[it.src_id] : null;
+          if (r() < (ti && ti.m ? CHECK_RATE[ti.m] : 0.25)) {
             const bad = r() < (it.store_id === 3 ? 0.3 : 0.1);
             check = bad ? 'bad' : 'good';
             comment = bad ? '未达标准：' + (it.need_photo ? '照片显示现场不达标' : '记录不完整') : '执行到位，继续保持';
@@ -151,6 +173,8 @@ function seed() {
           }
           run("UPDATE instances SET status='done', done_at=?, done_note=?, check_result=?, check_comment=?, checked_by=?, checked_at=? WHERE id=?",
             doneAt, r() < 0.3 ? '已按标准完成' : '', check, comment, by, check ? date + ' 17:30' : null, it.id);
+          if (it.need_photo) run("UPDATE instances SET photo='/demo-photo.svg' WHERE id=?", it.id);
+          if (ti && ti.need_value) run('UPDATE instances SET reading=? WHERE id=?', `巡检 ${12 + Math.floor(r() * 6)} 个点位，异常 ${r() < 0.15 ? 1 : 0} 处`, it.id);
           if (check === 'bad') {
             const dl = L.addDays(date, 3);
             const closed = dl < T && r() < 0.7;
@@ -167,13 +191,13 @@ function seed() {
   // today: early tasks done
   const now = L.nowHM();
   const todayRows = q("SELECT * FROM instances WHERE date=? AND due_time<?", T, now);
-  tx(() => { for (const it of todayRows) if (r() < storeQuality[it.store_id]) run("UPDATE instances SET status='done', done_at=? WHERE id=?", T + ' ' + L.addMinutes(it.due_time, -5), it.id); });
+  tx(() => { for (const it of todayRows) if (r() < storeQuality[it.store_id]) run("UPDATE instances SET status='done', done_at=?, photo=CASE WHEN need_photo=1 THEN '/demo-photo.svg' END WHERE id=?", T + ' ' + L.addMinutes(it.due_time, -5), it.id); });
   D.refreshPending(1); D.refreshPending(2);
   run('UPDATE instances SET escalated=1 WHERE date<=?', T);
   run('UPDATE rectifications SET escalated=1');
   D.notify([4], 'escalate', '超时升级：早餐补餐巡检（不断档）', '上海静安店 应于 08:00 完成，已超时 30 分钟以上。', '#/tasks?store=2');
   D.notify([5], 'escalate', '整改逾期：杭州西湖店', '按标准重新执行并拍照上传（已过截止日期）', '#/rect');
-  D.notify([1, 2], 'system', '欢迎使用宏图计划', '这是演示数据：3 家门店、近 14 天的任务记录、1 次已完成巡店和 1 个重点跟踪任务。', '#/dash');
+  D.notify([1, 2], 'system', '欢迎使用宏图计划', '这是演示数据：3 家门店、近 14 天的任务记录（已融合品牌审计 202 条 M-L-F 分解）、1 次已完成巡店和 1 个重点跟踪任务。', '#/standards');
   D.audit(1, null, '初始化', '载入演示数据');
   return true;
 }

@@ -94,6 +94,12 @@ function checkTag(it) {
   if (it.check_result === 'bad') return `<span class="tag bad">抽查不合格</span>${it.rect_status ? ` <span class="tag ${it.rect_status === 'closed' ? 'ok' : 'warn'}">整改${{ open: '中', submitted: '待复查', closed: '已闭环' }[it.rect_status]}</span>` : ''}`;
   return '';
 }
+const M_TEXT = { M1: '店长亲做', M2: '下级做·店长复查', M3: '分工·店长抽查', M4: '群拍反馈' };
+const M_DESC = { M1: '店长亲做 + 亲反馈', M2: '减一层亲做 + 店长复查', M3: '多层分工 + 店长抽查', M4: '制度化群反馈（机制化入群）' };
+const F_TEXT = { F1: '记录', F2: '拍照', F3: '计量', F4: '群拍', F5: '质量看板', F6: '判断标签' };
+const TAG_CLS = { 清零项: 'bad', 重点项: 'warn', 关注项: 'acc', 跟踪项: '' };
+const fText = f => (f || '').split('+').map(x => F_TEXT[x] || x).join('+');
+const stdTags = t => (t.code ? `<span class="tag std">No.${esc(t.code)}</span>${t.tag && t.tag !== '基础项' ? ` <span class="tag ${TAG_CLS[t.tag] ?? ''}">${esc(t.tag)}</span>` : ''} <span class="tag m">${M_TEXT[t.m] || ''}</span>` : '');
 const originTag = o => ({ flex: '<span class="tag acc">灵活</span>', focus: '<span class="tag warn">重点跟踪</span>' }[o] || '');
 const freqText = (f, v) => f === 'weekly' ? '每' + WD[v] : f === 'monthly' ? `每月 ${v} 日` : f === 'once' ? '一次性' : '每日';
 const rectStatus = r => r.status === 'closed' ? '<span class="tag ok">已闭环</span>' : r.status === 'submitted' ? '<span class="tag acc">待复查</span>' : r.late ? '<span class="tag bad">逾期未整改</span>' : '<span class="tag warn">整改中</span>';
@@ -112,17 +118,19 @@ function storeSwitch(route, extra = '') {
 
 // ---------- nav ----------
 const NAV = {
-  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['notices', '消息提醒']],
+  staff: [['sec', '我的工作'], ['my', '我的任务'], ['my-rect', '我的整改'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
+    ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['team', '门店人员'], ['audit', '操作日志'], ['notices', '消息提醒']],
-  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店记录'], ['notices', '消息提醒']],
+  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店记录'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
   region_manager: [['sec', '全局'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
+    ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['sec', '配置'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect'];
+const COMMON = ['home', 'work', 'me', 'notices', 'my', 'my-rect', 'standards', 'feed'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -132,6 +140,7 @@ const ICON = {
   rect: '<path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V5.5z"/><path d="M7.5 10l1.8 1.8 3.4-3.6"/>',
   me: '<circle cx="10" cy="7" r="3"/><path d="M4.5 16.5c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/>',
   more: '<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="13.5" r="2.5"/><circle cx="13.5" cy="13.5" r="2.5"/>',
+  cam: '<path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/>',
   cal: '<rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8h13M7 3v3M13 3v3"/>',
 };
 const icon = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 20 20" aria-hidden="true">${ICON[k]}</svg>`;
@@ -246,7 +255,7 @@ VIEWS.my = async () => {
   </div>
   ${list.length ? Object.entries(byScene).map(([sc, ts]) => `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc)}<span class="muted small" style="font-weight:400">${ts.filter(t => t.status === 'done').length}/${ts.length}</span></div>
     ${ts.map(t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
-      <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
+      <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗 · 替 ${esc(t.orig_name)}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
       <div class="muted small">${esc(t.standard)}</div>
       <div class="row small" style="margin-top:4px">${statusTag(t)} ${checkTag(t)} ${t.check_comment ? `<span class="muted">店长：${esc(t.check_comment)}</span>` : ''}</div></div>
       <div>${t.status === 'done' ? (t.check_result ? '' : `<button class="btn sm" data-undo="${t.id}">撤回</button>`) : `<button class="btn primary sm" data-done="${t.id}">完成</button>`}</div></div>`).join('')}</div>`).join('')
@@ -255,14 +264,15 @@ VIEWS.my = async () => {
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => act(async () => { await api(`/instances/${b.dataset.undo}/undo`, {}); route(); }, '已撤回'));
 };
 function completeModal(t, after) {
-  modal('完成任务', `<div class="kv"><div>任务</div><div>${esc(t.title)}</div><div>标准</div><div>${esc(t.standard || '-')}</div><div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div></div>
-    <form id="f"><label class="f"><span>完成说明（可选）</span><textarea name="note" placeholder="例如：已补齐 3 个品种"></textarea></label>
+  modal('完成任务', `<div class="kv"><div>任务</div><div>${esc(t.title)}</div><div>标准</div><div class="pre">${esc(t.standard || '-')}</div><div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div></div>
+    ${t.code ? `<p class="muted small">品牌标准 No.${esc(t.code)} · ${M_DESC[t.m] || ''} · 反馈方式：${fText(t.f)}${(t.f || '').includes('F4') ? '（照片会同步到门店群拍墙）' : ''}</p>` : ''}
+    <form id="f">${t.need_value ? '<label class="f"><span>计量读数（必填）</span><input name="reading" required placeholder="例如：巡检 15 个点位，异常 0 处 / 水温 52℃"></label>' : ''}<label class="f"><span>完成说明（可选）</span><textarea name="note" placeholder="例如：已补齐 3 个品种"></textarea></label>
     <label class="f"><span>现场照片${t.need_photo ? '（必传）' : '（可选）'}</span><input type="file" accept="image/*" capture="environment" ${t.need_photo ? 'required' : ''}></label>
     <div class="row"><span class="sp"></span><button class="btn" type="button" data-close>取消</button><button class="btn primary">确认完成</button></div></form>`, m => {
     m.querySelector('#f').onsubmit = async e => {
       e.preventDefault();
       const f = e.target; f.querySelector('.primary').disabled = true;
-      const ok = await act(async () => api(`/instances/${t.id}/complete`, { note: f.note.value, photo: await filePhoto(f) }), '已完成');
+      const ok = await act(async () => api(`/instances/${t.id}/complete`, { note: f.note.value, reading: f.reading ? f.reading.value : '', photo: await filePhoto(f) }), '已完成');
       f.querySelector('.primary').disabled = false;
       if (ok) { closeModal(); after ? after() : route(); }
     };
@@ -324,13 +334,15 @@ VIEWS.tasks = async () => {
   const date = p.get('date') || S.me.today;
   const scene = p.get('scene') || '';
   const st = p.get('st') || '';
-  const all = await api(`/tasks?store=${sid}&date=${date}`);
+  const mm = p.get('m') || '';
+  const all0 = await api(`/tasks?store=${sid}&date=${date}`);
+  const all = all0.filter(t => !mm || (mm === 'std' ? !t.code : t.m === mm));
   const filt = {
     '': () => true, pending: t => t.status === 'pending' && !t.overdue, overdue: t => t.overdue, done: t => t.status === 'done',
     unchecked: t => t.status === 'done' && !t.check_result, bad: t => t.check_result === 'bad', cover: t => t.covered,
   };
   const list = all.filter(t => (!scene || t.scene_id === Number(scene)) && filt[st](t));
-  const link = (k, v) => { const q = new URLSearchParams({ store: sid, date, scene, st }); q.set(k, v); return '#/tasks?' + q; };
+  const link = (k, v) => { const q = new URLSearchParams({ store: sid, date, scene, st, m: mm }); q.set(k, v); return '#/tasks?' + q; };
   const cnt = k => all.filter(filt[k]).length;
   const canCheck = S.me.can.manage;
   const byScene = {};
@@ -338,14 +350,15 @@ VIEWS.tasks = async () => {
   const title = { ops_manager: '门店任务明细（运营）', sales_manager: '门店销售任务', region_manager: '门店任务明细' }[S.me.level] || '任务看板与抽查';
   $('#main').innerHTML = `<div class="row between"><h1>${title}</h1><div class="row">${storeSwitch('#/tasks', '&date=' + date)}<input type="date" value="${date}" onchange="location.hash='${link('date', '')}'.replace('date=','date='+this.value)"></div></div>
   <div class="tabs"><a href="${link('scene', '')}" class="${!scene ? 'on' : ''}">全部场景</a>${S.meta.scenes.map(s => `<a href="${link('scene', s.id)}" class="${Number(scene) === s.id ? 'on' : ''}">${esc(s.name)}</a>`).join('')}</div>
-  <div class="tabs">${[['', '全部'], ['pending', '待完成'], ['overdue', '超时'], ['done', '已完成'], ['unchecked', '待抽查'], ['bad', '不合格'], ['cover', '顶岗']]
+  <div class="tabs">${[['', '全部来源'], ['std', '日常运营'], ['M1', 'M1 店长亲做'], ['M2', 'M2 下级做·复查'], ['M3', 'M3 分工·抽查'], ['M4', 'M4 群拍']].map(([k, l]) => `<a href="${link('m', k)}" class="${mm === k ? 'on' : ''}">${l} <span class="muted">${all0.filter(t => !k || (k === 'std' ? !t.code : t.m === k)).length}</span></a>`).join('')}</div>
+  <div class="tabs">${[['', '全部'], ['pending', '待完成'], ['overdue', '超时'], ['done', '已完成'], ['unchecked', mm === 'M2' ? '待复查' : '待抽查'], ['bad', '不合格'], ['cover', '顶岗']]
     .map(([k, l]) => `<a href="${link('st', k)}" class="${st === k ? 'on' : ''}">${l} <span class="muted">${cnt(k)}</span></a>`).join('')}</div>
   ${list.length ? Object.entries(byScene).map(([sc, ts]) => `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc)}</div>
     ${ts.map(t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
-      <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${t.category === 'sales' ? '<span class="tag">销售</span>' : ''}</div>
+      <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.category === 'sales' ? '<span class="tag">销售</span>' : ''}</div>
       <div class="row small" style="margin-top:2px"><span>${esc(t.assignee_name || '未分配')} <span class="muted">${esc(t.assignee_role || '')}</span></span>
         ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''} ${statusTag(t)} ${checkTag(t)} ${t.photo ? '<span class="tag">有照片</span>' : ''}</div></div>
-      <div class="row">${canCheck && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">抽查</button>` : ''}<button class="btn sm" data-view="${t.id}">详情</button></div></div>`).join('')}</div>`).join('')
+      <div class="row">${canCheck && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn sm" data-view="${t.id}">详情</button></div></div>`).join('')}</div>`).join('')
     : '<div class="list"><div class="empty">没有符合条件的任务</div></div>'}`;
   document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => taskDetail(Number(b.dataset.view)));
   document.querySelectorAll('[data-chk]').forEach(b => b.onclick = () => checkModal(all.find(t => t.id === Number(b.dataset.chk))));
@@ -355,8 +368,11 @@ async function taskDetail(id) {
   const manage = S.me.can.manage;
   modal(t.title, `<div class="kv">
     <div>门店 / 场景</div><div>${esc(t.store_name)} · ${esc(t.scene_name)}</div>
-    <div>标准</div><div>${esc(t.standard || '-')}</div>
+    ${t.code ? `<div>品牌标准</div><div>No.${esc(t.code)} · ${esc(t.sub || '')} · ${esc(t.tag || '')}${/^\d+$/.test(t.tscore || '') ? `（${esc(t.tscore)} 分）` : ''}</div>
+    <div>M-L-F</div><div>${esc(t.m)} ${M_DESC[t.m] || ''} · ${esc(t.l || 'L1')} 动作层 · ${esc(t.f)} ${fText(t.f)}</div>` : ''}
+    <div>标准</div><div class="pre">${esc(t.standard || '-')}</div>
     <div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div>
+    ${t.reading ? `<div>计量读数</div><div>${esc(t.reading)}</div>` : ''}
     <div>执行人</div><div>${esc(t.assignee_name)} ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}</div>
     <div>状态</div><div>${statusTag(t)} ${checkTag(t)}</div>
     ${t.done_note ? `<div>完成说明</div><div>${esc(t.done_note)}</div>` : ''}
@@ -365,7 +381,7 @@ async function taskDetail(id) {
   ${t.rects.map(r => `<div class="note"><b>整改</b> ${rectStatus(r)}：${esc(r.task)}（截止 ${esc(r.deadline)}，责任人 ${esc(r.assignee_name)}）${r.submit_note ? '<br>反馈：' + esc(r.submit_note) : ''}</div>`).join('')}
   ${manage ? `<h2>店长操作</h2><div class="row">
     ${t.status === 'pending' ? `<select id="re">${userOptions(t.store_id, t.assignee_id)}</select><button class="btn sm" id="reb">临时改派</button><button class="btn sm" id="cmp">代为完成</button>` : ''}
-    ${t.status === 'done' && !t.check_result ? '<button class="btn primary sm" id="chk">抽查</button>' : ''}</div>` : ''}`, m => {
+    ${t.status === 'done' && !t.check_result ? `<button class="btn primary sm" id="chk">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}</div>` : ''}`, m => {
     const reb = m.querySelector('#reb');
     if (reb) reb.onclick = () => act(async () => { await api(`/instances/${t.id}/reassign`, { user_id: m.querySelector('#re').value }); closeModal(); route(); }, '已改派');
     const cmp = m.querySelector('#cmp'); if (cmp) cmp.onclick = () => completeModal(t);
@@ -373,8 +389,9 @@ async function taskDetail(id) {
   });
 }
 function checkModal(t) {
-  modal('抽查：' + t.title, `<div class="kv"><div>执行人</div><div>${esc(t.assignee_name)}</div><div>完成时间</div><div class="mono">${esc(t.done_at || '-')}</div>
-    <div>标准</div><div>${esc(t.standard || '-')}</div>${t.done_note ? `<div>完成说明</div><div>${esc(t.done_note)}</div>` : ''}</div>
+  modal((t.m === 'M2' ? '复查：' : '抽查：') + t.title, `<div class="kv"><div>执行人</div><div>${esc(t.assignee_name)}</div><div>完成时间</div><div class="mono">${esc(t.done_at || '-')}</div>
+    ${t.code ? `<div>品牌标准</div><div>No.${esc(t.code)} · ${esc(t.tag || '')} · ${M_DESC[t.m] || ''}</div>` : ''}${t.reading ? `<div>计量读数</div><div>${esc(t.reading)}</div>` : ''}
+    <div>标准</div><div class="pre">${esc(t.standard || '-')}</div>${t.done_note ? `<div>完成说明</div><div>${esc(t.done_note)}</div>` : ''}</div>
     ${t.photo ? `<img class="photo" src="${esc(t.photo)}" alt="现场照片">` : ''}
     <form id="f" style="margin-top:12px">
       <div class="row" style="margin-bottom:10px"><label><input type="radio" name="result" value="good" checked> 合格，给予肯定</label><label><input type="radio" name="result" value="bad"> 不合格，下发整改</label></div>
@@ -663,28 +680,55 @@ async function patrolDetail(id) {
   const p = await api('/patrols/' + id);
   const rm = S.me.level === 'region_manager';
   if (p.status === 'planned' && rm) {
-    const items = S.meta.settings.patrol_checklist;
-    $('#main').innerHTML = `<div class="row between"><h1>巡店打分 · ${esc(p.store_name)}</h1><a href="#/patrol">返回</a></div>
-    <p class="muted small" style="margin-top:-6px">计划日期 ${esc(p.planned_date)} · 重点：${esc(p.reason || '例行巡店')}</p>
-    <form id="f"><div class="tbl"><table><tr><th>场景</th><th>检查项</th><th class="n">满分</th><th>得分</th><th>问题描述</th></tr>
-    ${items.map(([sc, it, mx], i) => `<tr><td>${esc(sc)}</td><td>${esc(it)}</td><td class="n mono">${mx}</td><td><input type="number" name="s${i}" min="0" max="${mx}" value="${mx}" style="width:70px"></td><td><input name="c${i}" placeholder="发现的问题" style="width:100%"></td></tr>`).join('')}</table></div>
+    const std = await api('/standards?store=' + p.store_id);
+    const rows = std.rows.filter(c => c.active);
+    const groups = {};
+    for (const c of rows) (groups[c.scene_name] ||= []).push(c);
+    $('#main').innerHTML = `<h1>品牌审计巡店 · ${esc(p.store_name)}</h1>
+    <p class="muted small" style="margin-top:-6px">计划 ${esc(p.planned_date)} · 重点：${esc(p.reason || '例行巡店')}。按《品牌审计线下检查标准 2026Q3》${rows.length} 条逐项判定，默认达标；清零项不达标则总分记 0。</p>
+    <div class="scorebox" id="sb"></div>
+    <form id="f">${Object.entries(groups).map(([sc, cs]) => `<details class="pg" ${sc === '前台' ? 'open' : ''}><summary><b>${esc(sc)}</b><span class="muted small">${cs.length} 条</span><span class="sp"></span><span class="gf" data-gf="${esc(sc)}"></span></summary>
+      ${cs.map(c => `<div class="pi" data-code="${c.code}" data-max="${/^\d+$/.test(c.score) ? c.score : 0}" data-tag="${esc(c.tag)}" data-sc="${esc(sc)}">
+        <div class="pt"><span class="tag std">No.${c.code}</span> <b>${esc(c.title)}</b> ${c.tag !== '基础项' ? `<span class="tag ${TAG_CLS[c.tag] ?? ''}">${esc(c.tag)}</span>` : ''} <span class="muted small">${/^\d+$/.test(c.score) ? c.score + ' 分' : ''}</span>
+          ${c.last_patrol === 'fail' ? '<span class="tag warn">上次不达标</span>' : ''}${c.n_bad ? `<span class="tag warn">近14日抽查不合格 ${c.n_bad}</span>` : ''}</div>
+        <details class="sd"><summary>检查标准</summary><div class="pre small">${esc(c.standard)}</div></details>
+        <div class="seg3">${[['pass', '达标'], ['fail', '不达标'], ['na', '不适用']].map(([v, l]) => `<label><input type="radio" name="r${c.code}" value="${v}" ${v === 'pass' ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+        <input class="pc" name="c${c.code}" placeholder="问题描述（不达标必填）" style="display:none"></div>`).join('')}</details>`).join('')}
     <label class="f" style="margin-top:12px"><span>巡店结论</span><textarea name="summary" required placeholder="总体评价、主要问题、整改要求"></textarea></label>
     <div class="row"><span class="sp"></span><button class="btn primary">提交巡店报告</button></div></form>`;
+    const calc = () => {
+      let e = 0, mx = 0, fail = 0, na = 0; const zero = [], gf = {};
+      document.querySelectorAll('.pi').forEach(el => {
+        const v = el.querySelector('input[type=radio]:checked').value, m = Number(el.dataset.max);
+        el.classList.toggle('bad', v === 'fail'); el.querySelector('.pc').style.display = v === 'fail' ? '' : 'none';
+        if (v === 'na') { na++; return; }
+        mx += m; if (v === 'pass') e += m; else { fail++; gf[el.dataset.sc] = (gf[el.dataset.sc] || 0) + 1; if (el.dataset.tag === '清零项') zero.push(el.dataset.code); }
+      });
+      const sc = zero.length ? 0 : Math.round(e * 100 / (mx || 1));
+      $('#sb').innerHTML = `<div><b class="${zero.length || sc < 85 ? 'bad' : ''}">${sc}</b><span>预估得分</span></div><div><b>${fail}</b><span>不达标</span></div><div><b>${na}</b><span>不适用</span></div><div><b class="${zero.length ? 'bad' : ''}">${zero.length}</b><span>清零项</span></div>`;
+      document.querySelectorAll('[data-gf]').forEach(x => { const n = gf[x.dataset.gf]; x.innerHTML = n ? `<span class="tag bad">不达标 ${n}</span>` : ''; });
+    };
+    $('#f').onchange = calc; calc();
     $('#f').onsubmit = async e => {
-      e.preventDefault(); const d = formData(e.target);
-      const body = { summary: d.summary, items: items.map(([sc, it, mx], i) => ({ scene: sc, item: it, max: mx, score: d['s' + i], comment: d['c' + i] })) };
-      if (await act(() => api(`/patrols/${id}/complete`, body), '巡店报告已提交')) route();
+      e.preventDefault(); const d = formData(e.target); const results = {};
+      for (const c of rows) results[c.code] = { result: d['r' + c.code], comment: d['c' + c.code] };
+      if (await act(() => api(`/patrols/${id}/complete`, { summary: d.summary, results }), '巡店报告已提交')) route();
     };
     return;
   }
-  $('#main').innerHTML = `<div class="row between"><h1>巡店报告 · ${esc(p.store_name)}</h1><a href="#/patrol">返回</a></div>
-  ${p.status === 'done' ? `<div class="grid g4" style="margin-bottom:12px"><div class="card kpi"><div class="l">总分</div><div class="v" style="${p.score < 85 ? 'color:var(--bad)' : ''}">${p.score}</div></div>
-    <div class="card kpi"><div class="l">完成时间</div><div class="v small mono" style="font-size:14px">${esc(p.done_at)}</div></div><div class="card kpi"><div class="l">已下发重点跟踪</div><div class="v">${p.focus.length}</div></div></div>
+  const items = p.items.map(i => ({ ...i, result: i.result || (i.score < i.max ? 'fail' : 'pass') }));
+  const fails = items.filter(i => i.result === 'fail'), zero = fails.filter(i => i.tag === '清零项');
+  const groups = {};
+  for (const i of items) (groups[i.scene_name || '其他'] ||= []).push(i);
+  const focusBtn = i => (rm ? `<a class="btn sm" href="#/focus?${new URLSearchParams({ new: 1, store: p.store_id, scene: i.scene_id || '', title: '每日检查：' + (i.code ? `No.${i.code} ` : '') + i.item, standard: i.comment ? '针对巡店问题：' + i.comment : '', ref: 'patrol:' + p.id })}">转为重点跟踪</a>` : '');
+  $('#main').innerHTML = `<h1>巡店报告 · ${esc(p.store_name)}</h1>
+  ${p.status === 'done' ? `<div class="scorebox"><div><b class="${zero.length || p.score < 85 ? 'bad' : ''}">${p.score}</b><span>总分</span></div><div><b>${fails.length}</b><span>不达标</span></div><div><b>${items.filter(i => i.result === 'na').length}</b><span>不适用</span></div><div><b class="${zero.length ? 'bad' : ''}">${zero.length}</b><span>清零项</span></div></div>
+  <p class="muted small">完成于 ${esc(p.done_at)} · 已下发重点跟踪 ${p.focus.length} 项${zero.length ? ' · <b style="color:var(--bad)">触发清零项，总分记 0</b>' : ''}</p>
   <div class="note" style="margin-bottom:12px"><b>巡店结论</b><br>${esc(p.summary)}</div>
-  <div class="tbl"><table><tr><th>场景</th><th>检查项</th><th class="n">得分</th><th>问题</th><th></th></tr>
-  ${p.items.map(i => { const low = i.score < i.max * 0.8 || i.comment;
-    return `<tr><td>${esc(i.scene_name || '')}</td><td>${esc(i.item)}</td><td class="n mono" style="${i.score < i.max * 0.8 ? 'color:var(--bad)' : ''}">${i.score}/${i.max}</td><td class="small">${esc(i.comment)}</td>
-    <td>${rm && low ? `<a class="btn sm" href="#/focus?${new URLSearchParams({ new: 1, store: p.store_id, scene: i.scene_id || '', title: '每日检查：' + i.item, standard: i.comment ? '针对巡店问题：' + i.comment : '', ref: 'patrol:' + p.id })}">转为重点跟踪</a>` : ''}</td></tr>`; }).join('')}</table></div>
+  <h2>不达标项（${fails.length}）</h2><div class="list">${fails.map(i => `<div class="task"><div class="b"><div class="ttl">${i.code ? `<span class="tag std">No.${esc(i.code)}</span> ` : ''}${esc(i.item)} ${i.tag && i.tag !== '基础项' ? `<span class="tag ${TAG_CLS[i.tag] ?? ''}">${esc(i.tag)}</span>` : ''} <span class="muted small">${esc(i.scene_name || '')} · ${i.max} 分</span></div>
+    <div class="small" style="color:var(--bad)">${esc(i.comment)}</div></div><div>${focusBtn(i)}</div></div>`).join('') || '<div class="empty">全部达标</div>'}</div>
+  <h2>逐项结果</h2>${Object.entries(groups).map(([sc, is]) => `<details class="pg"><summary><b>${esc(sc)}</b><span class="muted small">${is.filter(i => i.result === 'pass').length}/${is.filter(i => i.result !== 'na').length} 达标</span></summary>
+    ${is.map(i => `<div class="pr"><span class="tag std">${i.code ? 'No.' + esc(i.code) : ''}</span> ${esc(i.item)}<span class="sp"></span>${i.result === 'pass' ? '<span class="tag ok">达标</span>' : i.result === 'na' ? '<span class="tag">不适用</span>' : '<span class="tag bad">不达标</span>'}</div>`).join('')}</details>`).join('')}
   ${p.focus.length ? `<h2>由本次巡店下发的重点跟踪</h2>${p.focus.map(f => `<div><a href="#/focus">${esc(f.title)}</a> ${f.active ? '<span class="tag ok">跟踪中</span>' : '<span class="tag">已停用</span>'}</div>`).join('')}` : ''}`
   : `<p class="muted">计划 ${esc(p.planned_date)} 巡店，重点：${esc(p.reason)}</p>`}`;
 }
@@ -705,7 +749,7 @@ VIEWS.rect = async () => {
 
 // ---------- settings ----------
 VIEWS.settings = async () => {
-  const tpls = await api('/templates');
+  const tpls = (await api('/templates')).filter(t => t.src !== 'audit');
   const st = S.meta.settings;
   $('#main').innerHTML = `<h1>岗位 / 场景 / 工作清单</h1>
   <div class="grid g2">
@@ -717,10 +761,10 @@ VIEWS.settings = async () => {
       <label class="f"><span>每日定点提醒时间（逗号分隔）</span><input name="times" value="${esc(st.reminder_times.join(','))}"></label>
       <label class="f"><span>超时多少分钟后升级提醒店长</span><input type="number" name="esc" value="${st.escalate_minutes}"></label>
       <button class="btn">保存</button></form></div>
-    <div class="card"><h3>巡店评分表</h3><form id="fp"><label class="f"><span>每行一项：场景|检查项|满分</span><textarea name="cl" rows="8" style="font-family:var(--mono);font-size:12px">${esc(st.patrol_checklist.map(x => x.join('|')).join('\n'))}</textarea></label><button class="btn">保存</button></form></div>
+    <div class="card"><h3>品牌标准 / 巡店评分表</h3><p class="small">已融合《品牌审计线下检查标准 2026Q3（全季）》${st.audit_count} 条及 M-L-F 分解：自动生成门店固定工作，巡店按同一套条款打分。</p><a class="btn" href="#/standards">打开品牌标准库</a></div>
   </div>
-  <div class="row between" style="margin-top:20px"><h2 style="margin:0">固定运营工作清单</h2><button class="btn primary" id="nt">新增固定工作</button></div>
-  <p class="muted small">按场景和岗位定义每天、每周或每月要做的标准工作。各门店自动生成，由店长分配到人。</p>
+  <div class="row between" style="margin-top:20px"><h2 style="margin:0">日常运营工作清单</h2><button class="btn primary" id="nt">新增固定工作</button></div>
+  <p class="muted small">按场景和岗位定义每天、每周或每月要做的标准工作。各门店自动生成，由店长分配到人。品牌审计 ${st.audit_count} 条在 <a href="#/standards">品牌标准库</a> 维护。</p>
   <div class="tbl"><table><tr><th>场景</th><th>时间</th><th>工作内容</th><th>默认岗位</th><th>频次</th><th>类别</th><th></th></tr>
   ${tpls.map(t => `<tr style="${t.active ? '' : 'opacity:.5'}"><td>${esc(t.scene_name)}</td><td class="mono">${esc(t.due_time)}</td><td>${esc(t.title)} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}<div class="muted small">${esc(t.standard)}</div></td>
     <td>${esc(t.role_name)}</td><td>${freqText(t.freq, t.freq_val)}</td><td>${t.category === 'sales' ? '销售' : '运营'}</td><td><button class="btn sm" data-et="${t.id}">编辑</button></td></tr>`).join('')}</table></div>`;
@@ -729,9 +773,12 @@ VIEWS.settings = async () => {
   $('#fs').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/scenes', formData(e.target)), '场景已新增')) reload(); };
   document.querySelectorAll('[data-sc]').forEach(a => a.onclick = () => confirm('停用该场景？其下固定工作将不再生成') && act(async () => { await api('/scenes', { id: Number(a.dataset.sc), active: 0 }); reload(); }, '已停用'));
   $('#fm').onsubmit = async e => { e.preventDefault(); const d = formData(e.target); if (await act(() => api('/settings', { reminder_times: d.times.split(/[,，\s]+/).filter(Boolean), escalate_minutes: d.esc }), '已保存')) reload(); };
-  $('#fp').onsubmit = async e => { e.preventDefault(); const cl = e.target.cl.value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(x => x.length === 3 && x[1]).map(([a, b, c]) => [a, b, Number(c) || 0]);
-    if (await act(() => api('/settings', { patrol_checklist: cl }), '评分表已保存')) reload(); };
-  const edit = t => modal(t.id ? '编辑固定工作' : '新增固定工作', `<form id="ft"><div class="form2">
+  const edit = tplEdit;
+  $('#nt').onclick = () => edit({});
+  document.querySelectorAll('[data-et]').forEach(b => b.onclick = () => edit(tpls.find(t => t.id === Number(b.dataset.et))));
+};
+function tplEdit(t, after) {
+  modal(t.id ? '编辑固定工作' : '新增固定工作', `<form id="ft"><div class="form2">
     <label class="f"><span>场景</span><select name="scene_id">${sceneOptions(t.scene_id)}</select></label>
     <label class="f"><span>默认岗位</span><select name="role_id">${S.meta.roles.filter(r => ['staff', 'store_manager'].includes(r.level)).map(r => `<option value="${r.id}" ${r.id === t.role_id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label></div>
     <label class="f"><span>工作内容</span><input name="title" value="${esc(t.title || '')}" required></label>
@@ -740,15 +787,15 @@ VIEWS.settings = async () => {
     <label class="f"><span>频次</span><select name="freq">${[['daily', '每日'], ['weekly', '每周'], ['monthly', '每月']].map(([k, l]) => `<option value="${k}" ${t.freq === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="f"><span>周几（1-7） / 每月几号</span><input type="number" name="freq_val" value="${t.freq_val || ''}" min="1" max="31"></label>
     <label class="f"><span>类别</span><select name="category"><option value="ops">运营</option><option value="sales" ${t.category === 'sales' ? 'selected' : ''}>销售</option></select></label></div>
+    ${t.src === 'audit' ? `<div class="form2"><label class="f"><span>M 分工模式</span><select name="m">${Object.entries(M_DESC).map(([k, l]) => `<option value="${k}" ${t.m === k ? 'selected' : ''}>${k} ${l}</option>`).join('')}</select></label>
+    <label class="f"><span>F 反馈机制（如 F1+F2）</span><input name="f" value="${esc(t.f || 'F1')}"></label></div><label class="f"><input type="checkbox" name="need_value" ${t.need_value ? 'checked' : ''}> 需要填写计量读数（F3）</label>` : ''}
     <label class="f"><input type="checkbox" name="need_photo" ${t.need_photo ? 'checked' : ''}> 需要拍照留证</label>
     ${t.id ? `<label class="f"><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> 启用</label>` : ''}
     <div class="row"><span class="sp"></span><button class="btn primary">保存</button></div></form>`, m => {
     m.querySelector('#ft').onsubmit = async e => { e.preventDefault(); const d = formData(e.target);
       if (await act(() => api('/templates', { ...d, id: t.id, active: t.id ? (d.active ? 1 : 0) : 1 }), '已保存')) { closeModal(); route(); } };
   });
-  $('#nt').onclick = () => edit({});
-  document.querySelectorAll('[data-et]').forEach(b => b.onclick = () => edit(tpls.find(t => t.id === Number(b.dataset.et))));
-};
+}
 
 // ---------- audit ----------
 VIEWS.audit = async () => {
@@ -801,11 +848,11 @@ VIEWS.home = async () => {
   const gKey = n => tab + ':' + n;
   const taskRow = t => `<div class="trow ${t.status === 'done' ? 'done' : ''}">
     <div class="tm">${tab === 'day' ? '' : `<small>${esc(t.date.slice(5))}</small>`}${esc(t.due_time)}</div>
-    <div class="tb"><div class="tt">${esc(t.title)} ${originTag(t.origin)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
+    <div class="tb"><div class="tt">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.covered ? `<span class="tag acc">顶岗${mine ? ' · 替 ' + esc(t.orig_name) : ''}</span>` : ''} ${t.need_photo ? '<span class="tag">需拍照</span>' : ''}</div>
       <div class="ts">${mine ? esc(t.standard || '') : `${esc(t.assignee_name || '未分配')} · ${esc(t.assignee_role || '')}`}</div>
       <div class="tg">${statusTag(t)} ${checkTag(t)}</div></div>
     <div class="ta">${t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || manage) ? `<button class="btn primary sm" data-done="${t.id}">完成</button>` : ''}
-      ${manage && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">抽查</button>` : ''}
+      ${manage && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}
       <button class="btn sm" data-view="${t.id}">详情</button></div></div>`;
   $('#main').innerHTML = `
   <div class="storebar">
@@ -827,6 +874,8 @@ VIEWS.home = async () => {
   <section class="tasks">
     <div class="ttabs">${['day', 'week', 'month', 'once'].map(k => `<a href="${link({ tab: k })}" class="${tab === k ? 'on' : ''}">${stLabel[k]}<small>${cnt(k)}</small></a>`).join('')}</div>
     <div class="rings">${rings.map(([l, r]) => `<div class="ring">${gauge(r, 92, 9, rateColor(r))}<div class="rv"><b>${r == null ? '-' : r}</b><small>%</small><span>${l}</span></div></div>`).join('')}</div>
+    ${(() => { const z = list.filter(t => t.tag === '清零项'), b = list.filter(t => t.code); return b.length ? `<a class="stdbar" href="#/standards?store=${sid}"><span>品牌标准 <b>${b.filter(t => t.status === 'done').length}/${b.length}</b></span>${z.length ? `<span>清零项 <b class="${z.some(t => t.status !== 'done') ? 'bad' : ''}">${z.filter(t => t.status === 'done').length}/${z.length}</b></span>` : ''}<span class="sp"></span><span class="lk">品牌标准库 ›</span></a>` : ''; })()}
+    <a class="stdbar feedbar" href="#/feed?store=${sid}&date=${date}"><span>${icon('cam')} 门店群拍墙</span><span class="sp"></span><span class="lk">M4 机制群拍 ›</span></a>
     <div class="timeline">${gl.length ? gl.map(g => {
       const d = g.ts.filter(t => t.status === 'done').length, od = g.ts.some(t => t.overdue);
       const open = S.open[gKey(g.name)] ?? (mine || gl.length <= 2);
@@ -848,6 +897,65 @@ VIEWS.home = async () => {
   document.querySelectorAll('[data-view]').forEach(x => x.onclick = () => taskDetail(Number(x.dataset.view)));
 };
 
+// ---------- 品牌标准库 ----------
+VIEWS.standards = async () => {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const f = { scene: p.get('scene') || '', tag: p.get('tag') || '', m: p.get('m') || '', kw: p.get('kw') || '' };
+  const d = await api('/standards?store=' + sid);
+  const all = d.rows;
+  const kw = f.kw.trim();
+  const list = all.filter(c => (!f.scene || c.scene_name === f.scene) && (!f.tag || c.tag === f.tag) && (!f.m || c.m === f.m)
+    && (!kw || c.code.includes(kw) || c.title.includes(kw) || (c.standard || '').includes(kw) || (c.sub || '').includes(kw)));
+  const link = (k, v) => { const q = new URLSearchParams({ store: sid, ...f }); q.set(k, v); return '#/standards?' + q; };
+  const cnt = (k, v) => all.filter(c => c[k] === v).length;
+  const tab = (k, opts) => `<div class="tabs"><a href="${link(k, '')}" class="${!f[k] ? 'on' : ''}">全部</a>${opts.map(([v, l]) => `<a href="${link(k, v)}" class="${f[k] === v ? 'on' : ''}">${esc(l)} <span class="muted">${cnt(k === 'scene' ? 'scene_name' : k, v)}</span></a>`).join('')}</div>`;
+  const scenes = [...new Set(all.map(c => c.scene_name))];
+  const rate = c => (c.n_total ? Math.round(c.n_done * 100 / c.n_total) : null);
+  const byScene = {};
+  for (const c of list) (byScene[c.scene_name] ||= []).push(c);
+  const rm = S.me.level === 'region_manager';
+  $('#main').innerHTML = `<div class="row between"><h1>品牌标准库</h1>${storeSwitch('#/standards')}</div>
+  <p class="muted small" style="margin-top:-6px">《品牌审计线下检查标准 2026Q3（全季）》M-L-F 分解 · 共 ${all.length} 条，已转为门店固定工作并用于巡店打分。执行情况为本店近 14 天（${esc(d.from.slice(5))} 起）。</p>
+  <div class="panel stats">${['M1', 'M2', 'M3', 'M4'].map(m => `<a href="${link('m', f.m === m ? '' : m)}" class="${f.m === m ? 'on' : ''}"><b>${cnt('m', m)}</b><span>${m} ${M_TEXT[m]}</span></a>`).join('')}</div>
+  ${tab('tag', ['清零项', '重点项', '关注项', '跟踪项', '基础项'].map(x => [x, x]))}
+  ${tab('scene', scenes.map(x => [x, x]))}
+  <form id="kw" class="row" style="margin:8px 0"><input name="kw" value="${esc(f.kw)}" placeholder="搜索条款号 / 关键词，如 018、早餐、布草" style="flex:1"><button class="btn sm">搜索</button></form>
+  ${list.length ? Object.entries(byScene).map(([sc, cs]) => `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc)}<span class="muted small" style="font-weight:400">${cs.length} 条</span></div>
+    ${cs.map(c => { const r = rate(c); return `<div class="task std-row ${c.active ? '' : 'done'}" data-code="${c.code}"><div class="t mono">${c.code}</div><div class="b">
+      <div class="ttl">${esc(c.title)} ${c.tag !== '基础项' ? `<span class="tag ${TAG_CLS[c.tag] ?? ''}">${esc(c.tag)}</span>` : ''} ${/^\d+$/.test(c.score) ? `<span class="muted small">${c.score} 分</span>` : ''}</div>
+      <div class="row small" style="margin-top:3px"><span class="tag m">${esc(c.m)} ${M_TEXT[c.m]}</span><span class="tag">${esc(c.f)} ${fText(c.f)}</span><span class="muted">${esc(c.role_name || '')} · ${freqText(c.freq, c.freq_val)} ${esc(c.due_time)}</span></div>
+      <div class="row small" style="margin-top:3px">${!c.active ? '<span class="tag">已停用</span>' : r === null ? '<span class="muted">近 14 天未排到</span>' : `<span class="tag ${r >= 90 ? 'ok' : r >= 70 ? 'warn' : 'bad'}">完成 ${c.n_done}/${c.n_total}</span>`}
+        ${c.n_bad ? `<span class="tag bad">抽查不合格 ${c.n_bad}</span>` : ''}${c.last_patrol ? `<span class="tag ${c.last_patrol === 'fail' ? 'bad' : c.last_patrol === 'pass' ? 'ok' : ''}">上次巡店 ${{ pass: '达标', fail: '不达标', na: '不适用' }[c.last_patrol]}</span>` : ''}</div></div><div class="muted">›</div></div>`; }).join('')}</div>`).join('')
+    : '<div class="list"><div class="empty">没有符合条件的条款</div></div>'}`;
+  $('#kw').onsubmit = e => { e.preventDefault(); location.hash = link('kw', e.target.kw.value.trim()); };
+  document.querySelectorAll('.std-row').forEach(el => el.onclick = () => {
+    const c = all.find(x => x.code === el.dataset.code);
+    modal(`No.${c.code} ${c.title}`, `<div class="kv"><div>目录</div><div>${esc(c.area)} › ${esc(c.sub)}</div><div>标签 / 分值</div><div>${esc(c.tag)}${/^\d+$/.test(c.score) ? ` · ${c.score} 分` : ''}${c.tag === '清零项' ? '（审计不达标整店清零）' : ''}</div>
+      <div>M 分工</div><div>${esc(c.m)} ${M_DESC[c.m]}</div><div>L 层级</div><div>${esc(c.l || 'L1')} 动作层</div><div>F 反馈</div><div>${esc(c.f)} ${fText(c.f)}${c.need_photo ? ' · 需拍照' : ''}${c.need_value ? ' · 需填读数' : ''}</div>
+      <div>门店执行</div><div>${esc(c.scene_name)} · ${esc(c.role_name || '')} · ${freqText(c.freq, c.freq_val)} ${esc(c.due_time)}（店长可在场景分配中调整到人）</div>
+      ${c.note ? `<div>建议来源</div><div>${esc(c.note)}</div>` : ''}<div>检查标准</div><div class="pre">${esc(c.standard)}</div></div>
+      <div class="row" style="margin-top:12px"><a class="btn" href="#/tasks?store=${sid}&m=${c.m}">查看今日任务</a><span class="sp"></span>${rm ? '<button class="btn primary" id="ed">调整频次 / 岗位</button>' : ''}</div>`, m => {
+      const b = m.querySelector('#ed'); if (b) b.onclick = () => { closeModal(); tplEdit({ ...c }); };
+    });
+  });
+};
+
+// ---------- 门店群拍墙（M4 / F4） ----------
+VIEWS.feed = async () => {
+  const p = qs();
+  const sid = pickStore(p.get('store'));
+  const date = p.get('date') || S.me.today;
+  const d = await api(`/feed?store=${sid}&date=${date}`);
+  const done = d.rows.filter(t => t.status === 'done');
+  $('#main').innerHTML = `<div class="row between"><h1>门店群拍墙</h1><div class="row">${storeSwitch('#/feed', '&date=' + date)}<input type="date" value="${date}" onchange="location.hash='#/feed?store=${sid}&date='+this.value"></div></div>
+  <p class="muted small" style="margin-top:-6px">品牌标准中反馈方式含 F4（群拍）的条款，完成时拍照自动汇集到这里，店长和区域随时可看。今日已发 ${done.length}/${d.rows.length}。</p>
+  <div class="feed">${d.rows.map(t => `<div class="fc ${t.status}" data-id="${t.id}">${t.photo ? `<img src="${esc(t.photo)}" alt="">` : `<div class="ph">${t.overdue ? '超时未拍' : '待拍照'}</div>`}
+    <div class="fb"><div class="small"><span class="tag std">No.${esc(t.code)}</span> ${t.tag && t.tag !== '基础项' ? `<span class="tag ${TAG_CLS[t.tag] ?? ''}">${esc(t.tag)}</span>` : ''}</div><div class="ttl">${esc(t.title)}</div>
+    <div class="muted small">${esc(t.assignee_name || '未分配')} · ${t.status === 'done' ? esc((t.done_at || '').slice(11, 16)) + ' 已发' : '截止 ' + esc(t.due_time)}</div></div></div>`).join('') || '<div class="empty">当天没有群拍任务</div>'}</div>`;
+  document.querySelectorAll('.fc').forEach(el => el.onclick = () => taskDetail(Number(el.dataset.id)));
+};
+
 // ---------- 工作台 ----------
 VIEWS.work = async () => {
   const secs = []; let cur = null;
@@ -864,7 +972,7 @@ VIEWS.me = async () => {
   $('#main').innerHTML = `<div class="profile"><span class="av lg">${esc(S.me.name.slice(0, 1))}</span><div><b>${esc(S.me.name)}</b><div class="muted small">${esc(S.me.role_name)} · ${esc(S.meta.stores.map(s => s.name).join('、'))}</div></div></div>
   <div class="panel stats">${mt ? `<a href="#/my"><b>${mt.filter(t => t.status === 'done').length}/${mt.length}</b><span>今日我的任务</span></a>` : `<a href="#/dash"><b>${S.meta.stores.length}</b><span>管辖门店</span></a>`}
     <a href="#/${rectRoute()}"><b>${open}</b><span>${S.me.level === 'staff' ? '待整改' : '我负责的整改'}</span></a><a href="#/notices"><b>${S.me.unread}</b><span>未读消息</span></a></div>
-  <div class="panel menu">${[...(mt ? [['#/my', '我的任务']] : []), ['#/my-rect', '我的整改'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
+  <div class="panel menu">${[...(mt ? [['#/my', '我的任务']] : []), ['#/my-rect', '我的整改'], ['#/standards', '品牌标准库'], ['#/feed', '门店群拍墙'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
     <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
 };
 
