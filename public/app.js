@@ -378,7 +378,7 @@ VIEWS.appr = async () => {
 VIEWS.cal = async () => {
   const lv = S.me.level, P = qs(), day = /^\d{4}-\d{2}-\d{2}$/.test(P.get('d') || '') ? P.get('d') : S.me.today, mode = P.get('m') === 'w' ? 'w' : 'd';
   const mon = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)), week = [...Array(7)].map((_, i) => addDays(mon, i));
-  const rh = ['staff', 'store_manager'].includes(lv) ? RHYTHM : MGR_RHYTHM[lv] || [];
+  const rh = ['staff', 'store_manager'].includes(lv) ? (day === S.me.today ? myRhythm() : RHYTHM) : MGR_RHYTHM[lv] || [];
   const [wc, tasks] = await Promise.all([lv !== 'staff' && lv !== 'store_manager' ? api('/wcal?from=' + mon).catch(() => null) : null, Promise.all((mode === 'w' ? week : [day]).map(d => api('/my/tasks?date=' + d).catch(() => [])))]);
   const ev = d => ((wc && wc.items) || []).filter(i => i.date === d), tk = d => tasks[mode === 'w' ? week.indexOf(d) : 0] || [];
   const base = m => `#/cal?m=${m}&d=`;
@@ -1576,7 +1576,7 @@ async function staffHome() {
   const groups = {};
   for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   $('#main').innerHTML = `<div class="sf-hd"><div><b>${hi}，${esc(S.me.name)}</b><div class="small">${esc(S.me.role_name)} · ${esc(storeName(sid))}</div></div><span class="sp"></span>${calMini(date, 'w')}<button class="ib w" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/standards', '品牌标准', '标'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/standards', '品牌标准', '标']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar()}</div>`)}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/standards', '品牌标准', '标'], ['#/labor', '排班', '排'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/standards', '品牌标准', '标']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div>${shiftCard()}<div class="sec-t2">${S.me.shift && !S.me.shift.rest ? '我的班次节奏' : '一天时间'}</div>${rhythmBar(myRhythm())}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/my"><b>${pend.length}</b><span>待完成</span></a><a href="#/my" class="${od.length ? 'bad' : ''}"><b>${od.length}</b><span>已超时</span></a><a href="#/my-rect" class="${openR.length ? 'warn' : ''}"><b>${openR.length}</b><span>待整改</span></a><a href="#/my"><b>${fb.filter(t => t.check_result === 'good').length}</b><span>获肯定</span></a></div></div>
   ${next ? `<a class="sf-next" href="#/task/${next.id}"><div class="small">下一项任务 · ${next.overdue ? '<b style="color:#FFD2D2">已超时</b>' : '截止 ' + esc(next.due_time)}</div><b>${esc(next.title)}</b><div class="small">${esc(next.scene_name || '')} ${next.covered ? '· 顶岗替 ' + esc(next.orig_name) : ''}${next.need_photo ? ' · 需拍照' : ''}</div><span class="gbtn go">去完成 →</span></a>`
@@ -1600,11 +1600,27 @@ async function staffHome() {
 // ---------- 店长 / 负一级管理者 ----------
 const TEAM = t => S.me.can.manage || (S.me.team || []).includes(t.assignee_id);
 const calMini = (date, cls = '') => `<button class="calmini ${cls}" id="cal">${icon('cal')}<span>${Number(date.slice(5, 7))}月${Number(date.slice(8))}日 周${CN_WD[(new Date(date + 'T00:00:00').getDay() + 6) % 7]}</span><i>▾</i></button>`;
-const RHYTHM = [['08:30', '早会交班'], ['09:00', '早餐高峰'], ['11:00', '预抵核对'], ['14:00', '退房查房'], ['18:00', '入住高峰'], ['21:00', '日结复盘'], ['23:30', '夜审']];
+const RHYTHM = [['05:45', '餐厅到岗备餐'], ['07:00', '开餐'], ['08:00', '前台交接 · 保安交接 · 客房早会'], ['09:30', '早餐收餐'], ['12:00', '退房高峰'], ['14:00', '餐厅下班 · 入住'], ['17:30', '客房下班交接'], ['20:00', '前台交夜班 · 保安上岗'], ['21:00', '日结复盘'], ['23:30', '夜审'], ['02:00', '夜间巡楼']];
+const SHIFT_RH = {
+  A: [['08:00', '接夜班交接'], ['09:00', '台面 5S'], ['11:00', '预抵核对'], ['12:00', '退房高峰'], ['14:00', '入住开始'], ['17:30', '接客房交接'], ['18:00', '入住高峰'], ['20:00', '交夜班']],
+  B: [['20:00', '接白班交接'], ['21:00', '重点服务'], ['23:30', '夜审'], ['02:00', '夜间巡楼'], ['05:00', '夜审报表'], ['08:00', '交白班']],
+  C: [['20:00', '上岗交接'], ['21:00', '消防巡查'], ['22:00', '楼层巡查'], ['02:00', '夜间巡楼'], ['07:45', '交接记录'], ['08:00', '下班']],
+  D: [['06:00', '到岗备餐'], ['06:45', '摆台'], ['07:00', '开餐'], ['09:30', '收餐'], ['10:00', '餐具消毒'], ['14:00', '下班']],
+  常: [['08:00', '到岗'], ['08:30', '早会'], ['10:30', '日常工作'], ['12:00', '午休'], ['14:00', '下午工作'], ['17:30', '交接下班']]
+};
+const myRhythm = () => (S.me.shift && !S.me.shift.rest && SHIFT_RH[S.me.shift.code]) || RHYTHM;
+function shiftCard() {
+  const s = S.me.shift; if (!s) return '';
+  if (s.rest) return `<section class="yic" id="myshift"><b>今天休息</b><div class="muted small">${S.me.shift.code === 'O' ? '前台白班、夜班、休息三天一轮' : '做六休一'}，排班由上级安排</div></section>`;
+  const p = s.punch || {};
+  return `<section class="yic" id="myshift"><div class="row between"><b>${s.date !== S.me.today ? '昨晚' : '今天'} ${esc(s.code)} 班 · ${esc(s.start)}–${esc(s.end)}</b>${!p.in ? '<button class="btn primary sm" data-punch="in">上班打卡</button>' : !p.out ? '<button class="btn sm" data-punch="out">下班打卡</button>' : '<span class="tag ok">已打卡</span>'}</div>
+  <div class="muted small">${esc(s.label)} · ${p.in ? '上班 ' + esc(p.in) : '未打上班卡'}${p.out ? ' · 下班 ' + esc(p.out) : ''}${s.prev ? ` · 接 ${esc(s.prev.code)} 班 ${esc(s.prev.names.join('、') || '—')}` : ''}${s.next ? ` · 交 ${esc(s.next.code)} 班 ${esc(s.next.names.join('、') || '—')}` : ''}</div></section>`;
+}
+document.addEventListener('click', async e => { const b = e.target.closest('[data-punch]'); if (!b) return; if (await act(() => api('/punch', { kind: b.dataset.punch }), b.dataset.punch === 'in' ? '上班已打卡' : '下班已打卡')) { S.me = await api('/me'); route(); } });
 const MUST_TAG = { self: 'acc', focus: 'bad', zero: 'bad', review: 'warn', again: 'warn', late: 'bad', spot: 'acc' };
 const pct = v => (v == null ? '-' : v + '%');
 function rhythmBar(R = RHYTHM) {
-  const now = S.me.now; let cur = -1; R.forEach(([t], i) => { if (t <= now) cur = i; });
+  const s0 = R[0] ? R[0][0] : '00:00', nk = t => (t < s0 ? String(Number(t.slice(0, 2)) + 24) + t.slice(2) : t), now = nk(S.me.now); let cur = -1; R.forEach(([t], i) => { if (nk(t) <= now) cur = i; });
   return `<div class="rhythm">${R.map(([t, l], i) => `<div class="${i === cur ? 'on' : i < cur ? 'past' : ''}"><b>${t}</b><span>${l}</span></div>`).join('')}</div>`;
 }
 const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
@@ -1623,7 +1639,7 @@ async function managerHome() {
   const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['handover', '一键交班', '交', '']];
   $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
     ${calMini(date)}<a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar()}</div>`)}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>${shiftCard()}<div class="sec-t2">${S.me.shift && !S.me.shift.rest ? '我的班次节奏' : '一天时间'}</div>${rhythmBar(myRhythm())}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/home?view=store&store=${sid}"><b>${all.length - done.length}</b><span>待完成</span></a><a href="#/must" class="${od ? 'bad' : ''}"><b>${od}</b><span>已超时</span></a><a href="#/must" class="${toCheck ? 'warn' : ''}"><b>${toCheck}</b><span>待点评</span></a><a href="#/rect" class="${openR ? 'warn' : ''}"><b>${openR}</b><span>待整改</span></a></div></div>
   ${upN ? `<div class="sec-t2 row between"><span>上级安排</span><a href="#/upper" class="small">全部 ${upN} ›</a></div><div class="list">${up.focus.slice(0, 2).map(f => `<a class="task" href="#/upper"><div class="b"><div class="ttl">${esc(f.title)}</div><div class="muted small">${esc(f.creator || '区域')} 下发 · 每日 ${esc(f.due_time)} · ${esc(f.assignee_name || '')} 落实 · 历史执行 ${pct(f.rate)}</div></div>${f.today ? `<span class="tag ${f.today.status === 'done' ? 'ok' : 'warn'}">${f.today.status === 'done' ? '今日已落实' : '今日待落实'}</span>` : ''}</a>`).join('')}
@@ -2466,19 +2482,27 @@ VIEWS.safety = async () => {
 };
 
 // ---------- 排班与人效 ----------
+const SHC = c => 's' + ({ A: 0, D: 1, 常: 0, B: 2, C: 2, O: 3, 休: 3 }[c] ?? 0);
 VIEWS.labor = async () => {
   const sid = sidQ() || S.meta.stores[0]?.id, from = qs().get('from') || '', d = await api(`/labor?store=${sid}${from ? '&from=' + from : ''}`), S2 = d.std;
   $('#main').innerHTML = `<div class="pghd"><b>排班与人效 · ${esc(d.store)}</b></div>
   ${d.region ? `<div class="tfil">${d.region.map(r => `<a class="${r.id === sid ? 'on' : ''}" href="#/labor?store=${r.id}">${esc(r.name.replace(/^.{2}/, ''))}<small>${r.cost_rate}%</small></a>`).join('')}</div>` : ''}
-  <section class="yic"><div class="rkpi">${[['人房比', d.ratio, '', d.ratio > S2.ratio], ['人均间夜', d.rn_per, '/月'], ['人工成本率', d.cost_rate, '%', d.cost_rate > S2.cost_rate], ['加班合计', d.ot_total, '小时'], ['在岗人数', d.staff, '人'], ['房量', d.rooms, '间']].map(([l, v, u, bad]) => `<a class="${bad ? 'bad' : ''}"><b>${v}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div>
+  <section class="yic"><div class="rkpi">${[['人房比', d.ratio, '', d.ratio > S2.ratio], ['人均间夜', d.rn_per, '/月'], ['人工成本率', d.cost_rate, '%', d.cost_rate > S2.cost_rate], ['加班合计', d.ot_total, '小时'], ['在岗人数', d.staff, '人'], ['房量', d.rooms, '间']].map(([l, v, u, bad]) => `<a class="${bad ? 'bad' : ''}"><b>${v ?? '—'}<small>${u}</small></b><span>${l}</span></a>`).join('')}</div>
   <p class="muted small">参考线：人房比 ≤ ${S2.ratio}，人工成本率 ≤ ${S2.cost_rate}%，个人月加班 ≤ ${S2.ot} 小时。人工成本按基本工资 × 1.35 估算，均为模拟数据。</p></section>
-  <div class="sec-t2 row between"><span>本周排班 ${esc(d.sched.days[0].slice(5))} 起</span><span><a href="#/labor?store=${sid}&from=${addD(d.from, -7)}">上周</a> · <a href="#/labor?store=${sid}&from=${addD(d.from, 7)}">下周</a></span></div>
+  <div class="sec-t2 row between"><span>排班 ${esc(d.sched.days[0].slice(5))} 起 ${d.sched.pub ? `<span class="tag ok">已发布</span>` : '<span class="tag">未发布</span>'}</span><span><a href="#/labor?store=${sid}&from=${addD(d.from, -7)}">上周</a> · <a href="#/labor?store=${sid}&from=${addD(d.from, 7)}">下周</a></span></div>
+  <p class="muted small" style="margin-top:-6px">${Object.entries(d.defs).filter(([k]) => k !== '休').map(([k, v]) => v[1] ? `${k} ${v[1]}–${v[2]}` : `${k} 休息`).join(' · ')}${d.can_edit ? '。点格子切换班次，只能改自己负责的员工。' : ''}</p>
   <div class="tbl sched"><table><tr><th>姓名</th>${d.sched.days.map(x => `<th>${'一二三四五六日'[(new Date(x).getDay() + 6) % 7]}<br><small>${x.slice(8)}</small></th>`).join('')}</tr>
-  ${d.sched.rows.map(r => `<tr><td>${esc(r.name)}<br><small class="muted">${esc(r.role_name)}</small></td>${r.cells.map((c, i) => `<td><button class="shc s${'早中夜休'.indexOf(c)}" ${d.can_edit ? `data-sh="${r.id}:${d.sched.days[i]}:${c}"` : 'disabled'}>${c}</button></td>`).join('')}</tr>`).join('')}</table></div>
+  ${d.sched.rows.map(r => `<tr><td>${esc(r.name)}<br><small class="muted">${esc(r.role_name)}</small></td>${r.cells.map((c, i) => `<td><button class="shc ${SHC(c)}" ${r.edit ? `data-sh="${r.id}|${d.sched.days[i]}"` : 'disabled'}>${esc(c)}</button></td>`).join('')}</tr>`).join('')}</table></div>
+  ${(() => { const is = d.sched.issues, nb = is.filter(i => i.lv === 'bad').length, row = i => `<div class="task"><div class="b"><div class="small">${esc(i.text)}</div></div><span class="tag ${i.lv}">${i.lv === 'bad' ? '需处理' : '提醒'}</span></div>`;
+    return is.length ? `<div class="sec-t2">排班检查 · ${nb} 个问题、${is.length - nb} 个提醒</div><div class="list">${is.slice(0, 6).map(row).join('')}</div>${is.length > 6 ? `<details class="tgrp"><summary>其余 ${is.length - 6} 条 <i>展开</i></summary><div class="list">${is.slice(6).map(row).join('')}</div></details>` : ''}` : '<div class="yic small">排班检查全部通过：各班次有人在岗、两班间隔 ≥ 12 小时、做六休一</div>'; })()}
+  ${d.can_pub ? `<button class="btn primary" id="pub" style="width:100%;margin-top:8px">${d.sched.pub ? '重新发布本周排班' : '发布本周排班'}</button>` : ''}
+  ${(() => { const at = [...d.attend].sort((a, b) => (b.late + b.miss + b.early) - (a.late + a.miss + a.early)), row = a => `<div class="task"><div class="b"><div class="ttl">${esc(a.name)} <span class="muted small">${esc(a.role_name)}</span>${a.today && a.today.absent ? ' <span class="tag bad">今日未打卡</span>' : a.today && a.today.late ? ' <span class="tag warn">今日迟到</span>' : ''}</div><div class="muted small">出勤 ${a.work} 天 · 迟到 ${a.late} · 早退 ${a.early} · 缺卡 ${a.miss} · 加班 ${a.ot} 小时</div></div></div>`;
+    return `<div class="sec-t2">考勤 · 本周（模拟打卡）</div><div class="list">${at.slice(0, 5).map(row).join('')}</div>${at.length > 5 ? `<details class="tgrp"><summary>其余 ${at.length - 5} 人 <i>展开</i></summary><div class="list">${at.slice(5).map(row).join('')}</div></details>` : ''}`; })()}
   <div class="sec-t2">客房计件与人效</div><div class="list">${d.hk.map((h, i) => `<div class="task"><span class="rk">${i + 1}</span><div class="b"><div class="ttl">${esc(h.name)}</div><div class="muted small">本月 ${h.rooms} 间 · 工时 ${h.hours} 小时${h.amount != null ? ` · 提成 ¥${h.amount}` : ''}</div></div><b>${h.per_h}<small class="muted"> 间/时</small></b></div>`).join('')}</div>
   <div class="sec-t2">加班排行</div><div class="list">${d.ot.slice(0, 5).map(o => `<div class="task"><div class="b"><div class="ttl">${esc(o.name)} <span class="muted small">${esc(o.role_name)}</span></div></div><span class="tag ${o.ot > S2.ot ? 'bad' : ''}">${o.ot} 小时</span></div>`).join('')}</div>`;
-  document.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const [uid, date, c] = b.dataset.sh.split(':'), nx = '早中夜休'['早中夜休'.indexOf(c) + 1] || '早';
-    act(async () => { await api('/labor/shift', { uid: Number(uid), date, shift: nx }); b.textContent = nx; b.className = 'shc s' + '早中夜休'.indexOf(nx); b.dataset.sh = `${uid}:${date}:${nx}`; }); });
+  document.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const [uid, date] = b.dataset.sh.split('|'), r = d.sched.rows.find(x => x.id === Number(uid)), nx = r.opts[(r.opts.indexOf(b.textContent) + 1) % r.opts.length];
+    act(() => api('/labor/shift', { uid: Number(uid), date, shift: nx })).then(ok => ok && route()); });
+  if ($('#pub')) $('#pub').onclick = () => act(() => api('/labor/publish', { store_id: d.store_id, from: d.sched.days[0] }), '已发布，已通知全店员工').then(ok => ok && route());
 };
 const addD = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
 
@@ -2916,4 +2940,13 @@ VIEWS.rsv = async () => {
     x => act(() => api('/rsv', { user_id: Number(b.dataset.as), kind: x.kind, title: x.title, store_id: x.store_id ? Number(x.store_id) : null, due: x.due }), '已指派')));
   document.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => formModal('评分', `<label class="f"><span>评分</span><select name="score">${[5, 4, 3, 2, 1].map(n => `<option>${n}</option>`).join('')}</select></label>`, x => act(() => api('/rsv/' + b.dataset.rs, { op: 'score', score: Number(x.score) }), '已评分')));
 };
-{ const h0 = VIEWS.home; VIEWS.home = async () => (S.me.reserve === 'sm_off' ? VIEWS.rsv() : h0()); }
+async function loadOnDuty() {
+  if (!(S.me.level === 'store_manager' || ['店助', '前台经理', '客房经理'].includes(S.me.role_name)) || $('#ondu')) return;
+  const sid = sidQ() || S.store || S.me.store_id; if (!sid) return;
+  const d = await api('/onduty?store=' + sid).catch(() => null); if (!d || $('#ondu')) return;
+  const h = `<section class="yic" id="ondu"><div class="row between"><b>当前在岗 ${d.on}/${d.total} 人</b><a class="muted small" href="#/labor?store=${sid}">排班 ›</a></div>
+  <div class="muted small">下一个节点 ${esc(d.next.at)} ${esc(d.next.text)}</div>${d.gaps.map(g => `<div class="small bad">${esc(g)}</div>`).join('')}
+  <div class="small">${d.groups.map(g => `<div><b>${esc(g.g)}</b> ${g.xs.map(x => esc(x.name) + (x.code && x.code !== '常' ? ' ' + esc(x.code) : '')).join('、')}</div>`).join('')}</div></section>`;
+  const tb = $('#tbud'); tb ? tb.insertAdjacentHTML('afterend', h) : ($('#topw') || $('#main .pghd'))?.insertAdjacentHTML('afterend', h);
+}
+{ const h0 = VIEWS.home; VIEWS.home = async () => { if (S.me.reserve === 'sm_off') return VIEWS.rsv(); await h0(); if (['ops', null].includes(qs().get('pl'))) loadOnDuty(); }; }

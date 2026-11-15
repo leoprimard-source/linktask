@@ -25,7 +25,7 @@ app.get('/api/users', (req, res) => {
 
 const tooLong = v => typeof v === 'string' ? !v.startsWith('data:image/') && v.length > 5000 : v && typeof v === 'object' ? Object.values(v).some(tooLong) : false;
 app.use('/api', (req, res, next) => {
-  if (req.method !== 'GET') memoReset();
+  if (req.method !== 'GET') { memoReset(); D.shiftReset(); }
   if (req.method !== 'GET' && tooLong(req.body)) return res.status(400).json({ error: '内容过长，请精简到 5000 字以内' });
   const id = Number(req.get('x-user-id'));
   const u = id && q1(USER_SQL + ' WHERE u.id=? AND u.active=1', id);
@@ -88,7 +88,7 @@ const memo = (name, fn) => (...a) => {
 };
 function deny(res, msg) { res.status(403).json({ error: msg || '无权限' }); }
 function err(res, msg) { res.status(400).json({ error: msg }); }
-const STAFF_ALL = ['前台经理', '前台高级', '前台中级', '前台初级', '客房经理', '客房高级', '客房中级', '客房初级', '餐厅厨师', '工程', 'PA', '保安'];
+const STAFF_ALL = ['前台经理', '前台高级', '前台中级', '前台初级', '客房经理', '客房高级', '客房中级', '客房初级', '餐厅厨师', '餐厅服务员', '工程', 'PA', '保安'];
 const LEADS = { 店助: STAFF_ALL, 前台经理: ['前台高级', '前台中级', '前台初级'], 客房经理: ['客房高级', '客房中级', '客房初级', 'PA'] };
 function teamOf(u, sid) {
   sid = Number(sid);
@@ -145,7 +145,7 @@ app.get('/api/me', (req, res) => {
   const unread = q1('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read=0', u.id).n;
   res.json({ ...u, region_name: rg?.name, province_name: rg?.pname, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
     can: { manage: ['region_manager', 'coach', 'store_manager'].includes(u.level), region: isRegion(u), patrol: rmLike(u), settings: u.level === 'region_manager' },
-    category: catFilter(u), data_auth: daAuth()[daKey(u)] || [], da_admin: ['region_manager', 'hq'].includes(u.level), team: u.store_id ? teamOf(u, u.store_id).map(x => x.id) : [], lead: !!LEADS[u.role_name] });
+    category: catFilter(u), data_auth: daAuth()[daKey(u)] || [], da_admin: ['region_manager', 'hq'].includes(u.level), team: u.store_id ? teamOf(u, u.store_id).map(x => x.id) : [], lead: !!LEADS[u.role_name], shift: myShift(u) });
 });
 app.get('/api/data-auth', (req, res) => {
   if (!['region_manager', 'hq', 'hr_manager'].includes(req.u.level)) return deny(res);
@@ -2530,7 +2530,7 @@ function seedProcTrain() {
 seedProcTrain();
 
 // ---------- 绩效与薪酬 ----------
-const BASE_PAY = { 店助: 7800, 前台经理: 6800, 客房经理: 6600, 前台高级: 5200, 前台中级: 4800, 前台初级: 4300, 客房高级: 4900, 客房中级: 4500, 客房初级: 4100, 店长: 12000 };
+const BASE_PAY = { 店助: 7800, 前台经理: 6800, 客房经理: 6600, 前台高级: 5200, 前台中级: 4800, 前台初级: 4300, 客房高级: 4900, 客房中级: 4500, 客房初级: 4100, 餐厅厨师: 5000, 餐厅服务员: 4000, 保安: 4200, 店长: 12000 };
 const perfCoef = s => (s >= 90 ? 1.2 : s >= 80 ? 1 : s >= 70 ? 0.9 : 0.8);
 function smAssess(u) {
   const sids = q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(x => x.store_id); if (!sids.length) return null;
@@ -2739,11 +2739,70 @@ app.post('/api/safety/:pid', (req, res) => {
 
 // ---------- 排班与人效 ----------
 const SH_K = ['早', '中', '夜', '休'];
-function schedOf(sid, from) {
-  const us = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level IN ('staff','store_manager')", sid), days = [...Array(7)].map((_, i) => L.addDays(from, i));
-  const set = {}; for (const r of q('SELECT * FROM schedules WHERE store_id=? AND date>=? AND date<=?', sid, from, days[6])) set[r.user_id + r.date] = r.shift;
-  const lv = {}; for (const r of q('SELECT user_id, date FROM leaves WHERE date>=? AND date<=?', from, days[6])) lv[r.user_id + r.date] = 1;
-  return { days, rows: us.map(x => ({ id: x.id, name: x.name, role_name: x.role_name, cells: days.map(d => lv[x.id + d] ? '休' : set[x.id + d] || (hx('sc' + x.id + d) < 0.16 ? '休' : /^前台/.test(x.role_name) ? SH_K[Math.floor(hx('sk' + x.id + d) * 3)] : x.role_name === '店长' || x.role_name === '店助' ? '早' : hx('sk' + x.id + d) < 0.8 ? '早' : '中')) })) };
+const canSched = (u, x) => apprOk(u, x.store_id) || leads(u, x.id);
+const hmMin = hm => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+const SH_ORDER = ['店助', '前台经理', '前台', '客房经理', '客房', '餐厅', '保安', '工程'];
+function schedOf(sid, from, u) {
+  const us = q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff'", sid), days = [...Array(7)].map((_, i) => L.addDays(from, i));
+  const all = [...[...Array(7)].map((_, i) => L.addDays(from, i - 7)), ...days], M = Object.fromEntries(all.map(d => [d, D.shiftMap(sid, d)])), SD = D.SHIFT_DEF;
+  const ord = r => { const i = SH_ORDER.indexOf(r.g); return i < 0 ? 99 : i; };
+  const rows = us.map(x => ({ id: x.id, name: x.name, role_name: x.role_name, g: D.shiftGroup(x.role_name), opts: [...D.roleShifts(x.role_name), D.restCode(x.role_name)], edit: !!u && canSched(u, x), cells: days.map(d => M[d].get(x.id)) })).sort((a, b) => ord(a) - ord(b) || a.id - b.id);
+  const issues = [], rooms = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms || 100, need = Math.ceil(rooms * 0.85 * 0.6 / 13);
+  const d1 = [], hks = [];
+  for (const d of days) {
+    const cnt = {}; rows.forEach(r => { const c = M[d].get(r.id); cnt[c] = (cnt[c] || 0) + 1; });
+    for (const c of ['A', 'B', 'C', 'D']) if (!cnt[c]) issues.push({ lv: 'bad', day: d, text: `${d.slice(5)} ${c} 班（${SD[c][0]} ${SD[c][1]}–${SD[c][2]}）无人在岗` });
+    if (cnt.D === 1) d1.push(d.slice(5));
+    hks.push(rows.filter(r => r.g === '客房' && M[d].get(r.id) === '常').length);
+  }
+  if (d1.length) issues.push({ lv: 'warn', day: days[0], text: `${d1.join('、')} 06:00 前餐厅只有 1 人，建议 2 人` });
+  const hka = Math.round(hks.reduce((a, b) => a + b, 0) * 10 / hks.length) / 10;
+  if (hka < need) issues.push({ lv: 'warn', day: days[0], text: `本周客房平均在岗 ${hka} 人，按房量约需 ${need} 人，可用计件或外包补位` });
+  for (const r of rows) {
+    let run0 = 0, prevEnd = null;
+    all.forEach((d, i) => {
+      const c = M[d].get(r.id), df = SD[c];
+      if (!df || !df[1]) { run0 = 0; prevEnd = null; return; }
+      const st = i * 1440 + hmMin(df[1]), en = i * 1440 + hmMin(df[2]) + (df[1] > df[2] ? 1440 : 0);
+      if (i >= 7 && prevEnd != null && st - prevEnd < 720) issues.push({ lv: 'bad', day: d, uid: r.id, text: `${r.name} ${d.slice(5)} ${c} 班与上一班间隔不足 12 小时` });
+      run0++; if (i >= 7 && run0 === 7) issues.push({ lv: 'bad', day: d, uid: r.id, text: `${r.name} 到 ${d.slice(5)} 已连续上班 7 天，需要安排休息（做六休一）` });
+      prevEnd = en;
+    });
+  }
+  issues.sort((a, b) => (a.lv === 'bad' ? 0 : 1) - (b.lv === 'bad' ? 0 : 1) || a.day.localeCompare(b.day));
+  return { days, rows, issues, pub: q1('SELECT s.at, u.name FROM sched_pub s LEFT JOIN users u ON u.id=s.by WHERE s.store_id=? AND s.week=?', sid, from) || null };
+}
+function attendOf(sid, rows, days) {
+  const t = L.today(), hm = L.nowHM(), SD = D.SHIFT_DEF;
+  return rows.map(r => {
+    const o = { id: r.id, name: r.name, role_name: r.role_name, work: 0, late: 0, early: 0, miss: 0, ot: 0, today: null };
+    days.forEach((d, i) => {
+      const c = r.cells[i], df = SD[c]; if (!df || !df[1] || d > t) return;
+      const pu = Object.fromEntries(q('SELECT kind, at FROM punches WHERE user_id=? AND date=?', r.id, d).map(x => [x.kind, x.at]));
+      if (d === t) { o.today = { code: c, in: pu.in || null, out: pu.out || null, late: !!pu.in && hmMin(pu.in) > hmMin(df[1]) + 5, absent: !pu.in && hm > df[1] && df[1] <= df[2] }; if (pu.in && hmMin(pu.in) > hmMin(df[1]) + 5) o.late++; return; }
+      o.work++;
+      const h1 = hx('pa' + r.id + d), h2 = hx('po' + r.id + d);
+      if (!pu.in && h1 < 0.02) { o.miss++; return; }
+      const inM = pu.in ? hmMin(pu.in) : hmMin(df[1]) + (h1 < 0.08 ? 5 + Math.round(h1 * 300) : -Math.round(h1 * 15));
+      if (inM > hmMin(df[1]) + 5) o.late++;
+      if (!pu.out && h2 < 0.03) o.early++; else if (!pu.out && h2 > 0.7) o.ot += Math.round((h2 - 0.7) * 300);
+    });
+    o.ot = Math.round(o.ot / 6) / 10; return o;
+  });
+}
+function myShift(u) {
+  if (u.level !== 'staff' || !u.store_id) return null;
+  const t = L.today(), hm = L.nowHM(), y = L.addDays(t, -1), sid = u.store_id, SD = D.SHIFT_DEF, yc = D.shiftMap(sid, y).get(u.id), yd = SD[yc];
+  let date = t, code = D.shiftMap(sid, t).get(u.id);
+  if (yd && yd[1] && yd[1] > yd[2] && hm <= yd[2]) { date = y; code = yc; }
+  const df = SD[code] || SD['常'], rot = D.roleShifts(u.role_name), i = rot.indexOf(code), g = D.shiftGroup(u.role_name);
+  const peers = q(USER_SQL + " WHERE u.store_id=? AND u.active=1 AND r.level='staff' AND u.id!=?", sid, u.id).filter(p => D.shiftGroup(p.role_name) === g);
+  const who = (c, dt) => peers.filter(p => D.shiftMap(sid, dt).get(p.id) === c).map(p => p.name);
+  const ring = rot.length > 1 && i >= 0, pc = ring ? rot[(i + rot.length - 1) % rot.length] : null, nc = ring ? rot[(i + 1) % rot.length] : null;
+  const pu = Object.fromEntries(q('SELECT kind, at FROM punches WHERE user_id=? AND date=?', u.id, date).map(r => [r.kind, r.at]));
+  const night = !!df[1] && df[1] > df[2];
+  return { date, code, label: df[0], start: df[1], end: df[2], rest: !df[1],
+    prev: pc && { code: pc, names: who(pc, i === 0 ? L.addDays(date, -1) : date) }, next: nc && { code: nc, names: who(nc, night ? L.addDays(date, 1) : date) }, punch: pu };
 }
 function laborOf(sid) {
   const t = L.today(), f30 = L.addDays(t, -30), b = bizRange(sid, f30, L.addDays(t, -1)), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid).rooms;
@@ -2753,17 +2812,55 @@ function laborOf(sid) {
   return { rooms, staff: us.length, ratio: Math.round(us.length * 100 / rooms) / 100, rn, rn_per: Math.round(rn / Math.max(1, us.length)), rev, cost: Math.round(cost), cost_rate: rev ? Math.round(cost * 1000 / rev) / 10 : null, ot: ot.sort((a, b) => b.ot - a.ot), ot_total: ot.reduce((a, x) => a + x.ot, 0), hk, std: { ratio: 0.1, cost_rate: 8, ot: 20 } };
 }
 app.get('/api/labor', (req, res) => {
-  const u = req.u, sids = visibleStores(u), sid = Number(req.query.store) || u.store_id; if (!sids.includes(sid) || u.level === 'staff') return deny(res);
+  const u = req.u, sids = visibleStores(u), sid = Number(req.query.store) || u.store_id;
+  if (!sids.includes(sid) || (u.level === 'staff' && !LEADS[u.role_name] && !apprOk(u, sid))) return deny(res);
   const mon = L.addDays(L.today(), -((new Date(L.today()).getDay() + 6) % 7)), from = req.query.from || mon;
   const lo = laborOf(sid); if (!daCan(u, 'pay')) lo.hk = lo.hk.map(x => ({ ...x, amount: null }));
-  res.json({ store: sname(sid), ...lo, sched: schedOf(sid, from), from, shifts: SH_K, can_edit: canManage(u, sid), region: isRegion(u) ? sids.map(s => { const l = laborOf(s); return { id: s, name: sname(s), ratio: l.ratio, cost_rate: l.cost_rate, ot_total: l.ot_total, rn_per: l.rn_per }; }) : null, simulated: true });
+  if (u.level === 'staff') { lo.cost = null; lo.cost_rate = null; }
+  const sched = schedOf(sid, from, u);
+  res.json({ store: sname(sid), store_id: sid, ...lo, sched, from, defs: D.SHIFT_DEF, attend: attendOf(sid, sched.rows, sched.days), can_edit: sched.rows.some(r => r.edit), can_pub: apprOk(u, sid),
+    region: isRegion(u) ? sids.map(s => { const l = laborOf(s); return { id: s, name: sname(s), ratio: l.ratio, cost_rate: l.cost_rate, ot_total: l.ot_total, rn_per: l.rn_per }; }) : null, simulated: true });
 });
 app.post('/api/labor/shift', (req, res) => {
-  const u = req.u, b = req.body || {}, x = q1('SELECT * FROM users WHERE id=?', b.uid);
-  if (!x || !apprOk(u, x.store_id) || !SH_K.includes(b.shift)) return deny(res);
+  const u = req.u, b = req.body || {}, x = q1(USER_SQL + ' WHERE u.id=?', b.uid);
+  if (!x || !canSched(u, x)) return deny(res, '只能给自己负责的员工排班');
+  if (![...D.roleShifts(x.role_name), D.restCode(x.role_name), '休'].includes(b.shift) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || '')) return err(res, '该岗位没有这个班次');
   run('INSERT INTO schedules(store_id,user_id,date,shift) VALUES(?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET shift=excluded.shift', x.store_id, x.id, b.date, b.shift);
+  D.shiftReset(); if (b.date >= L.today()) D.refreshPending(x.store_id, b.date, L.addDays(b.date, 1));
   res.json({ ok: true });
 });
+app.post('/api/labor/publish', (req, res) => {
+  const u = req.u, b = req.body || {}, sid = Number(b.store_id);
+  if (!apprOk(u, sid)) return deny(res, '由店长或获得审批授权的负一层发布');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.from || '')) return err(res, '请选择排班周');
+  const s = schedOf(sid, b.from, u), bad = s.issues.filter(i => i.lv === 'bad');
+  if (bad.length) return err(res, `还有 ${bad.length} 个问题要先处理：${bad.slice(0, 3).map(i => i.text).join('；')}`);
+  run('INSERT INTO sched_pub(store_id,week,by,at) VALUES(?,?,?,?) ON CONFLICT(store_id,week) DO UPDATE SET by=excluded.by, at=excluded.at', sid, b.from, u.id, L.nowStr());
+  D.notify(s.rows.map(r => r.id), 'assign', `${b.from.slice(5)} 起一周排班已发布`, `${sname(sid)} · ${u.name} 发布`, '#/home');
+  D.audit(u.id, sid, '发布排班', b.from); res.json({ ok: true });
+});
+app.get('/api/onduty', (req, res) => {
+  const u = req.u, sid = Number(req.query.store) || u.store_id; if (!sid || !visibleStores(u).includes(sid)) return deny(res);
+  const t = L.today(), hm = L.nowHM(), m = D.shiftMap(sid, t), py = D.shiftMap(sid, L.addDays(t, -1)), SD = D.SHIFT_DEF;
+  const us = q(USER_SQL + " WHERE u.store_id=? AND u.active=1 AND r.level='staff'", sid), on = us.filter(x => D.onShift(sid, x.id, t, hm)), G = {};
+  for (const x of on) { const c = m.get(x.id), df = SD[c], cur = df && df[1] && (df[1] <= df[2] ? hm >= df[1] && hm <= df[2] : hm >= df[1]) ? c : py.get(x.id); (G[D.shiftGroup(x.role_name)] ||= []).push({ name: x.name, role_name: x.role_name, code: cur }); }
+  const HO = [['06:00', '餐厅到岗备早餐'], ['07:00', '开餐'], ['08:00', '前台夜班交白班 · 保安交接 · 客房到岗'], ['14:00', '餐厅下班'], ['17:30', '客房下班交接'], ['20:00', '前台白班交夜班 · 保安上岗']];
+  const nx = HO.find(h => h[0] > hm) || HO[0], night = hm >= '20:00' || hm < '08:00';
+  const gaps = [...(!G['前台'] && !G['前台经理'] ? ['前台没有人在岗'] : []), ...(night && !G['保安'] ? ['夜间保安没有人在岗'] : [])];
+  const ord = g => { const i = SH_ORDER.indexOf(g); return i < 0 ? 99 : i; };
+  res.json({ now: hm, on: on.length, total: us.length, groups: Object.entries(G).map(([g, xs]) => ({ g, xs })).sort((a, b) => ord(a.g) - ord(b.g)), next: { at: nx[0], text: nx[1] }, gaps });
+});
+app.post('/api/punch', (req, res) => {
+  const u = req.u, s = myShift(u), k = (req.body || {}).kind; if (!s) return deny(res, '只有门店员工需要打卡');
+  if (s.rest) return err(res, '今天休息，不需要打卡');
+  if (!['in', 'out'].includes(k)) return err(res, '操作无效');
+  if (k === 'out' && !s.punch.in) return err(res, '请先打上班卡');
+  if (s.punch[k]) return err(res, '已经打过卡了');
+  const at = L.nowHM(); run('INSERT OR IGNORE INTO punches(user_id,date,kind,at) VALUES(?,?,?,?)', u.id, s.date, k, at);
+  const late = k === 'in' && hmMin(at) > hmMin(s.start) + 5 && s.start <= s.end;
+  res.json({ ok: true, at, msg: k === 'in' ? (late ? `已打卡 ${at}，迟到` : `上班打卡 ${at}`) : `下班打卡 ${at}` });
+});
+
 
 // ---------- 供应商评价 ----------
 const supOfCat = cat => q1('SELECT * FROM suppliers WHERE cats LIKE ?', '%' + cat + '%');
@@ -3720,5 +3817,33 @@ if (!D.getSetting('seed_stage_v1', 0)) D.tx(() => {
     const a = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.name='店助' ORDER BY u.id", st0.id); if (a) run("UPDATE users SET reserve='sm' WHERE id=?", a.id); });
   D.setSetting('seed_stage_v1', 1);
 });
+
+if (!D.getSetting('seed_shift_v1', 0)) {
+  const t = L.today(), SN = '张王李赵刘陈杨黄周吴徐孙马朱胡郭何林罗高', GN = ['晓东', '文静', '佳怡', '俊杰', '海燕', '雪梅', '志强', '婷婷', '建华', '秀英', '国庆', '丽娜', '振宇', '小燕', '春生', '美玲', '永刚', '玉兰', '德明', '红梅'];
+  D.tx(() => {
+    if (!q1("SELECT 1 FROM roles WHERE name='餐厅服务员'")) run("INSERT INTO roles(name,level,sort) VALUES('餐厅服务员','staff',0)");
+    const rid = n => q1('SELECT id FROM roles WHERE name=?', n).id, waiter = rid('餐厅服务员'), guard = rid('保安'), scene = n => q1('SELECT id FROM scenes WHERE name=?', n)?.id || 1;
+    q('SELECT id, region_id FROM stores ORDER BY id').forEach((st, i) => {
+      const add = (role, k) => run('INSERT INTO users(name,role_id,region_id,store_id,phone) VALUES(?,?,?,?,?)', SN[(i * 7 + k) % SN.length] + GN[(i * 3 + k * 5) % GN.length], role, st.region_id, st.id, '139' + String(10000000 + st.id * 10 + k).slice(-8));
+      if (!q1('SELECT 1 FROM users WHERE store_id=? AND role_id=? AND active=1', st.id, waiter)) add(waiter, 1);
+      if (q1('SELECT COUNT(*) n FROM users WHERE store_id=? AND role_id=? AND active=1', st.id, guard).n < 2) add(guard, 2);
+      for (let k = q1("SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.name IN ('前台高级','前台中级','前台初级')", st.id).n; k < 3; k++) add(rid('前台初级'), 3 + k);
+    });
+    const tp = (role, sc, title, std, due, photo) => { if (!q1('SELECT 1 FROM templates WHERE role_id=? AND title=?', role, title)) run("INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,category,need_photo,active,src) VALUES(?,?,?,?,?,'daily','ops',?,1,'std')", scene(sc), role, title, std, due, photo); };
+    tp(waiter, '餐厅', '早餐摆台及保温设备开启', '06:45 前完成摆台、餐具和保温设备开启，拍照留档', '06:45', 1);
+    tp(waiter, '餐厅', '开餐迎宾及早餐台补餐', '07:00 准时开餐；高峰期每 15 分钟巡台补餐', '07:30', 0);
+    tp(waiter, '餐厅', '收餐清洁及餐具消毒', '收餐后完成台面清洁和餐具消毒并记录', '10:00', 0);
+    tp(guard, '外围', '夜间巡楼签到', '02:00 完成全楼层巡查，记录异常', '02:00', 1);
+    tp(guard, '后场', '夜间情况交接记录', '下班前把夜间情况写入交接记录', '07:45', 0);
+    const RT = { '09:00': '20:30', '09:30': '21:00', '10:00': '22:00', '16:00': '21:30' };
+    for (const [a, b2] of Object.entries(RT)) run('UPDATE templates SET due_time=? WHERE role_id=? AND due_time=?', b2, guard, a);
+    run("UPDATE instances SET due_time=(SELECT due_time FROM templates WHERE id=instances.src_id) WHERE src='tpl' AND status='pending' AND date>=? AND src_id IN (SELECT id FROM templates WHERE role_id=?)", t, guard);
+    D.setSetting('seed_shift_v1', 1);
+  });
+  D.shiftReset();
+  const sids = q('SELECT id FROM stores').map(s => s.id), last = sids.length > 50 ? L.addDays(t, 7) : (q1('SELECT MAX(date) m FROM instances').m || t);
+  for (let d = t; d <= L.addDays(t, 7); d = L.addDays(d, 1)) D.ensureInstances(d, sids);
+  for (const sid of sids) D.refreshPending(sid, t, last);
+}
 
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));

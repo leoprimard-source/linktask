@@ -60,6 +60,8 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
 db.exec(`CREATE TABLE IF NOT EXISTS sm_stage(user_id INTEGER PRIMARY KEY, stage TEXT, start TEXT, set_by INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS stage_steps(user_id INTEGER, stage TEXT, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, stage, step));
+CREATE TABLE IF NOT EXISTS punches(user_id INTEGER, date TEXT, kind TEXT, at TEXT, PRIMARY KEY(user_id, date, kind));
+CREATE TABLE IF NOT EXISTS sched_pub(store_id INTEGER, week TEXT, by INTEGER, at TEXT, PRIMARY KEY(store_id, week));
 CREATE TABLE IF NOT EXISTS rsv_tasks(id INTEGER PRIMARY KEY, user_id INTEGER, by_id INTEGER, store_id INTEGER, kind TEXT, title TEXT, due TEXT, status TEXT DEFAULT 'open', note TEXT, score INTEGER, created_at TEXT, done_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, store_id INTEGER, from_id INTEGER, to_id INTEGER, scope TEXT, inst_id INTEGER, src TEXT, src_id INTEGER,
   title TEXT, start TEXT, end TEXT, review INTEGER DEFAULT 1, active INTEGER DEFAULT 1, created_at TEXT, revoked_at TEXT)`);
@@ -186,6 +188,52 @@ function applyDeleg(date) {
     run(`UPDATE instances SET assignee_id=?, deleg_id=?, deleg_review=${rv} WHERE store_id=? AND date=? AND status='pending' AND deleg_id IS NULL AND assignee_id=? AND ${w}`, d.to_id, d.id, d.store_id, date, d.from_id, ...args);
   }
 }
+
+// ---------- 班次 ----------
+const SHIFT_DEF = { A: ['前台白班', '08:00', '20:00'], B: ['前台夜班', '20:00', '08:00'], O: ['前台休息', '', ''], C: ['保安夜班', '20:00', '08:00'], D: ['餐厅早班', '06:00', '14:00'], 常: ['常日班', '08:00', '17:30'], 休: ['休息', '', ''] };
+const FD_ROLES = ['前台高级', '前台中级', '前台初级'];
+const shiftGroup = rn => FD_ROLES.includes(rn) ? '前台' : rn === '保安' ? '保安' : ['餐厅厨师', '餐厅服务员'].includes(rn) ? '餐厅' : /^客房(高级|中级|初级)$/.test(rn) || rn === 'PA' ? '客房' : rn;
+const SHIFT_ROT = { 前台: ['A', 'B'], 保安: ['C'], 餐厅: ['D'] };
+const FD_PAT = ['A', 'B', 'O'];
+const restCode = rn => (shiftGroup(rn) === '前台' ? 'O' : '休');
+const roleShifts = rn => SHIFT_ROT[shiftGroup(rn)] || (rn === '前台经理' ? ['常', 'A', 'B'] : ['常']);
+const dayNo = d => Math.round(Date.parse(d + 'T00:00:00Z') / 864e5);
+const SH_CACHE = new Map(), PEER_CACHE = new Map();
+const shiftReset = () => { SH_CACHE.clear(); PEER_CACHE.clear(); };
+function storeStaff(sid) {
+  let r = PEER_CACHE.get(sid);
+  if (!r) PEER_CACHE.set(sid, r = q("SELECT u.id, r.name rn FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.level='staff' ORDER BY u.id", sid));
+  return r;
+}
+function shiftMap(sid, date) {
+  const key = sid + '|' + date; let m = SH_CACHE.get(key); if (m) return m;
+  const ov = new Map(q('SELECT user_id, shift FROM schedules WHERE store_id=? AND date=?', sid, date).filter(r => SHIFT_DEF[r.shift]).map(r => [r.user_id, r.shift]));
+  const lv = new Set(q('SELECT l.user_id FROM leaves l JOIN users u ON u.id=l.user_id WHERE u.store_id=? AND l.date=?', sid, date).map(r => r.user_id));
+  const gi = {}, n0 = dayNo(date) + sid, p = ((n0 % 7) + 7) % 7; m = new Map();
+  for (const u of storeStaff(sid)) {
+    const g = shiftGroup(u.rn), i = gi[g] = (gi[g] ?? -1) + 1, j = i % 4, gh = g.charCodeAt(0) % 7;
+    const def = g === '前台' ? FD_PAT[(((n0 + i) % 3) + 3) % 3] : (p + 3 * i + gh) % 7 === 6 ? '休' : (SHIFT_ROT[g] || ['常'])[0];
+    m.set(u.id, lv.has(u.id) ? '休' : ov.get(u.id) || def);
+  }
+  if (SH_CACHE.size > 20000) SH_CACHE.clear();
+  SH_CACHE.set(key, m); return m;
+}
+function onShift(sid, uid, date, hm) {
+  const m = shiftMap(sid, date); if (!m.has(uid)) return true;
+  const d = SHIFT_DEF[m.get(uid)];
+  if (d && d[1] && (d[1] <= d[2] ? hm >= d[1] && hm <= d[2] : hm >= d[1])) return true;
+  const p = SHIFT_DEF[shiftMap(sid, L.addDays(date, -1)).get(uid)];
+  return !!p && !!p[1] && p[1] > p[2] && hm <= p[2];
+}
+function shiftPick(sid, base, date, hm) {
+  if (!base || !hm || !shiftMap(sid, date).has(base) || onShift(sid, base, date, hm)) return base;
+  if (q1('SELECT cover_user_id c FROM leaves WHERE user_id=? AND date=?', base, date)?.c) return base;
+  const all = storeStaff(sid), me = all.find(x => x.id === base), g = shiftGroup(me.rn);
+  const peers = all.filter(x => x.id !== base && shiftGroup(x.rn) === g).sort((a, b) => (b.rn === me.rn) - (a.rn === me.rn));
+  const p0 = peers.find(x => onShift(sid, x.id, date, hm)); if (p0) return p0.id;
+  const lead = all.find(x => x.rn === ({ 前台: '前台经理', 客房: '客房经理' }[g] || '店助') && x.id !== base && onShift(sid, x.id, date, hm));
+  return lead ? lead.id : storeManagers(sid)[0] || base;
+}
 function ensureInstances0(date, storeIds) {
   if (date > L.addDays(L.today(), 30)) return;
   const stores = storeIds && storeIds.length ? storeIds : q('SELECT id FROM stores').map(s => s.id);
@@ -198,7 +246,7 @@ function ensureInstances0(date, storeIds) {
         if (!tplDue(t, date)) continue;
         const exists = q1("SELECT 1 FROM instances WHERE src='tpl' AND src_id=? AND store_id=? AND date=?", t.id, sid, date);
         if (exists) continue;
-        const base = baseAssignee(sid, t);
+        const base = shiftPick(sid, baseAssignee(sid, t), date, t.due_time);
         st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, t.due_time, t.need_photo);
       }
     }
@@ -212,16 +260,16 @@ function ensureInstances0(date, storeIds) {
 }
 
 // Re-resolve assignees of pending instances from today on (after assignment / leave changes).
-function refreshPending(storeId) {
-  const t = L.today();
-  const rows = q("SELECT * FROM instances WHERE store_id=? AND date>=? AND status='pending'", storeId, t);
+function refreshPending(storeId, d1, d2) {
+  const t = d1 || L.today();
+  const rows = q("SELECT * FROM instances WHERE store_id=? AND date>=? AND date<=? AND status='pending'", storeId, t, d2 || '9999-12-31');
   tx(() => {
     for (const r of rows) {
       let base;
       if (r.src === 'tpl') {
         const tpl = q1('SELECT * FROM templates WHERE id=?', r.src_id);
         if (!tpl) continue;
-        base = baseAssignee(storeId, tpl);
+        base = shiftPick(storeId, baseAssignee(storeId, tpl), r.date, r.due_time);
       } else {
         const f = q1('SELECT * FROM flex_tasks WHERE id=?', r.src_id);
         if (!f) continue;
@@ -243,4 +291,4 @@ function audit(userId, storeId, action, detail) {
 }
 
 module.exports = { db, q, q1, run, tx, DATA_DIR, getSetting, setSetting, storeManagers, regionUsers, baseAssignee, coverFor,
-  ensureInstances, refreshPending, applyDeleg, notify, audit };
+  ensureInstances, refreshPending, applyDeleg, notify, audit, SHIFT_DEF, shiftGroup, roleShifts, restCode, shiftMap, onShift, shiftPick, shiftReset };
