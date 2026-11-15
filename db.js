@@ -58,6 +58,9 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec(`CREATE TABLE IF NOT EXISTS sm_stage(user_id INTEGER PRIMARY KEY, stage TEXT, start TEXT, set_by INTEGER, note TEXT);
+CREATE TABLE IF NOT EXISTS stage_steps(user_id INTEGER, stage TEXT, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, stage, step));
+CREATE TABLE IF NOT EXISTS rsv_tasks(id INTEGER PRIMARY KEY, user_id INTEGER, by_id INTEGER, store_id INTEGER, kind TEXT, title TEXT, due TEXT, status TEXT DEFAULT 'open', note TEXT, score INTEGER, created_at TEXT, done_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, store_id INTEGER, from_id INTEGER, to_id INTEGER, scope TEXT, inst_id INTEGER, src TEXT, src_id INTEGER,
   title TEXT, start TEXT, end TEXT, review INTEGER DEFAULT 1, active INTEGER DEFAULT 1, created_at TEXT, revoked_at TEXT)`);
 const STORE_INFO = { 1: ['全季 4.0', '直营店', '2021-06-18', 168], 2: ['全季 4.0', '加盟店', '2022-09-30', 132], 3: ['全季 3.6', '加盟店', '2019-04-26', 205] };
@@ -174,7 +177,7 @@ function ensureInstances(date, storeIds) {
   else applyDeleg(date);
 }
 function applyDeleg(date) {
-  const ds = q("SELECT * FROM delegations WHERE active=1 AND start<=? AND end>=?", date, date);
+  const ds = q("SELECT * FROM delegations WHERE active=1 AND scope!='appr' AND start<=? AND end>=?", date, date);
   for (const d of ds) {
     if (q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', d.to_id, date)) continue;
     const rv = `CASE WHEN ${d.review ? 1 : 0}=1 OR (src='tpl' AND (SELECT tag FROM templates WHERE id=src_id)='清零项') THEN 1 ELSE 0 END`;

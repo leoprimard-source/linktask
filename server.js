@@ -72,6 +72,7 @@ const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_man
 function visibleStores(u) {
   if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
+  if (u.reserve === 'sm_off') return q("SELECT DISTINCT store_id FROM rsv_tasks WHERE user_id=? AND store_id IS NOT NULL AND status='open'", u.id).map(s => s.store_id);
   return u.store_id ? [u.store_id] : [];
 }
 const canManage = (u, sid) => (rmLike(u) || u.level === 'store_manager') && visibleStores(u).includes(Number(sid));
@@ -236,7 +237,7 @@ app.post('/api/instances/:id/reassign', (req, res) => {
 });
 app.post('/api/instances/:id/check', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
-  if (!it || (!canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res, '只有店长、区域经理或直属上级可以点评');
+  if (!it || (!apprOk(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res, '只有店长、区域经理或直属上级可以点评');
   const { result, comment, rectify } = req.body;
   if (it.status !== 'done') return err(res, '任务还未完成，不能抽查');
   if (it.check_result) return err(res, '该任务已抽查过');
@@ -306,7 +307,7 @@ app.get('/api/leaves', (req, res) => {
 app.post('/api/leaves', (req, res) => {
   const { user_id, date, cover_user_id, note, days } = req.body;
   const u = q1('SELECT * FROM users WHERE id=?', user_id);
-  if (!u || (!canManage(req.u, u.store_id) && !leads(req.u, u.id))) return deny(res);
+  if (!u || (!apprOk(req.u, u.store_id) && !leads(req.u, u.id))) return deny(res);
   if (!date) return err(res, '请选择日期');
   if (cover_user_id) { const cu = q1('SELECT * FROM users WHERE id=? AND active=1', cover_user_id); if (!cu || cu.id === u.id || !inStore(cu, u.store_id)) return err(res, '顶岗人需为本店其他在职人员'); }
   const n = Math.max(1, Math.min(31, Number(days) || 1));
@@ -398,7 +399,7 @@ app.post('/api/rectifications/:id/submit', (req, res) => {
 });
 app.post('/api/rectifications/:id/verify', (req, res) => {
   const r = q1('SELECT * FROM rectifications WHERE id=?', req.params.id);
-  if (!r || !canManage(req.u, r.store_id)) return deny(res);
+  if (!r || !apprOk(req.u, r.store_id)) return deny(res);
   if (r.status !== 'submitted') return err(res, r.status === 'closed' ? '整改已闭环' : '整改还未提交，不能复查');
   const pass = !!req.body.pass;
   if (!pass && !req.body.deadline) return err(res, '复查不通过需重新规定整改日期');
@@ -504,7 +505,7 @@ app.get('/api/person/:id', (req, res) => {
 app.get('/api/must', (req, res) => {
   const sc = homeScope(req, res); if (!sc) return;
   const t = L.today(), y = L.addDays(t, -1);
-  const mgr = canManage(req.u, sc.sid), ids = new Set(teamOf(req.u, sc.sid).map(x => x.id));
+  const mgr = apprOk(req.u, sc.sid), ids = new Set(teamOf(req.u, sc.sid).map(x => x.id));
   const mine = r => mgr || ids.has(r.assignee_id);
   const T = decorate(q(INST_SQL + ' WHERE i.store_id=? AND i.date=?', sc.sid, t)).filter(r => mine(r) || r.assignee_id === req.u.id);
   const out = [], seen = new Set();
@@ -1451,13 +1452,13 @@ function timeOf(u) {
     const before = ownMin + Math.round(oth * 0.3) + zero + rv * 2 + rc * 2 + Math.round(full.length * 2.5) + 10;
     return { sid, name: sname(sid), min: parts.reduce((a, p) => a + p[1], 0), before, left: own.filter(r => r.status === 'pending').length, parts };
   });
-  const total = stores.reduce((a, x) => a + x.min, 0), budget = BUDGET_MIN(sids.length), tips = [];
+  const stg = u.level === 'store_manager' ? stageOf(u.id) : null, total = stores.reduce((a, x) => a + x.min, 0), budget = stg?.budget || BUDGET_MIN(sids.length), tips = [];
   if (total > budget) {
     const agg = {}; stores.forEach(x => x.parts.forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; }));
     const TIP = { 本人任务: '把基础项按任务授权给店助，自己只复核', 待我处理: '非当天必办的提醒交店助或改为每周看', 授权复核: '对稳定的接手人取消复核要求（清零项除外）', 整改复查: '整改复查交给主管初查，店长只看不合格' };
     Object.entries(agg).filter(([k]) => TIP[k]).sort((a, b) => b[1] - a[1]).slice(0, 2).forEach(([k, v]) => tips.push(`${k}约 ${v} 分钟：${TIP[k]}`));
   }
-  return { total, budget, over: total > budget, before: stores.reduce((a, x) => a + x.before, 0), stores, tips };
+  return { stage: stg?.l, total, budget, over: total > budget, before: stores.reduce((a, x) => a + x.before, 0), stores, tips };
 }
 app.get('/api/timebudget', (req, res) => {
   if (req.u.level !== 'store_manager') return deny(res);
@@ -1502,7 +1503,7 @@ app.get('/api/cdesk', (req, res) => {
     const lc = q1('SELECT MAX(date) d FROM coach_logs WHERE sm_id=?', id).d, lt = q1("SELECT MAX(date) d FROM care_log WHERE user_id=? AND kind='sm_talk'", id).d;
     const grades = st.map(s => sc[s] && sc[s].grade).filter(Boolean);
     const risk = grades.filter(g => ['C', 'D'].includes(g)).length * 3 + (tb.over ? 2 : 0) + (dg ? Math.max(0, 75 - dg.total) / 5 : 0) + (!lc || dBetween(lc, t) > 30 ? 1 : 0) + (tot && dd * 100 / tot > 50 ? 1 : 0);
-    return { id, name: m.name, stores: st.map(s => ({ id: s, name: sname(s), grade: sc[s] && sc[s].grade })), time: tb.total, budget: tb.budget, over: tb.over, deleg: tot ? Math.round(dd * 100 / tot) : 0,
+    return { id, name: m.name, stage: stageOf(id)?.l, stores: st.map(s => ({ id: s, name: sname(s), grade: sc[s] && sc[s].grade })), time: tb.total, budget: tb.budget, over: tb.over, deleg: tot ? Math.round(dd * 100 / tot) : 0,
       diag: dg && dg.total, weak: dg ? dg.caps.filter(c => dg.weak.includes(c.k)).map(c => c.l).slice(0, 2) : [], last_coach: lc, last_talk: lt, talk_due: (!lt || lt < qs0) && !q1("SELECT 1 x FROM cal_events WHERE kind='店长谈心' AND title LIKE ? AND date>=?", '%#' + id, t), talk_sched: q1("SELECT MIN(date) d FROM cal_events WHERE kind='店长谈心' AND title LIKE ? AND date>=?", '%#' + id, t).d, risk: Math.round(risk * 10) / 10 };
   }).filter(Boolean).sort((a, b) => b.risk - a.risk);
   const LV = { bad: 3, warn: 2, acc: 1, ok: 0 }, grp = {};
@@ -1548,7 +1549,8 @@ app.get('/api/deleg', (req, res) => {
     const sid = visibleStores(u).includes(Number(req.query.store)) ? Number(req.query.store) : visibleStores(u)[0];
     const mine = q("SELECT d.*, u.name to_name FROM delegations d JOIN users u ON u.id=d.to_id WHERE d.from_id=? AND d.store_id=? ORDER BY d.active DESC, d.id DESC LIMIT 40", u.id, sid);
     const tasks = q("SELECT src, src_id, title, MIN(due_time) due_time FROM instances WHERE store_id=? AND orig_assignee_id=? AND date>=? GROUP BY src, src_id ORDER BY due_time", sid, u.id, L.addDays(t, -7));
-    return res.json({ mode: 'sm', store_id: sid, mine, tasks, cands: delegCands(sid), stats: delegStats(sid).find(x => x.sm_id === u.id) || null });
+    const stg = stageOf(u.id);
+    return res.json({ mode: 'sm', stage: stg && { k: stg.k, l: stg.l, perm: stg.perm }, appr: stg?.k === 'multi' ? neg1(sid) : null, store_id: sid, mine, tasks, cands: delegCands(sid), stats: delegStats(sid).find(x => x.sm_id === u.id) || null });
   }
   if (!['region_manager', 'ops_manager', 'coach'].includes(u.level)) return deny(res);
   res.json({ mode: 'view', stores: visibleStores(u).map(sid => ({ id: sid, name: sname(sid), sms: delegStats(sid) })) });
@@ -1556,8 +1558,11 @@ app.get('/api/deleg', (req, res) => {
 app.post('/api/deleg', (req, res) => {
   const u = req.u, b = req.body || {}, t = L.today();
   if (u.level !== 'store_manager') return deny(res, '只有店长可以授权下转自己的任务');
-  const scope = ['one', 'task', 'all'].includes(b.scope) ? b.scope : null;
+  const scope = ['one', 'task', 'all', 'appr'].includes(b.scope) ? b.scope : null;
   if (!scope) return err(res, '请选择授权范围');
+  const stg = stageOf(u.id);
+  if (stg && !stg.scopes.includes(scope)) return err(res, `${stg.l}：${stg.perm}`);
+  if (scope === 'appr') return delegAppr(res, u, b);
   let sid = Number(b.store_id), start = b.start || t, end = b.end || start, src = null, src_id = null, inst = null, title = '';
   if (scope === 'one') {
     inst = q1('SELECT * FROM instances WHERE id=?', b.inst_id);
@@ -1577,6 +1582,8 @@ app.post('/api/deleg', (req, res) => {
   if (scope === 'all') title = '全部亲做任务';
   const to = q1('SELECT u.*, r.name role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.active=1', b.to_id);
   if (!to || to.store_id !== sid || !DELEG_ROLES.includes(to.role_name)) return err(res, '只能授权给本店在职的店助或主管');
+  if (stg?.must && scope !== 'all' && isMust(title) && to.reserve !== 'sm') return err(res, '单店店长的必做项（' + MUST_KW.join('、') + '）只能授权给店内储备店长');
+  if (stg?.cap && scope === 'task') { const s0 = delegStats(sid).find(x => x.sm_id === u.id); if (s0 && s0.ratio >= stg.cap) return err(res, `${stg.l}转出比例上限 ${stg.cap}%，当前 ${s0.ratio}%`); }
   if (scope === 'one' && q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', to.id, start)) return err(res, `${to.name} 当天休息，请换人`);
   const id = Number(run('INSERT INTO delegations(store_id,from_id,to_id,scope,inst_id,src,src_id,title,start,end,review,active,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)',
     sid, u.id, to.id, scope, inst?.id || null, src, src_id, title, start, end, b.review === false || b.review === 0 ? 0 : 1, L.nowStr()).lastInsertRowid);
@@ -2753,7 +2760,7 @@ app.get('/api/labor', (req, res) => {
 });
 app.post('/api/labor/shift', (req, res) => {
   const u = req.u, b = req.body || {}, x = q1('SELECT * FROM users WHERE id=?', b.uid);
-  if (!x || !canManage(u, x.store_id) || !SH_K.includes(b.shift)) return deny(res);
+  if (!x || !apprOk(u, x.store_id) || !SH_K.includes(b.shift)) return deny(res);
   run('INSERT INTO schedules(store_id,user_id,date,shift) VALUES(?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET shift=excluded.shift', x.store_id, x.id, b.date, b.shift);
   res.json({ ok: true });
 });
@@ -3554,6 +3561,164 @@ app.post('/api/help/q/:id/reply', (req, res) => {
   run('UPDATE help_q SET reply=?, replied_at=? WHERE id=?', tx, L.nowStr(), r.id);
   D.notify([r.user_id], 'assign', '咨询已回复：' + r.title, tx, '#/help/inbox');
   res.json({ ok: true });
+});
+
+
+// ---------- 店长阶段 ----------
+const STAGES = {
+  ext: { l: '外招新店长', days: 90, focus: '熟悉品牌标准和流程', budget: 120, scopes: ['one'], perm: '只能授权单次任务；每天的标准任务本人做' },
+  int: { l: '内提新店长', days: 60, focus: '沟通和管理', budget: 90, scopes: ['one', 'task', 'all'], cap: 30, perm: '可以授权，转出比例上限 30%' },
+  reserve: { l: '储备店长（不管店）', days: 90, focus: '辅助区域经理，积累经验', scopes: [], perm: '只看被指派的门店，只读；任务由区域经理或教练指派' },
+  single: { l: '单店店长', focus: '守住底线', scopes: ['one', 'task', 'all'], cap: 30, must: true, perm: '店长必做项只能授权给店内储备店长；其余基础项可以授权，转出比例上限 30%' },
+  multi: { l: '多店店长', focus: '管人管结果', scopes: ['one', 'task', 'all', 'appr'], perm: '可以按整类授权；可以把员工抽查、整改复查、请假和排班审批授权给负一层' },
+};
+const STAGE_STEPS = {
+  ext: [['e1', '第 1-2 周', '跟岗：前台全流程亲自做一遍', 14, '#/tasks'], ['e2', '第 1-2 周', '跟岗：客房全流程亲自做一遍', 14, '#/tasks'], ['e3', '第 1-2 周', '跟岗：工程与安全巡检亲自做一遍', 14, '#/safety'], ['e4', '第 3-4 周', '去标杆店跟岗 2 天', 28, '#/home?pl=shop'],
+    ['e5', '第 1-8 周', '每周标准考核（累计 4 次）', 56, '#/standards'], ['e6', '第 30 天', '教练 30 天评估', 30, '#/diag'], ['e7', '第 60 天', '教练 60 天评估', 60, '#/diag'], ['e8', '第 90 天', '取得店长班认证并通过 90 天评估', 90, '#/train']],
+  int: [['i1', '第 1-2 周', '和每位员工一对一面谈', 14, '#/team'], ['i2', '第 1-2 周', '连续一周主持晨会', 14, '#/tasks'], ['i3', '第 3-4 周', '完成一次排班与人效优化', 28, '#/labor'], ['i4', '第 3-4 周', '独立处理一次客诉全流程', 28, '#/complaints'],
+    ['i5', '第 1 月', '教练陪同参加第一次业主会议', 30, '#/frs'], ['i6', '第 30 天', '员工匿名评价（360）', 30, '#/engage'], ['i7', '第 2 月', '连续 4 周提交经营周报', 60, '#/report'], ['i8', '第 60 天', '教练 60 天评估', 60, '#/diag']],
+  reserve: [['r1', '第 1 月', '随区域经理巡店 3 次并提交随行记录', 30, '#/rsv'], ['r2', '第 1-3 月', '轮岗满 3 家店（标杆店、问题店都要有）', 90, '#/rsv'], ['r3', '第 1-3 月', '完成 1 份区域专题分析或开业筹备清单', 90, '#/rsv'], ['r4', '按需', '店长休假时顶岗 1 次，无事故', 120, '#/rsv']],
+};
+const MUST_KW = ['晨会', '经营日报', '日报', '抽查', '客诉', '安全', '谈心'];
+const isMust = title => MUST_KW.some(k => (title || '').includes(k));
+const RSV_KINDS = ['规划', '巡店随行', '轮岗', '顶岗'];
+function stageOf(uid) {
+  const x = q1(USER_SQL + ' WHERE u.id=?', uid); if (!x) return null;
+  const t = L.today(), row = q1('SELECT * FROM sm_stage WHERE user_id=?', uid), ob = q1('SELECT start FROM onboard_plan WHERE user_id=?', uid);
+  let rec;
+  if (x.reserve === 'sm_off') rec = 'reserve';
+  else if (x.level !== 'store_manager') return null;
+  else rec = ob && dBetween(ob.start, t) < 90 ? 'ext' : smStores(uid).length > 1 ? 'multi' : 'single';
+  const k = row?.stage || rec, start = row?.start || (k === 'ext' && ob ? ob.start : t);
+  return { k, ...STAGES[k], rec, start, day: dBetween(start, t) + 1, set: !!row, x };
+}
+const apprDeleg = (sid, uid) => q1("SELECT d.*, u.name from_name FROM delegations d JOIN users u ON u.id=d.from_id WHERE d.store_id=? AND d.to_id=? AND d.scope='appr' AND d.active=1 AND d.start<=? AND d.end>=?", sid, uid, L.today(), L.today());
+const apprOk = (u, sid) => canManage(u, sid) || (u.level === 'staff' && u.store_id === Number(sid) && !!apprDeleg(Number(sid), u.id));
+const neg1 = sid => delegCands(sid).map(c => { const e = execScore(c.id); return { ...c, score: e ? e.score : null, cert: !!e && e.score >= 80, reserve: q1('SELECT reserve FROM users WHERE id=?', c.id)?.reserve === 'sm', appr: !!apprDeleg(sid, c.id) }; });
+function stageSteps(uid, st) {
+  const L0 = STAGE_STEPS[st.k]; if (!L0) return [];
+  const t = L.today(), rows = Object.fromEntries(q('SELECT s.*, u.name ok_name FROM stage_steps s LEFT JOIN users u ON u.id=s.ok_by WHERE s.user_id=? AND s.stage=?', uid, st.k).map(r => [r.step, r]));
+  return L0.map(([k, phase, title, d, link]) => { const r = rows[k] || {}, due = L.addDays(st.start, d); return { k, phase, title, link, due, done_at: r.done_at || null, note: r.note || '', ok_at: r.ok_at || null, ok_name: r.ok_name || null, late: !r.done_at && due < t }; });
+}
+function stageGrad(uid, st, steps) {
+  const sids = smStores(uid), t = L.today(), G = [], okN = steps.filter(s => s.ok_at).length;
+  let grades = [], pass = null;
+  if (sids.length) {
+    const sc = Object.fromEntries(regionScores(regionOfStore(sids[0])).all.map(s => [s.id, s.grade]));
+    grades = sids.map(s => ({ id: s, name: sname(s), grade: sc[s] || null }));
+    const r = q1(`SELECT SUM(check_result='good') g, SUM(COALESCE(check_result,'')!='') n FROM instances WHERE date>=? AND store_id IN (${sids.join(',')})`, L.addDays(t, -30));
+    pass = r.n ? Math.round(r.g * 100 / r.n) : null;
+  }
+  const gb = grades.length > 0 && grades.every(x => ['A', 'B'].includes(x.grade)), gs = grades.map(x => x.grade || '—').join(' / ') || '—';
+  const step = ['任务包全部验收', steps.length > 0 && okN === steps.length, `${okN}/${steps.length}`];
+  if (st.k === 'ext') { const c = !!smCertified(uid); G.push(step, ['取得店长班认证', c, c ? '已认证' : '未认证'], ['门店达到 B 级及以上', gb, gs], ['抽查合格率 ≥ 90%', (pass ?? 0) >= 90, (pass ?? '—') + '%']); }
+  if (st.k === 'int') { const dg = smDiag(uid); G.push(step, ['门店达到 B 级及以上', gb, gs], ['能力诊断 ≥ 75 分', !!dg && dg.total >= 75, dg ? dg.total + ' 分' : '—']); }
+  if (st.k === 'reserve') { const rot = q1("SELECT COUNT(DISTINCT store_id) n FROM rsv_tasks WHERE user_id=? AND kind='轮岗' AND status='done'", uid).n, dn = q1("SELECT COUNT(*) n FROM rsv_tasks WHERE user_id=? AND status='done'", uid).n;
+    G.push(step, ['轮岗满 3 家店', rot >= 3, rot + ' 家'], ['完成指派任务 ≥ 5 项', dn >= 5, dn + ' 项']); }
+  if (st.k === 'single') { const n1 = sids.flatMap(neg1).filter(c => c.cert).length, dg = smDiag(uid);
+    G.push(['门店达到 B 级及以上', gb, gs], ['能力诊断 ≥ 80 分', !!dg && dg.total >= 80, dg ? dg.total + ' 分' : '—'], ['负一层至少 1 人认证（执行分 ≥ 80）', n1 > 0, n1 + ' 人']); }
+  if (st.k === 'multi') { const no = sids.filter(s => !neg1(s).some(c => c.cert)).length, cd = grades.filter(x => ['C', 'D'].includes(x.grade));
+    G.push(['名下门店没有 C、D 级', !cd.length, cd.length ? cd.map(x => x.name + ' ' + x.grade).join('、') : gs], ['每家店都有认证的负一层', !no, no ? no + ' 家店没有' : '都有']); }
+  return { items: G.map(([l, ok, v]) => ({ l, ok, v })), all: G.every(g => g[1]), n: sids.length };
+}
+function stageSuggest(st, gr) {
+  if (['ext', 'int'].includes(st.k) && gr.all) return { to: gr.n > 1 ? 'multi' : 'single', text: '毕业条件已全部达成，建议升阶' };
+  if (st.k === 'reserve' && gr.all) return { to: 'int', text: '可以安排接店，按内提新店长进入' };
+  if (st.k === 'single' && gr.n > 1) return { to: 'multi', text: '已经兼管多家店，建议切换为多店店长' };
+  if (st.k === 'single' && gr.all) return { to: null, text: '已具备兼管条件，可以由区域经理安排第二家店' };
+  if (st.k === 'multi' && gr.n <= 1) return { to: 'single', text: '只管 1 家店，建议切换为单店店长' };
+  if (st.k === 'multi' && !gr.all) return { to: null, text: '有门店掉级或缺少认证的负一层，建议教练评估是否减少兼管' };
+  return null;
+}
+const canStageSet = (u, x) => ['region_manager', 'coach', 'hq'].includes(u.level) && u.reserve !== 'rm' && sameRegion(u, x);
+app.get('/api/stage/:uid', (req, res) => {
+  const st = stageOf(Number(req.params.uid)); if (!st) return err(res, '仅适用于店长和储备店长');
+  const x = st.x; if (!(x.id === req.u.id || (isRegion(req.u) && sameRegion(req.u, x)))) return deny(res);
+  const steps = stageSteps(x.id, st), grad = stageGrad(x.id, st, steps), sids = smStores(x.id);
+  res.json({ user: { id: x.id, name: x.name }, stage: st.k, label: st.l, focus: st.focus, perm: st.perm, days: st.days || null, budget: st.budget || BUDGET_MIN(sids.length), start: st.start, day: st.day, set: st.set, rec: st.rec,
+    steps, grad, suggest: stageSuggest(st, grad), must: st.must ? MUST_KW : null, stores: sids.map(s => ({ id: s, name: sname(s), neg1: neg1(s) })), me: x.id === req.u.id, can_set: canStageSet(req.u, x),
+    opts: Object.entries(STAGES).filter(([k]) => (k === 'reserve') === (x.reserve === 'sm_off')).map(([k, v]) => ({ k, l: v.l })) });
+});
+app.post('/api/stage/:uid', (req, res) => {
+  const st = stageOf(Number(req.params.uid)), k = (req.body || {}).stage; if (!st) return err(res, '仅适用于店长和储备店长');
+  if (!canStageSet(req.u, st.x)) return deny(res, '只有区域经理、教练可以调整店长阶段');
+  if (!STAGES[k] || (k === 'reserve') !== (st.x.reserve === 'sm_off')) return err(res, '阶段无效');
+  run('INSERT INTO sm_stage(user_id,stage,start,set_by,note) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET stage=excluded.stage, start=excluded.start, set_by=excluded.set_by, note=excluded.note', st.x.id, k, L.today(), req.u.id, (req.body || {}).note || '');
+  D.notify([st.x.id], 'assign', `你的阶段调整为「${STAGES[k].l}」`, STAGES[k].perm, '#/stage');
+  D.audit(req.u.id, null, '店长阶段', `${st.x.name} ${st.l} → ${STAGES[k].l}`); res.json({ ok: true });
+});
+app.post('/api/stage/:uid/step/:k', (req, res) => {
+  const st = stageOf(Number(req.params.uid)); if (!st) return err(res, '仅适用于店长和储备店长');
+  const s = stageSteps(st.x.id, st).find(z => z.k === req.params.k), op = (req.body || {}).op; if (!s) return err(res, '该项不存在');
+  if (op === 'done') { if (req.u.id !== st.x.id) return deny(res);
+    run('INSERT INTO stage_steps(user_id,stage,step,done_at,note) VALUES(?,?,?,?,?) ON CONFLICT(user_id,stage,step) DO UPDATE SET done_at=excluded.done_at, note=excluded.note', st.x.id, st.k, s.k, L.today(), req.body.note || '');
+    const sup = q1('SELECT set_by FROM sm_stage WHERE user_id=?', st.x.id)?.set_by; if (sup) D.notify([sup], 'assign', `${st.x.name} 完成「${s.title}」，待验收`, req.body.note || '', '#/stage?uid=' + st.x.id);
+  } else if (op === 'ok') { if (!canStageSet(req.u, st.x)) return deny(res); if (!s.done_at) return err(res, '还未完成，不能验收');
+    run('UPDATE stage_steps SET ok_by=?, ok_at=? WHERE user_id=? AND stage=? AND step=?', req.u.id, L.today(), st.x.id, st.k, s.k); D.notify([st.x.id], 'assign', `「${s.title}」已验收`, '', '#/stage');
+  } else return err(res, '操作无效');
+  res.json({ ok: true });
+});
+function delegAppr(res, u, b) {
+  const t = L.today(), sid = Number(b.store_id), start = b.start || t, end = b.end || L.addDays(t, 30);
+  if (!canManage(u, sid)) return deny(res);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start < t || end < start || end > L.addDays(start, 90)) return err(res, '审批授权最长 90 天，起始日期不早于今天');
+  const to = q1(USER_SQL + ' WHERE u.id=? AND u.active=1', b.to_id);
+  if (!to || to.store_id !== sid || !DELEG_ROLES.includes(to.role_name)) return err(res, '只能授权给本店在职的店助或经理');
+  run("UPDATE delegations SET active=0 WHERE store_id=? AND scope='appr' AND active=1", sid);
+  const id = Number(run("INSERT INTO delegations(store_id,from_id,to_id,scope,title,start,end,review,active,created_at) VALUES(?,?,?,'appr',?,?,?,0,1,?)", sid, u.id, to.id, '审批：员工抽查、整改复查、请假、排班', start, end, L.nowStr()).lastInsertRowid);
+  D.notify([to.id], 'assign', '店长授权审批', `${u.name} 将「${sname(sid)}」的员工抽查、整改复查、请假和排班审批授权给你（${start} 至 ${end}）`, '#/todo');
+  D.audit(u.id, sid, '审批授权', `${to.name} ${start}~${end}`); res.json({ ok: true, id });
+}
+app.get('/api/rsv', (req, res) => {
+  const u = req.u, T = uid => q("SELECT t.*, s.name store, b.name by_name FROM rsv_tasks t LEFT JOIN stores s ON s.id=t.store_id LEFT JOIN users b ON b.id=t.by_id WHERE t.user_id=? ORDER BY t.status='done', t.due", uid);
+  if (u.reserve === 'sm_off') { const st = stageOf(u.id); return res.json({ mode: 'me', tasks: T(u.id), stage: st && { l: st.l, day: st.day, perm: st.perm } }); }
+  if (!isRegion(u)) return deny(res);
+  const off = q(USER_SQL + " WHERE u.active=1 AND u.reserve='sm_off' AND u.region_id=?", u.region_id).map(x => ({ id: x.id, name: x.name, day: stageOf(x.id)?.day, tasks: T(x.id) }));
+  const ins = q(USER_SQL + " WHERE u.active=1 AND u.reserve='sm' AND u.store_id IN (SELECT id FROM stores WHERE region_id=?)", u.region_id).map(x => ({ id: x.id, name: x.name, role_name: x.role_name, store: sname(x.store_id), score: execScore(x.id)?.score ?? null }));
+  res.json({ mode: 'region', off, ins, kinds: RSV_KINDS, stores: visibleStores(u).map(s => ({ id: s, name: sname(s) })), can_assign: ['region_manager', 'coach'].includes(u.level) && u.reserve !== 'rm' });
+});
+app.post('/api/rsv', (req, res) => {
+  const u = req.u, b = req.body || {}, x = q1(USER_SQL + ' WHERE u.id=? AND u.active=1', b.user_id);
+  if (!(['region_manager', 'coach'].includes(u.level) && u.reserve !== 'rm')) return deny(res, '储备店长的任务由区域经理或教练指派');
+  if (!x || x.reserve !== 'sm_off' || !sameRegion(u, x)) return err(res, '只能指派给本区域的储备店长');
+  if (!RSV_KINDS.includes(b.kind) || !String(b.title || '').trim()) return err(res, '请选择类型并填写任务');
+  const sid = b.store_id ? Number(b.store_id) : null; if (sid && !visibleStores(u).includes(sid)) return err(res, '门店不在本区域');
+  if (b.kind !== '规划' && !sid) return err(res, '巡店随行、轮岗、顶岗需要选择门店');
+  run('INSERT INTO rsv_tasks(user_id,by_id,store_id,kind,title,due,created_at) VALUES(?,?,?,?,?,?,?)', x.id, u.id, sid, b.kind, String(b.title).trim(), b.due || L.addDays(L.today(), 14), L.nowStr());
+  D.notify([x.id], 'assign', `${u.name} 给你指派了${b.kind}任务`, String(b.title).trim(), '#/rsv'); res.json({ ok: true });
+});
+app.post('/api/rsv/:id', (req, res) => {
+  const u = req.u, r = q1('SELECT * FROM rsv_tasks WHERE id=?', req.params.id), b = req.body || {}; if (!r) return err(res, '任务不存在');
+  if (b.op === 'done') { if (r.user_id !== u.id || r.status !== 'open') return deny(res); run("UPDATE rsv_tasks SET status='done', note=?, done_at=? WHERE id=?", b.note || '', L.nowStr(), r.id); D.notify([r.by_id], 'assign', `${u.name} 完成「${r.title}」`, b.note || '', '#/rsv'); }
+  else if (b.op === 'score') { const x = q1(USER_SQL + ' WHERE u.id=?', r.user_id); if (!(r.by_id === u.id || (['region_manager', 'coach'].includes(u.level) && u.reserve !== 'rm' && sameRegion(u, x)))) return deny(res);
+    const s = Number(b.score); if (!(s >= 1 && s <= 5)) return err(res, '评分为 1 到 5'); run('UPDATE rsv_tasks SET score=? WHERE id=?', s, r.id); }
+  else return err(res, '操作无效');
+  res.json({ ok: true });
+});
+if (!D.getSetting('seed_stage_v1', 0)) D.tx(() => {
+  if (!q1("SELECT 1 FROM roles WHERE name='储备店长'")) run("INSERT INTO roles(name,level,sort) VALUES('储备店长','staff',0)");
+  const rid = q1("SELECT id FROM roles WHERE name='储备店长'").id, t = L.today(), reg = q1('SELECT MIN(id) id FROM regions').id;
+  const rm = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE r.level='region_manager' AND u.region_id=? AND u.active=1 ORDER BY u.id", reg)?.id || null;
+  const st = q('SELECT id FROM stores WHERE region_id=? ORDER BY id LIMIT 4', reg).map(s => s.id);
+  [['许文博', '13761205571', 50, 3], ['郑雅琪', '13761205572', 20, 1]].forEach(([nm, ph, ago, rot]) => {
+    if (q1('SELECT 1 FROM users WHERE name=? AND reserve=?', nm, 'sm_off')) return;
+    const id = Number(run("INSERT INTO users(name,role_id,region_id,store_id,phone,reserve) VALUES(?,?,?,NULL,?,'sm_off')", nm, rid, reg, ph).lastInsertRowid);
+    run('INSERT OR REPLACE INTO sm_stage(user_id,stage,start,set_by,note) VALUES(?,?,?,?,?)', id, 'reserve', L.addDays(t, -ago), rm, '');
+    const add = (sid, kind, title, due, done, sc) => run('INSERT INTO rsv_tasks(user_id,by_id,store_id,kind,title,due,status,note,score,created_at,done_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)', id, rm, sid, kind, title, due, done ? 'done' : 'open', done ? '已完成，记录已提交' : '', sc, L.addDays(t, -ago) + ' 09:00', done ? due + ' 18:00' : null);
+    for (let i = 0; i < rot && i < st.length; i++) add(st[i], '轮岗', `${sname(st[i])} 轮岗 2 周`, L.addDays(t, -ago + 14 * (i + 1)), true, 4);
+    add(st[rot % st.length] || null, '轮岗', `${sname(st[rot % st.length])} 轮岗 2 周`, L.addDays(t, 10), false, null);
+    add(null, '规划', '整理区域下季度开业筹备清单', L.addDays(t, 7), false, null);
+    add(st[0] || null, '巡店随行', '随区域经理巡店并提交随行记录', L.addDays(t, -5), true, 5);
+    run("INSERT OR IGNORE INTO stage_steps(user_id,stage,step,done_at,note,ok_by,ok_at) VALUES(?,?,?,?,?,?,?)", id, 'reserve', 'r1', L.addDays(t, -8), '随行 3 次', rm, L.addDays(t, -6));
+  });
+  for (const [nm, k, ago, done] of [['何静', 'ext', 20, ['e1', 'e2']], ['马超', 'int', 25, ['i1', 'i2', 'i4']]]) {
+    const x = q1(USER_SQL + " WHERE u.name=? AND r.level='store_manager'", nm); if (!x) continue;
+    run('INSERT OR IGNORE INTO sm_stage(user_id,stage,start,set_by,note) VALUES(?,?,?,?,?)', x.id, k, L.addDays(t, -ago), rm, '');
+    done.forEach((s, i) => run('INSERT OR IGNORE INTO stage_steps(user_id,stage,step,done_at,note,ok_by,ok_at) VALUES(?,?,?,?,?,?,?)', x.id, k, s, L.addDays(t, -ago + 5 + i * 3), '', i < done.length - 1 ? rm : null, i < done.length - 1 ? L.addDays(t, -ago + 7 + i * 3) : null));
+  }
+  if (!q1("SELECT 1 FROM users WHERE reserve='sm'")) q("SELECT id FROM stores ORDER BY id").filter((_, i) => i % 3 === 0).forEach(st0 => {
+    const a = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.name='店助' ORDER BY u.id", st0.id); if (a) run("UPDATE users SET reserve='sm' WHERE id=?", a.id); });
+  D.setSetting('seed_stage_v1', 1);
 });
 
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));
