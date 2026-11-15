@@ -1043,8 +1043,7 @@ function tplEdit(t, after) {
 VIEWS.audit = async () => {
   const list = await api('/audit');
   $('#main').innerHTML = `<h1>操作日志</h1><p class="muted small" style="margin-top:-6px">分配、顶岗、抽查、整改、巡店等关键操作都会留痕，方便追溯。</p>
-  <div class="tbl"><table><tr><th>时间</th><th>操作人</th><th>门店</th><th>操作</th><th>内容</th></tr>
-  ${list.map(a => `<tr><td class="mono">${esc(a.at)}</td><td>${esc(a.user_name)}</td><td>${esc(a.store_name || '区域')}</td><td>${esc(a.action)}</td><td class="small">${esc(a.detail)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">暂无</td></tr>'}</table></div>`;
+  <div class="list">${list.map(a => `<div class="task"><div class="b"><div class="row between"><b>${esc(a.action)}</b><span class="muted small mono">${esc(a.at)}</span></div><div class="muted small">${esc(a.user_name)} · ${esc(a.store_name || '区域')}</div>${a.detail ? `<div class="small" style="margin-top:2px">${esc(a.detail)}</div>` : ''}</div></div>`).join('') || '<div class="empty">暂无</div>'}</div>`;
 };
 
 
@@ -1485,6 +1484,7 @@ async function regionHome() {
 // ---------- 区域经理「人」视角 / 人事 ----------
 const regionTabs = on => `<div class="rtabs">${[['dian', '店', '门店经营 · 运营 · 排名'], ['ren', '人', '店长 · 运营 · 人事 · 营销']].map(([k, l, d]) => `<a class="${on === k ? 'on' : ''}" href="#/home?tab=${k}"><b>${l}</b><span>${d}</span></a>`).join('')}</div>`;
 const spark = (xs, hi) => { const mn = Math.min(...xs) - 6, mx = Math.max(...xs); return `<span class="spk">${xs.map((v, i) => `<i style="height:${Math.max(12, Math.round((v - mn) * 100 / (mx - mn || 1)))}%" class="${i === xs.length - 1 ? 'on' : ''}" title="${v}"></i>`).join('')}</span>`; };
+const s30txt = v => (v.total ? `近 30 天完成 ${pct(v.rate)}${v.pass != null ? ` · 合格 ${v.pass}%` : ''}${v.good ? ` · 获肯定 ${v.good}` : ''}` : '近 30 天暂无任务记录');
 const TIER_TAG = { 可晋升: 'ok', 稳定: 'acc', 需辅导: 'warn' };
 const LV_TAG = { high: 'bad', mid: 'warn', low: 'acc' };
 const DIMS = [['exec', '执行力'], ['brand', '品牌标准'], ['team', '团队带教'], ['biz', '经营结果']];
@@ -1560,8 +1560,8 @@ async function hrBoard(home) {
     <select data-k="r"><option value="">全部岗位</option>${roles.map(r => `<option ${rf === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
     <select data-k="t"><option value="">全部梯队</option>${['可晋升', '稳定', '需辅导'].map(r => `<option ${tf === r ? 'selected' : ''}>${r}</option>`).join('')}<option value="alert" ${tf === 'alert' ? 'selected' : ''}>有预警</option></select></div>
   ${Object.entries(list.reduce((g, x) => ((g[x.level === 'store_manager' ? '店长' : x.store] ||= []).push(x), g), {})).map(([g, xs], gi) => { const k = 'hrg' + g, op = S.open?.[k] ?? (gi === 0 || !!(sf || rf || tf));
-    return `<details class="tgrp" data-k="${esc(k)}" ${op ? 'open' : ''}><summary>${esc(g)} <em>${xs.length} 人 · 预警 ${xs.filter(x => x.alerts.length).length}</em><i>${op ? '收起' : '展开'}</i></summary><div class="tgb">${xs.map(x => `<a class="task hrow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="tag ${TIER_TAG[x.tier]}">${x.tier}</span>${x.alerts.length ? ` <span class="tag bad">预警 ${x.alerts.length}</span>` : ''}</div>
-      <div class="muted small">${esc(x.role_name)} · ${esc(x.store)} · 司龄 ${x.tenure} 年${x.in_probation ? ' · 试用期' : ''}</div><div class="muted small">30 天完成 ${pct(x.s30.rate)} · 合格 ${pct(x.s30.pass)} · 肯定 ${x.s30.good}${x.s30.bad ? ` · <span class="bad">不合格 ${x.s30.bad}</span>` : ''}</div></div>
+    return `<details class="tgrp" data-k="${esc(k)}" ${op ? 'open' : ''}><summary>${esc(g)} <em>${xs.length} 人 · 预警 ${xs.filter(x => x.alerts.length).length}</em><i>${op ? '收起' : '展开'}</i></summary><div class="tgb">${xs.map(x => `<a class="task prow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="tag ${TIER_TAG[x.tier]}">${x.tier}</span>${x.alerts.length ? ` <span class="tag bad">预警 ${x.alerts.length}</span>` : ''}</div>
+      <div class="muted small">${esc(x.role_name)} · ${esc(x.store)} · 司龄 ${x.tenure} 年${x.in_probation ? ' · 试用期' : ''}</div><div class="muted small">${s30txt(x.s30)}${x.s30.bad ? ` · <span class="bad">不合格 ${x.s30.bad}</span>` : ''}</div></div>
       <div class="r">${spark(x.trend)}<b class="gd g${x.avg3 >= 92 ? 'A' : x.avg3 >= 85 ? 'B' : x.avg3 >= 75 ? 'C' : 'D'}">${x.avg3}</b></div></a>`).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">没有符合条件的人员</div></div>'}
   <p class="muted small">档案资料、证照、履历和无系统记录月份的业绩为模拟数据；有任务记录的月份按「完成率 50% + 合格率 30% + 准时率 20%」计算。</p>`;
   if (home) $('#more').onclick = e => moreMenu(e.currentTarget);
@@ -1963,8 +1963,8 @@ async function storePeopleView(sid) {
   ${al.length > 3 ? `<details class="tgrp"><summary>其余 ${al.length - 3} 条 <i>展开</i></summary><div class="list">${al.slice(3).map(arow).join('')}</div></details>` : ''}
   ${d.bench.length ? `<div class="sec-t2">关键岗位储备</div><div class="ldr bench">${d.bench.filter(r => r.role !== '店长').map(r => `<div><b>${esc(r.role)}</b>${r.candidates.length ? r.candidates.map(c => `<a class="tag ok" href="#/hrp/${c.id}">${esc(c.name)}</a>`).join(' ') : '<span class="tag bad">无储备</span>'}</div>`).join('')}</div>` : ''}
   <div class="sec-t2 row between"><span>员工画像 · 按梯队</span><span class="muted small">近 3 月均分</span></div>
-  ${tiers.map((t, ti) => { const xs = L.filter(x => x.tier === t); return xs.length ? `<details class="tgrp"><summary><span class="tag ${TIER_TAG[t]}">${t}</span> <em>${xs.length} 人</em><i>展开</i></summary><div class="tgb">${xs.map(x => `<a class="task hrow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span>${x.alerts.length ? ` <span class="tag warn">${x.alerts.length} 预警</span>` : ''}</div>
-    <div class="muted small">司龄 ${x.tenure} 年${x.in_probation ? ' · 试用期' : ''} · 30 天完成 ${pct(x.s30.rate)} · 合格 ${pct(x.s30.pass)} · 肯定 ${x.s30.good}</div></div><div class="r">${spark(x.trend)}<b class="gd g${x.avg3 >= 92 ? 'A' : x.avg3 >= 85 ? 'B' : x.avg3 >= 75 ? 'C' : 'D'}">${x.avg3}</b></div></a>`).join('')}</div></details>` : ''; }).join('')}
+  ${tiers.map((t, ti) => { const xs = L.filter(x => x.tier === t); return xs.length ? `<details class="tgrp"><summary><span class="tag ${TIER_TAG[t]}">${t}</span> <em>${xs.length} 人</em><i>展开</i></summary><div class="tgb">${xs.map(x => `<a class="task prow" href="#/hrp/${x.id}"><span class="av s">${esc(x.name.slice(0, 1))}</span><div class="b"><div class="ttl">${esc(x.name)} <span class="muted small">${esc(x.role_name)}</span>${x.alerts.length ? `<span class="tag warn">${x.alerts.length} 预警</span>` : ''}</div>
+    <div class="muted small">司龄 ${x.tenure} 年${x.in_probation ? ' · 试用期' : ''}</div><div class="muted small">${s30txt(x.s30)}</div></div><div class="r">${spark(x.trend)}<b class="gd g${x.avg3 >= 92 ? 'A' : x.avg3 >= 85 ? 'B' : x.avg3 >= 75 ? 'C' : 'D'}">${x.avg3}</b></div></a>`).join('')}</div></details>` : ''; }).join('')}
   ${d.suggests.length ? `<div class="sec-t2">提交给人事的建议</div><div class="list">${d.suggests.map(h => `<a class="task" href="#/hrp/${h.user_id}"><div class="b"><div class="ttl">${esc(h.name)} · ${esc(h.kind)}建议</div><div class="muted small">${esc(h.note)}${h.reply ? ` · 人事：${esc(h.reply)}` : ''}</div></div><span class="tag ${h.status === 'open' ? 'warn' : h.status === 'approved' ? 'ok' : 'bad'}">${h.status === 'open' ? '待人事处理' : h.status === 'approved' ? '已同意' : '已退回'}</span></a>`).join('')}</div>` : ''}
   <p class="muted small">点进员工可查看完整档案，并派任务、安排培训、提交转正 / 晋升建议。档案资料与证照为模拟数据。</p>`;
   bindHead();

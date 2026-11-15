@@ -480,7 +480,7 @@ function pagg(from, to) {
 function pstatsLite(uid, from, to) {
   const k = from + to; pagg(from, to); const e = PAGG.get(k), r = e.m.get(uid) || { total: 0, done: 0, ot: 0, ck: 0, good: 0, bad: 0 };
   const P = (a, b) => (b ? Math.round(a * 100 / b) : null);
-  return { total: r.total, done: r.done, rate: P(r.done, r.total), ontime: P(r.ot, r.done), pass: P(r.good, r.ck), good: r.good, bad: r.bad, training: e.tr.get(uid) || 0 };
+  return { total: r.total, done: r.done, rate: P(r.done, r.total), ontime: P(r.ot, r.done), pass: P(r.good, r.ck), good: r.good || 0, bad: r.bad || 0, training: e.tr.get(uid) || 0 };
 }
 function pstats(uid, from, to) {
   const rs = q('SELECT i.status, i.date, i.due_time, i.done_at, i.check_result, s.name scene FROM instances i LEFT JOIN scenes s ON s.id=i.scene_id WHERE i.assignee_id=? AND i.date BETWEEN ? AND ?', uid, from, to);

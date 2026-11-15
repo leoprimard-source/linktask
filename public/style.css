@@ -468,7 +468,7 @@ summary.tsec-h i{font-style:normal;font-weight:400;margin-left:auto;color:var(--
 .wgrid b{font-size:18px;font-weight:600;line-height:1.2}.wgrid b small{font-size:11px;font-weight:400;margin-left:1px}.wgrid span{font-size:11.5px;color:var(--text-muted);white-space:nowrap}.wgrid sup{color:var(--gold)}
 .av.s{width:32px;height:32px;font-size:14px;flex:none}
 .hrf{display:flex;gap:6px;margin:0 0 8px}.hrf select{flex:1;min-width:0;font-size:13px;padding:6px 6px;border-radius:8px}
-.hrow .r{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.prow{align-items:center}.prow .av{flex:none}.prow .r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}.prow .ttl .tag{margin-left:4px;vertical-align:1px}
 .gd{font-size:15px;font-weight:700}.gd.gA{color:var(--ok)}.gd.gB{color:var(--accent)}.gd.gC{color:var(--warn)}.gd.gD{color:var(--bad)}
 .pbars{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;text-align:center}
 .pbars>div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px}
@@ -678,3 +678,5 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 .rhl{background:#fff;margin:-12px -14px 12px;padding:0 14px 10px;font-size:12px}.rhl div{display:flex;align-items:center;gap:6px;padding:3px 0;white-space:nowrap;overflow:hidden}
 .rhl i{width:10px;height:10px;border-radius:3px;flex:none}.rhl .mono{color:var(--text-muted)}.rhl .nm{overflow:hidden;text-overflow:ellipsis}.rhl .me b{color:var(--accent)}
 .drh .on em i{box-shadow:0 0 0 1px #fff}
+.tgrp summary i{display:none}
+.prow{align-items:flex-start}.prow .av{margin-top:2px}.prow .ttl{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}.prow .ttl .muted{display:inline;font-weight:400}.prow .ttl .tag{margin:0}.prow .b .muted.small{-webkit-line-clamp:1}.prow .r{padding-top:4px}
