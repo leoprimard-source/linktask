@@ -671,3 +671,5 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 
 .vx{font-size:.6em;color:#8f959e;font-weight:400;margin-left:1px;vertical-align:super;line-height:1}
 .lfind{display:flex;gap:8px;margin:0 0 10px}.lfind input{flex:1;min-width:0;height:36px;border:1px solid var(--border);border-radius:8px;padding:0 10px;font-size:14px}.lfind select{height:36px;border:1px solid var(--border);border-radius:8px;background:#fff;max-width:40%}
+
+.vtr{display:flex;align-items:flex-end;gap:2px;height:56px;margin:12px 0 4px}.vtr i{flex:1;background:var(--accent);opacity:.75;border-radius:2px 2px 0 0;min-width:2px}

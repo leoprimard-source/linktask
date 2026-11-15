@@ -4035,4 +4035,127 @@ app.post('/api/day/log/:id/comment', (req, res) => {
   D.notify([g.user_id], 'shift', `${req.u.name} 点评了你的当日总结`, txt, '#/home'); res.json({ ok: true });
 });
 
+// ---------- 宏图后台：减负与价值 ----------
+const VAL_ITEMS = [
+  ['sm_plan', 'sm', '每日工作梳理（今日清单）', 20, 5, '人·天'], ['sm_sum', 'sm', '日报 / 当日总结', 25, 3, '份'], ['sm_multi', 'sm', '多店信息汇总', 30, 5, '店·天'],
+  ['sm_week', 'sm', '周报', 120, 15, '份'], ['sm_follow', 'sm', '催办跟进', 3, 0.5, '次'], ['sm_check', 'sm', '现场抽查记录', 3, 1, '次'], ['sm_rect', 'sm', '整改派单与跟踪', 8, 3, '单'],
+  ['ld_brief', 'ld', '部门晨会与派工', 15, 5, '人·天'], ['ld_rect', 'ld', '整改提交', 8, 3, '单'],
+  ['st_brief', 'st', '领取当天任务', 5, 1, '人·天'], ['st_done', 'st', '完成登记与拍照上报', 1.5, 0.5, '项'], ['st_shift', 'st', '交接班', 15, 5, '次'], ['st_repair', 'st', '报修与催修', 10, 2, '单'], ['st_cp', 'st', '客诉登记与流转', 15, 5, '起'],
+  ['rg_daily', 'rg', '门店日报查看', 5, 1, '店·天'], ['rg_patrol', 'rg', '巡店报告', 60, 20, '次']];
+const VAL_ROLES = { sm: '店长', ld: '店助与经理', st: '一线员工', rg: '城市总与教练' }, VAL_WAGE = { sm: 60, ld: 35, st: 25, rg: 80 }, VAL_EV = ['sm_plan', 'sm_sum'];
+const LEAD_ROLES = ['店助', '前台经理', '客房经理'], MONTH_H = 174, VALC = new Map();
+const hv = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (h >>> 0) % 1000 / 1000; };
+function valCfg() {
+  const c = D.getSetting('value_cfg', {});
+  const meas = Object.fromEntries(VAL_EV.map(k => { const ms = q('SELECT ms FROM ev_log WHERE k=? ORDER BY id DESC LIMIT 200', k).map(r => r.ms).sort((a, b) => a - b); return [k, ms.length >= 20 ? { min: Math.round(ms[ms.length >> 1] / 30000) / 2, n: ms.length } : null]; }));
+  return { items: VAL_ITEMS.map(([k, role, label, base, sys, unit]) => { const e = c.items?.[k], m = meas[k];
+    return { k, role, label, unit, base: e?.base ?? base, sys: e?.sys ?? (m ? m.min : sys), src: e ? '后台设定' : m ? `实测 ${m.n} 次` : '估算' }; }), wage: { ...VAL_WAGE, ...(c.wage || {}) }, edited: !!(c.items || c.wage) };
+}
+function fillValue(d) {
+  if (q1('SELECT 1 x FROM value_daily WHERE date=? LIMIT 1', d)) return;
+  const acc = {}, add = (sid, k, n) => { if (n > 0) acc[sid + '|' + k] = (acc[sid + '|' + k] || 0) + n; }, wk = new Date(d + 'T00:00:00').getDay();
+  const sids = q('SELECT id FROM stores').map(s => s.id), smMap = {};
+  q("SELECT us.user_id, us.store_id FROM user_stores us JOIN users u ON u.id=us.user_id JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level='store_manager' ORDER BY us.store_id").forEach(r => (smMap[r.user_id] ||= []).push(r.store_id));
+  for (const [uid, st] of Object.entries(smMap)) {
+    if (hv(d + 'sm' + uid) < 1 / 7) continue;
+    add(st[0], 'sm_plan', 1); add(st[0], 'sm_sum', 1); add(st[0], 'sm_multi', st.length - 1); if (wk === 1) add(st[0], 'sm_week', 1);
+  }
+  for (const r of q(`SELECT i.store_id sid, COUNT(DISTINCT CASE WHEN r.level='staff' AND r.name NOT IN ('店助','前台经理','客房经理') THEN i.assignee_id END) ppl,
+      SUM(r.level='staff' AND i.status='done') done, SUM(i.checked_at IS NOT NULL) chk, SUM(r.level='staff') tot FROM instances i LEFT JOIN users u ON u.id=i.assignee_id LEFT JOIN roles r ON r.id=u.role_id WHERE i.date=? GROUP BY i.store_id`, d)) {
+    add(r.sid, 'st_brief', r.ppl); add(r.sid, 'st_done', r.done); add(r.sid, 'sm_check', r.chk); add(r.sid, 'sm_follow', Math.round(r.tot * 0.05));
+  }
+  q(`SELECT u.store_id sid, COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.name IN ('店助','前台经理','客房经理') GROUP BY u.store_id`).forEach(r => add(r.sid, 'ld_brief', Math.round(r.n * 6 / 7)));
+  const cnt = (sql, k) => q(sql, d).forEach(r => add(r.sid, k, r.n));
+  cnt("SELECT store_id sid, COUNT(*) n FROM rectifications WHERE substr(created_at,1,10)=? GROUP BY store_id", 'sm_rect');
+  cnt("SELECT store_id sid, COUNT(*) n FROM rectifications WHERE substr(submitted_at,1,10)=? GROUP BY store_id", 'ld_rect');
+  cnt("SELECT store_id sid, COUNT(*) n FROM repairs WHERE substr(created_at,1,10)=? GROUP BY store_id", 'st_repair');
+  cnt("SELECT store_id sid, COUNT(*) n FROM complaints WHERE substr(created_at,1,10)=? GROUP BY store_id", 'st_cp');
+  cnt("SELECT store_id sid, COUNT(*) n FROM patrols WHERE status='done' AND substr(done_at,1,10)=? GROUP BY store_id", 'rg_patrol');
+  sids.forEach(s => { add(s, 'st_shift', 3); if (wk >= 1 && wk <= 5) add(s, 'rg_daily', 1); });
+  D.tx(() => { for (const [key, n] of Object.entries(acc)) { const [sid, k] = key.split('|'); run('INSERT OR REPLACE INTO value_daily(date,store_id,k,n) VALUES(?,?,?,?)', d, Number(sid), k, n); } if (!Object.keys(acc).length) run('INSERT OR REPLACE INTO value_daily(date,store_id,k,n) VALUES(?,0,?,0)', d, 'none'); });
+}
+function backfillValue(n = 60) { const t = L.today(); let i = 1; const step = () => { if (i > n) return; try { fillValue(L.addDays(t, -i)); } catch (e) { console.error('value', e.message); } i++; setTimeout(step, 50); }; setTimeout(step, 3000); }
+backfillValue();
+setInterval(() => { try { fillValue(L.addDays(L.today(), -1)); } catch (e) { console.error('value', e.message); } }, 10 * 60000);
+function valScope(u, qy) {
+  const all = q('SELECT id, name, region_id FROM stores');
+  let ids, lvl;
+  if (u.level === 'hq') { lvl = 'hq'; ids = all.map(s => s.id); }
+  else if (['region_manager', 'coach'].includes(u.level)) { lvl = 'region'; ids = visibleStores(u); }
+  else if (u.level === 'store_manager') { lvl = 'sm'; ids = visibleStores(u); }
+  else return null;
+  const rid = Number(qy.region) || 0, sid = Number(qy.store) || 0;
+  if (rid && lvl === 'hq') ids = all.filter(s => s.region_id === rid).map(s => s.id);
+  if (sid && ids.includes(sid)) ids = [sid];
+  return { lvl, ids, rid, sid, all };
+}
+function valQuality(ids, from, to, days) {
+  const pf = L.addDays(from, -days), pt = L.addDays(from, -1), IN = ids.join(',') || 0;
+  const one = (a, b) => {
+    const i = q1(`SELECT COUNT(*) n, SUM(status='done') d, SUM(status='missed') m, SUM(check_result IS NOT NULL AND check_result!='') c, SUM(check_result='good') g FROM instances WHERE store_id IN (${IN}) AND date BETWEEN ? AND ?`, a, b);
+    const r = q1(`SELECT COUNT(*) n, SUM(status='closed' AND substr(verified_at,1,10)<=deadline) ok FROM rectifications WHERE store_id IN (${IN}) AND deadline BETWEEN ? AND ?`, a, b);
+    const cp = q1(`SELECT AVG((julianday(closed_at)-julianday(created_at))*24) h FROM complaints WHERE store_id IN (${IN}) AND closed_at IS NOT NULL AND substr(created_at,1,10) BETWEEN ? AND ?`, a, b).h;
+    const rp = q1(`SELECT AVG((julianday(COALESCE(closed_at,done_at))-julianday(created_at))*24) h FROM repairs WHERE store_id IN (${IN}) AND COALESCE(closed_at,done_at) IS NOT NULL AND substr(created_at,1,10) BETWEEN ? AND ?`, a, b).h;
+    const pc = (x, y) => (y ? Math.round(x * 1000 / y) / 10 : null), r1 = x => (x == null ? null : Math.round(x * 10) / 10);
+    return { done: pc(i.d || 0, i.n), miss: pc(i.m || 0, i.n), good: pc(i.g || 0, i.c), rect: pc(r.ok || 0, r.n), cp: r1(cp), rp: r1(rp) };
+  };
+  const c = one(from, to), p = one(pf, pt);
+  return [['done', '任务完成率', '%', 1], ['miss', '漏做率', '%', -1], ['good', '抽查合格率', '%', 1], ['rect', '整改按时关闭率', '%', 1], ['cp', '客诉平均关闭时长', '小时', -1], ['rp', '报修平均关单时长', '小时', -1]]
+    .map(([k, l, unit, dir]) => ({ k, l, unit, dir, cur: c[k], prev: p[k] }));
+}
+app.get('/api/value', (req, res) => {
+  const u = req.u, sc = valScope(u, req.query); if (!sc) return deny(res);
+  const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30, to = L.addDays(L.today(), -1), from = L.addDays(to, -(days - 1));
+  const key = ['val', sc.lvl, sc.ids.length, sc.ids[0], sc.rid, sc.sid, days, to].join(':'), hit = VALC.get(key);
+  const base = hit && Date.now() - hit.at < 600000 ? hit.v : (() => {
+    const cfg = valCfg(), IM = Object.fromEntries(cfg.items.map(i => [i.k, i])), IN = sc.ids.join(',') || 0;
+    const rows = q(`SELECT store_id sid, k, SUM(n) n FROM value_daily WHERE date BETWEEN ? AND ? AND store_id IN (${IN}) GROUP BY store_id, k`, from, to);
+    const saved = r => (IM[r.k] ? r.n * (IM[r.k].base - IM[r.k].sys) : 0), byK = {}, bySid = {};
+    rows.forEach(r => { byK[r.k] = (byK[r.k] || 0) + r.n; bySid[r.sid] = (bySid[r.sid] || 0) + saved(r); });
+    const trend = q(`SELECT date d, k, SUM(n) n FROM value_daily WHERE date BETWEEN ? AND ? AND store_id IN (${IN}) GROUP BY date, k`, from, to).reduce((m, r) => { m[r.d] = (m[r.d] || 0) + saved(r); return m; }, {});
+    const ppl = q(`SELECT r.level, r.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND u.store_id IN (${IN})`).reduce((m, x) => { const g = x.level === 'store_manager' ? null : LEAD_ROLES.includes(x.name) ? 'ld' : x.level === 'staff' ? 'st' : null; if (g) m[g]++; return m; }, { sm: 0, ld: 0, st: 0, rg: 0 });
+    ppl.sm = q1(`SELECT COUNT(DISTINCT us.user_id) n FROM user_stores us JOIN users u ON u.id=us.user_id JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level='store_manager' AND us.store_id IN (${IN})`).n;
+    const regs = [...new Set(sc.all.filter(s => sc.ids.includes(s.id)).map(s => s.region_id))];
+    ppl.rg = q1(`SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level IN ('region_manager','coach') AND u.region_id IN (${regs.join(',') || 0})`).n;
+    const items = cfg.items.map(i => ({ ...i, n: Math.round(byK[i.k] || 0), h: Math.round((byK[i.k] || 0) * (i.base - i.sys) / 6) / 10 }));
+    const roles = Object.entries(VAL_ROLES).map(([k, label]) => { const h = items.filter(i => i.role === k).reduce((a, i) => a + i.h, 0);
+      return { k, label, h: Math.round(h), money: Math.round(h * cfg.wage[k]), ppl: ppl[k], per_min: ppl[k] ? Math.round(h * 60 / ppl[k] / days) : 0, wage: cfg.wage[k] }; });
+    const th = roles.reduce((a, r) => a + r.h, 0), sn = Object.fromEntries(sc.all.map(s => [s.id, s]));
+    let rank;
+    if (sc.lvl === 'hq' && !sc.rid && !sc.sid) {
+      const g = {}; sc.ids.forEach(id => { const r = sn[id].region_id; (g[r] ||= { id: r, n: 0, h: 0 }); g[r].n++; g[r].h += (bySid[id] || 0) / 60; });
+      const rn = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
+      rank = { kind: 'region', rows: Object.values(g).map(x => ({ id: x.id, name: rn[x.id], stores: x.n, h: Math.round(x.h), per: Math.round(x.h * 60 / x.n / days) })).sort((a, b) => b.per - a.per) };
+    } else rank = { kind: 'store', rows: sc.ids.map(id => ({ id, name: sn[id].name, h: Math.round((bySid[id] || 0) / 60), per: Math.round((bySid[id] || 0) / days) })).sort((a, b) => b.per - a.per) };
+    const v = { days, from, to, stores: sc.ids.length, total: { h: Math.round(th), money: roles.reduce((a, r) => a + r.money, 0), fte: Math.round(th * 30 / days / MONTH_H * 10) / 10 },
+      roles, items, trend: Object.keys(trend).sort().map(d => ({ d, h: Math.round(trend[d] / 6) / 10 })), rank, quality: valQuality(sc.ids, from, to, days), wage: cfg.wage, edited: cfg.edited };
+    VALC.set(key, { at: Date.now(), v }); return v;
+  })();
+  const out = JSON.parse(JSON.stringify(base)), money = sc.lvl !== 'sm', fte = sc.lvl === 'hq';
+  if (!money) { out.total.money = null; out.roles.forEach(r => { r.money = null; r.wage = null; }); out.wage = null; }
+  if (!fte) out.total.fte = null;
+  if (sc.lvl === 'sm') out.rank.rows = out.rank.rows.length > 1 ? out.rank.rows : [];
+  const scope = sc.sid ? sname(sc.sid) : sc.rid ? q1('SELECT name FROM regions WHERE id=?', sc.rid)?.name : sc.lvl === 'hq' ? (q1('SELECT name FROM provinces LIMIT 1')?.name || '全部门店') : sc.lvl === 'region' ? (q1('SELECT name FROM regions WHERE id=?', u.region_id)?.name || '本区域') : '我的门店';
+  res.json({ ...out, lvl: sc.lvl, scope, region: sc.rid, store: sc.sid, can_edit: sc.lvl === 'hq', can_drill: sc.lvl !== 'sm', regions: sc.lvl === 'hq' ? q('SELECT id, name FROM regions ORDER BY id') : null, sim: true });
+});
+app.post('/api/value/cfg', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res);
+  const b = req.body || {};
+  if (b.reset) D.setSetting('value_cfg', {});
+  else {
+    const items = {}, wage = {}, num = (x, lo, hi) => { const v = Number(x); return Number.isFinite(v) && v >= lo && v <= hi ? v : null; };
+    for (const [k, x] of Object.entries(b.items || {})) { if (!VAL_ITEMS.some(i => i[0] === k)) continue; const bs = num(x.base, 0, 600), sy = num(x.sys, 0, 600); if (bs == null || sy == null) return err(res, '工时要填 0 到 600 之间的数字'); if (sy > bs) return err(res, '用系统后的耗时不能大于原来的耗时'); items[k] = { base: bs, sys: sy }; }
+    for (const [k, x] of Object.entries(b.wage || {})) { if (!VAL_ROLES[k]) continue; const w = num(x, 1, 1000); if (w == null) return err(res, '时薪要填 1 到 1000 之间的数字'); wage[k] = w; }
+    const def = Object.fromEntries(VAL_ITEMS.map(i => [i[0], { base: i[3], sys: i[4] }]));
+    D.setSetting('value_cfg', { items: Object.fromEntries(Object.entries(items).filter(([k, x]) => x.base !== def[k].base || x.sys !== def[k].sys)), wage: Object.fromEntries(Object.entries(wage).filter(([k, w]) => w !== VAL_WAGE[k])) });
+  }
+  VALC.clear();
+  D.audit(req.u.id, null, '标准工时表', b.reset ? '恢复默认' : '调整'); res.json({ ok: true });
+});
+app.post('/api/ev', (req, res) => {
+  const b = req.body || {}, ms = Number(b.ms);
+  if (VAL_EV.includes(b.k) && req.u.level === 'store_manager' && ms >= 5000 && ms <= 7200000) run('INSERT INTO ev_log(user_id,store_id,k,ms,at) VALUES(?,?,?,?,?)', req.u.id, Number(b.store) || null, b.k, Math.round(ms), L.nowStr());
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));

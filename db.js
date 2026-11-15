@@ -122,6 +122,10 @@ try { db.exec('ALTER TABLE stores ADD COLUMN tags TEXT'); } catch { /* exists */
 for (const [id, t] of [[1, '标杆复制'], [2, '店长兼管'], [3, '重点帮扶,改造规划']]) db.prepare('UPDATE stores SET tags=? WHERE id=? AND tags IS NULL').run(t, id);
 for (const [id, v] of Object.entries(STORE_INFO)) try { db.prepare('UPDATE stores SET brand=?, stype=?, open_date=?, rooms=? WHERE id=? AND brand IS NULL').run(...v, Number(id)); } catch { /* fresh db */ }
 
+db.exec(`CREATE TABLE IF NOT EXISTS value_daily(date TEXT, store_id INTEGER, k TEXT, n REAL, PRIMARY KEY(date, store_id, k));
+CREATE TABLE IF NOT EXISTS ev_log(id INTEGER PRIMARY KEY, user_id INTEGER, store_id INTEGER, k TEXT, ms INTEGER, at TEXT);
+CREATE INDEX IF NOT EXISTS ix_ev_k ON ev_log(k, id);`);
+
 for (const ix of ['instances(checked_by, checked_at)', 'rectifications(assignee_id, created_at)', 'rectifications(created_by, created_at)', 'rectifications(verified_by, verified_at)',
   'patrols(created_by, status)', 'patrols(store_id, status)', 'flex_tasks(created_by, source)', 'audit(action, at)', 'leaves(user_id, date)', 'pay_appeals(user_id)', 'survey_resp(store_id, q)',
   'complaints(store_id, created_at)', 'users(store_id)', 'users(region_id)', 'user_stores(user_id)', 'user_stores(store_id)', 'coach_logs(sm_id)', 'talks(user_id)'])
