@@ -1649,6 +1649,7 @@ async function managerHome() {
   <div class="sec-t2">场景运营</div>
   <div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
+  { const sg = $('.scgrid'), t = $('#topw'); if (sg && t) { const w = document.createElement('div'); w.id = 'scops'; w.append(sg.previousElementSibling, sg); t.after(w); } }
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
@@ -2891,7 +2892,8 @@ async function loadTimeBudget() {
   <div class="muted small">${b.stores.map(s => `${esc(s.name)} ${s.min} 分`).join(' · ')}${b.before > b.total ? ` · 减负前约 ${b.before} 分` : ''}</div>
   <div class="muted small">${Object.entries(b.stores.reduce((o, s) => { s.parts.forEach(([k, v]) => { o[k] = (o[k] || 0) + v; }); return o; }, {})).filter(p => p[1]).map(p => p[0] + ' ' + p[1]).join(' · ')}</div>
   ${b.tips.map(t => `<div class="small bad">建议：${esc(t)}</div>`).join('')}</section>`;
-  const ck = $('#ck'); ck ? ck.insertAdjacentHTML('afterbegin', h) : ($('#topw') || $('#main .pghd'))?.insertAdjacentHTML('afterend', h);
+  const ck = $('#ck'); ck ? ck.insertAdjacentHTML('afterbegin', h) : ($('#scops') || $('#topw') || $('#main .pghd'))?.insertAdjacentHTML('afterend', h);
+  const sc = $('#scops'), tw = $('#topw'); if (sc && tw) tw.after(sc);
 }
 
 // ---------- 店长阶段 ----------
@@ -2947,6 +2949,6 @@ async function loadOnDuty() {
   const h = `<section class="yic" id="ondu"><div class="row between"><b>当前在岗 ${d.on}/${d.total} 人</b><a class="muted small" href="#/labor?store=${sid}">排班 ›</a></div>
   <div class="muted small">下一个节点 ${esc(d.next.at)} ${esc(d.next.text)}</div>${d.gaps.map(g => `<div class="small bad">${esc(g)}</div>`).join('')}
   <div class="small">${d.groups.map(g => `<div><b>${esc(g.g)}</b> ${g.xs.map(x => esc(x.name) + (x.code && x.code !== '常' ? ' ' + esc(x.code) : '')).join('、')}</div>`).join('')}</div></section>`;
-  const tb = $('#tbud'); tb ? tb.insertAdjacentHTML('afterend', h) : ($('#topw') || $('#main .pghd'))?.insertAdjacentHTML('afterend', h);
+  const tabs = $('#main .pltabs'); tabs ? tabs.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
 }
-{ const h0 = VIEWS.home; VIEWS.home = async () => { if (S.me.reserve === 'sm_off') return VIEWS.rsv(); await h0(); if (['ops', null].includes(qs().get('pl'))) loadOnDuty(); }; }
+{ const h0 = VIEWS.home; VIEWS.home = async () => { if (S.me.reserve === 'sm_off') return VIEWS.rsv(); await h0(); if (qs().get('pl') === 'ren' || qs().get('tab') === 'ren') loadOnDuty(); }; }
