@@ -7,6 +7,7 @@ const { q, q1, run } = D;
 require('./seed').seed();
 
 const app = express();
+app.use(require('compression')());
 app.use(express.json({ limit: '8mb' }));
 app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public')));

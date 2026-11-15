@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "compression": "1.8",
     "express": "^4.22.3"
   }
 }
