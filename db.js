@@ -61,6 +61,8 @@ db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)
 db.exec(`CREATE TABLE IF NOT EXISTS sm_stage(user_id INTEGER PRIMARY KEY, stage TEXT, start TEXT, set_by INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS stage_steps(user_id INTEGER, stage TEXT, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, stage, step));
 CREATE TABLE IF NOT EXISTS punches(user_id INTEGER, date TEXT, kind TEXT, at TEXT, PRIMARY KEY(user_id, date, kind));
+CREATE TABLE IF NOT EXISTS day_log(id INTEGER PRIMARY KEY, user_id INTEGER, date TEXT, store_id INTEGER, code TEXT, end_hm TEXT, in_at TEXT, out_at TEXT, status TEXT DEFAULT 'open', items TEXT, note TEXT, focus TEXT, snap TEXT, reminded INTEGER DEFAULT 0, comment TEXT, comment_by INTEGER, created_at TEXT, UNIQUE(user_id, date));
+CREATE TABLE IF NOT EXISTS carries(id INTEGER PRIMARY KEY, from_id INTEGER, to_id INTEGER, store_id INTEGER, src TEXT, src_id INTEGER, text TEXT, dest TEXT, date TEXT, status TEXT DEFAULT 'open', days INTEGER DEFAULT 0, reason TEXT, created_at TEXT, ack_at TEXT, nudged INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sched_pub(store_id INTEGER, week TEXT, by INTEGER, at TEXT, PRIMARY KEY(store_id, week));
 CREATE TABLE IF NOT EXISTS rsv_tasks(id INTEGER PRIMARY KEY, user_id INTEGER, by_id INTEGER, store_id INTEGER, kind TEXT, title TEXT, due TEXT, status TEXT DEFAULT 'open', note TEXT, score INTEGER, created_at TEXT, done_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, store_id INTEGER, from_id INTEGER, to_id INTEGER, scope TEXT, inst_id INTEGER, src TEXT, src_id INTEGER,

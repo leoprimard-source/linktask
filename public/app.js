@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['stage', 'rsv', 'home', 'work', 'me', 'notices', 'todo', 'appr', 'cal', 'dir', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
+const COMMON = ['dayrep', 'stage', 'rsv', 'home', 'work', 'me', 'notices', 'todo', 'appr', 'cal', 'dir', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -1612,11 +1612,83 @@ const myRhythm = () => (S.me.shift && !S.me.shift.rest && SHIFT_RH[S.me.shift.co
 function shiftCard() {
   const s = S.me.shift; if (!s) return '';
   if (s.rest) return `<section class="yic" id="myshift"><b>今天休息</b><div class="muted small">${S.me.shift.code === 'O' ? '前台白班、夜班、休息三天一轮' : '做六休一'}，排班由上级安排</div></section>`;
-  const p = s.punch || {};
-  return `<section class="yic" id="myshift"><div class="row between"><b>${s.date !== S.me.today ? '昨晚' : '今天'} ${esc(s.code)} 班 · ${esc(s.start)}–${esc(s.end)}</b>${!p.in ? '<button class="btn primary sm" data-punch="in">上班打卡</button>' : !p.out ? '<button class="btn sm" data-punch="out">下班打卡</button>' : '<span class="tag ok">已打卡</span>'}</div>
-  <div class="muted small">${esc(s.label)} · ${p.in ? '上班 ' + esc(p.in) : '未打上班卡'}${p.out ? ' · 下班 ' + esc(p.out) : ''}${s.prev ? ` · 接 ${esc(s.prev.code)} 班 ${esc(s.prev.names.join('、') || '—')}` : ''}${s.next ? ` · 交 ${esc(s.next.code)} 班 ${esc(s.next.names.join('、') || '—')}` : ''}</div></section>`;
+  const p = s.punch || {}, done = s.log && s.log.status === 'done', late = p.in && !p.out && s.start < s.end && hmM(S.me.now) > hmM(s.end) + 120;
+  const btn = !p.in ? '<button class="btn primary sm" data-punch="in">上班打卡</button>' : !done ? `<button class="btn ${p.out ? 'primary ' : ''}sm" data-punch="out">${p.out ? '写当日总结' : '下班打卡'}</button>` : '<span class="tag ok">已总结</span>';
+  const ttl = s.mgr ? `今天 · 店长 ${esc(s.start)}–${esc(s.end)}` : `${s.date !== S.me.today ? '昨晚' : '今天'} ${esc(s.code)} 班 · ${esc(s.start)}–${esc(s.end)}`;
+  const sign = s.mgr && s.log?.store_id ? ` · 签到 ${esc(storeName(s.log.store_id))}` : '';
+  return `<section class="yic" id="myshift"><div class="row between"><b>${ttl}</b>${btn}</div>
+  <div class="muted small">${esc(s.label)} · ${p.in ? '上班 ' + esc(p.in) : '未打上班卡'}${p.out ? ' · 下班 ' + esc(p.out) : ''}${sign}${s.prev ? ` · 接 ${esc(s.prev.code)} 班 ${esc(s.prev.names.join('、') || '—')}` : ''}${s.next ? ` · 交 ${esc(s.next.code)} 班 ${esc(s.next.names.join('、') || '—')}` : ''}</div>
+  ${p.in ? `<div class="row" style="gap:12px;margin-top:6px"><a class="small" data-dayview="start">今日清单 ›</a>${done && s.log ? `<a class="small" data-daylog="${s.log.id}">我的当日总结 ›</a>` : ''}${late ? '<span class="tag warn">已过下班 2 小时，请打卡并总结</span>' : ''}</div>` : ''}</section>`;
 }
-document.addEventListener('click', async e => { const b = e.target.closest('[data-punch]'); if (!b) return; if (await act(() => api('/punch', { kind: b.dataset.punch }), b.dataset.punch === 'in' ? '上班已打卡' : '下班已打卡')) { S.me = await api('/me'); route(); } });
+const hmM = hm => Number(String(hm).slice(0, 2)) * 60 + Number(String(hm).slice(3, 5));
+const reMe = async () => { S.me = await api('/me'); route(); };
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-punch]'), v = e.target.closest('[data-dayview]'), g = e.target.closest('[data-daylog]');
+  if (v) return startModal(); if (g) return dayLogModal(g.dataset.daylog); if (!b) return;
+  const s = S.me.shift;
+  if (b.dataset.punch === 'out') { if (!s.punch.out && !(await act(() => api('/punch', { kind: 'out' }), '下班已打卡'))) return; S.me = await api('/me'); return sumModal(); }
+  const go = async sid => { if (await act(() => api('/punch', { kind: 'in', store_id: sid }), '上班已打卡')) { await reMe(); startModal(); } };
+  if (s.mgr && S.meta.stores.length > 1) sheet(S.meta.stores.map(x => [esc(x.name), () => go(x.id)]), '在哪家店签到？'); else go(S.me.store_id || S.meta.stores[0]?.id);
+});
+const DEST_L = { night: '转夜班', next: '交下一班', tomorrow: '转明天', delegate: '授权负一层', coach: '上报教练' };
+async function startModal() {
+  const d = await api('/day/start'), sec = (t, h) => h ? `<div class="sec-t2">${t}</div>${h}` : '';
+  const ho = d.handoff ? `<section class="yic"><div class="row between"><b>${esc(d.handoff.by_name)} 的${esc(d.handoff.shift)}交班单</b><button class="btn primary sm" id="takeho">确认接班</button></div>
+    <div class="muted small">${d.handoff.issues.map(i => '· ' + esc(i.text)).join('<br>') || '无遗留问题'}${d.handoff.guest ? '<br>宾客：' + esc(d.handoff.guest) : ''}${d.handoff.equip ? '<br>设备：' + esc(d.handoff.equip) : ''}${d.handoff.cash ? '<br>备用金/钥匙：' + esc(d.handoff.cash) : ''}</div></section>` : '';
+  const carry = d.carried.map(c => `<div class="task"><div class="b"><div class="ttl">${esc(c.text)}</div><div class="muted small">${esc(c.from || '')} ${esc(DEST_L[c.dest] || '')}${c.days >= 3 ? ` · <em class="bad">已结转 ${c.days} 天</em>` : c.days ? ` · 结转 ${c.days} 天` : ''}</div></div>
+    ${c.status === 'open' && c.dest !== 'tomorrow' ? `<button class="btn sm" data-cop="ack" data-cid="${c.id}">接收</button>` : ''}<button class="btn sm" data-cop="done" data-cid="${c.id}">完成</button></div>`).join('');
+  const nightH = d.night.map(n => `<div class="task"><div class="b"><div class="ttl">${esc(n.store)} · ${esc(n.role)} ${esc(n.name)}</div><div class="muted small">${esc(n.note || '无备注')} · 未完成 ${n.n} 项</div></div></div>`).join('');
+  const tasks = d.tasks.map(t => `<a class="task" href="#/task/${t.id}"><div class="t mono">${esc(t.time || '')}</div><div class="b"><div class="ttl">${esc(t.text)}</div>${d.stores.length > 1 ? `<div class="muted small">${esc(storeName(t.store_id))}</div>` : ''}</div></a>`).join('') + (d.ntask > d.tasks.length ? `<a class="task" href="#/my"><div class="b muted small">还有 ${d.ntask - d.tasks.length} 项 ›</div></a>` : '');
+  const stores = d.stores.map(x => `<div class="task"><div class="b"><div class="ttl">${esc(x.name)}</div><div class="muted small">任务 ${x.done}/${x.total}${x.rect ? ` · <em class="bad">超期整改 ${x.rect}</em>` : ''}${x.bad ? ` · 昨日差评 ${x.bad}` : ''}${x.stale ? ` · <em class="bad">拖延项 ${x.stale}</em>` : ''}<br>今晚值班：${esc(x.tonight.join('、') || '未排夜班')}</div></div></div>`).join('');
+  modal('今日清单', `${d.stage ? `<div class="muted small">${esc(d.stage.l)} 第 ${d.stage.day} 天 · 今日重点：${esc(d.stage.focus || '')}${d.stage.budget ? ` · 预算 ${d.stage.budget} 分钟` : ''}</div>` : ''}
+    ${ho}${sec('昨夜情况', nightH)}${sec(`结转给我 ${d.carried.length}`, carry && `<div class="list">${carry}</div>`)}${sec(`今天要做 ${d.ntask}`, `<div class="list">${tasks || '<div class="empty">今天没有分到任务</div>'}</div>`)}${sec(d.stores.length > 1 ? '名下门店' : '门店风险', stores && `<div class="list">${stores}</div>`)}
+    <div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn primary" data-close>开始工作</button></div>`, m => {
+    m.querySelectorAll('[data-cop]').forEach(b => b.onclick = async () => { if (await act(() => api('/carry/' + b.dataset.cid, { op: b.dataset.cop }), b.dataset.cop === 'ack' ? '已接收' : '已完成')) startModal(); });
+    const t = m.querySelector('#takeho'); if (t) t.onclick = async () => { if (await act(() => api(`/shift/${d.handoff.id}/take`, {}), '已接班')) startModal(); };
+  });
+}
+async function sumModal() {
+  const d = await api('/day/sum'); if (d.submitted) return toast('今天的总结已经提交');
+  const multi = Object.keys(d.hands).length > 1, nl = DEST_L[d.mode];
+  const ppl = (sid, sel) => (d.hands[sid] || []).map(p => `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.code ? p.code + ' 班 ' : '')}${esc(p.name)} · ${esc(p.role)}</option>`).join('');
+  const row = (it, i) => `<div class="task" data-k="${esc(it.key)}" data-sid="${it.store_id}" data-must="${it.must ? 1 : ''}" style="display:block"><div class="ttl">${esc(it.text)}${it.days >= 2 ? ` <em class="bad small">已结转 ${it.days} 天</em>` : ''}</div>
+    <div class="muted small">${multi ? esc(it.store) + ' · ' : ''}${it.kind === 'carry' ? '结转事项' : '今日任务 ' + esc(it.time || '')}</div>
+    <div class="row" style="gap:6px;margin-top:6px"><select name="d${i}">${[d.mode, 'tomorrow', 'delegate', 'coach'].map(k => `<option value="${k}" ${k === it.sdest ? 'selected' : ''}>${DEST_L[k]}</option>`).join('')}</select>
+    <select name="t${i}">${ppl(it.store_id, it.sto)}</select><input name="r${i}" placeholder="${it.must ? '转明天须写原因' : '原因/说明（选填）'}" style="flex:1;min-width:90px"></div></div>`;
+  const snap = d.snap.map(x => `<div class="task"><div class="b"><div class="ttl">${esc(x.name)}</div><div class="muted small">出租率 ${x.occ}% · RevPAR ${x.revpar} · 任务 ${x.done}/${x.total}${x.bad ? ` · 差评 ${x.bad}` : ''}${x.rect ? ` · 超期整改 ${x.rect}` : ''}<br>今晚值班：${esc(x.tonight.join('、') || '未排夜班')}</div></div></div>`).join('');
+  const team = d.team.map(t => `${esc(t.role)} ${esc(t.name)}${t.status === 'done' ? ` 未完成 ${t.n}` : ' 未总结'}`).join(' · ');
+  formModal('当日总结', `<div class="sf-kv" style="margin-bottom:8px"><a><b>${d.done}/${d.total}</b><span>我的任务完成</span></a><a class="${d.items.length ? 'warn' : ''}"><b>${d.items.length}</b><span>未完成</span></a>${d.stage ? `<a><b>${d.stage.days ? d.stage.day + '/' + d.stage.days : '第 ' + d.stage.day + ' 天'}</b><span>${esc(d.stage.l)}</span></a>` : ''}</div>
+    ${snap ? `<div class="sec-t2">经营快照</div><div class="list">${snap}</div>` : ''}${team ? `<div class="muted small">团队总结：${team}</div>` : ''}
+    <div class="sec-t2">未完成事项去向</div><p class="muted small">系统已按事项类型和今晚排班推荐去向；${nl}的事项对方要确认接收，30 分钟未确认会提醒店助。</p>
+    ${d.items.some(i => i.must) ? '<label class="f"><span>统一原因（转明天的必做项没单独写原因时用这条）</span><input name="allr" placeholder="例如：下午处理业主来访，晨会改到明早"></label>' : ''}<div class="list">${d.items.map(row).join('') || '<div class="empty">今天的事都做完了</div>'}</div>
+    ${d.handoff ? `<div class="sec-t2">交班信息</div><label class="f"><span>宾客特殊需求</span><input name="guest" placeholder="例如：1208 VIP 晚到，需要加床"></label><label class="f"><span>设备异常</span><input name="equip"></label><label class="f"><span>备用金/钥匙</span><input name="cash" placeholder="例如：备用金 2000 已清点"></label>` : ''}
+    <label class="f"><span>今天一句话</span><textarea name="note" placeholder="例如：午间退房高峰顺利，812 投诉已回访"></textarea></label>
+    <label class="f"><span>明日重点</span><input name="focus" placeholder="例如：抽查 10 楼客房卫生"></label>`, async f => {
+    const items = d.items.map((it, i) => ({ key: it.key, dest: f['d' + i], to: f['d' + i] === 'delegate' || f['d' + i] === d.mode ? Number(f['t' + i]) : null, reason: f['r' + i] || (it.must && f['d' + i] === 'tomorrow' ? f.allr : '') }));
+    return act(async () => { await api('/day/sum', { items, note: f.note, focus: f.focus, guest: f.guest, equip: f.equip, cash: f.cash }); S.me = await api('/me'); }, '当日总结已提交');
+  });
+  const sync = el => { const i = el.name.slice(1), t = $('#mf [name="t' + i + '"]'); t.style.display = ['tomorrow', 'coach'].includes(el.value) ? 'none' : ''; };
+  document.querySelectorAll('#mf select[name^="d"]').forEach(el => { sync(el); el.onchange = () => sync(el); });
+}
+async function dayLogModal(id) {
+  const g = await api('/day/log/' + id), sn = g.snap || {};
+  modal(`${g.name} · ${g.date} 当日总结`, `<div class="muted small">${g.status === 'auto' ? '<span class="tag bad">未总结 · 系统自动生成</span> ' : ''}上班 ${esc(g.in_at || '-')} · 下班 ${esc(g.out_at || '-')} · 任务 ${sn.done ?? '-'}/${sn.total ?? '-'}</div>
+    ${(sn.stores || []).map(x => `<div class="muted small">${esc(x.name)}：出租率 ${x.occ}% · RevPAR ${x.revpar} · 任务 ${x.done}/${x.total}</div>`).join('')}
+    ${g.note ? `<p>${esc(g.note)}</p>` : ''}${g.focus ? `<p class="small">明日重点：${esc(g.focus)}</p>` : ''}
+    <div class="sec-t2">未完成事项 ${g.items.length}</div><div class="list">${g.items.map(x => `<div class="task"><div class="b"><div class="ttl">${esc(x.text)}</div><div class="muted small">${x.store ? esc(x.store) + ' · ' : ''}${esc(DEST_L[x.dest] || x.dest)}${x.to_name ? ' → ' + esc(x.to_name) : ''}${x.reason ? ' · ' + esc(x.reason) : ''}${x.days >= 3 ? ` · <em class="bad">拖延 ${x.days} 天</em>` : ''}</div></div></div>`).join('') || '<div class="empty">全部完成</div>'}</div>
+    ${g.comment ? `<div class="sec-t2">教练点评</div><p>${esc(g.comment_name || '')}：${esc(g.comment)}</p>` : ''}
+    ${g.can_comment ? `<form id="cmf"><label class="f"><span>点评（记入成长档案）</span><textarea name="text" required></textarea></label><div class="row"><span class="sp"></span><button class="btn primary">提交点评</button></div></form>` : ''}`, m => {
+    const f = m.querySelector('#cmf'); if (f) f.onsubmit = async e => { e.preventDefault(); if (await act(() => api(`/day/log/${id}/comment`, formData(f)), '已点评')) dayLogModal(id); };
+  });
+}
+VIEWS.dayrep = async () => {
+  const d = await api('/day/report?date=' + (qs().get('date') || S.me.today));
+  $('#main').innerHTML = `<div class="pghd row between"><b>门店日报</b><span class="muted small">${esc(d.date)}</span></div>
+    <div class="muted small" style="padding:8px 12px">${d.total} 家店，${d.rows.length} 家有异常；没有异常的门店不列出。<a href="#/dayrep?date=${esc(prevDay(d.date))}">看前一天</a></div>
+    <div class="list">${d.rows.map(r => `<div class="task" style="display:block"><div class="row between"><b>${esc(r.name)}</b>${r.logs.map(l => `<a class="small" data-daylog="${l.id}">${esc(l.name)}的总结 ›</a>`).join(' ')}</div>
+      ${r.flags.map(f => `<div class="small"><span class="tag ${f[0] === '上报' || f[0] === '未总结' ? 'bad' : 'warn'}">${esc(f[0])}</span> ${esc(f[1])}</div>`).join('')}</div>`).join('') || '<div class="empty">今天所有门店都正常</div>'}</div>`;
+};
+const prevDay = d => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); };
 const MUST_TAG = { self: 'acc', focus: 'bad', zero: 'bad', review: 'warn', again: 'warn', late: 'bad', spot: 'acc' };
 const pct = v => (v == null ? '-' : v + '%');
 function rhythmBar(R = RHYTHM) {
@@ -1636,10 +1708,10 @@ async function managerHome() {
   const openR = rs.filter(x => x.status !== 'closed').length, upN = up.focus.length + up.rects.length;
   const groups = {}; for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   const top = ts => { const c = {}; ts.forEach(t => { c[t.assignee_name] = (c[t.assignee_name] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2).map(x => x[0]).join('、'); };
-  const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['handover', '一键交班', '交', '']];
+  const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['sum', '当日总结', '结', '']];
   $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
     ${calMini(date)}<a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'handover' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>${shiftCard()}<div class="sec-t2">${S.me.shift && !S.me.shift.rest ? '我的班次节奏' : '一天时间'}</div>${rhythmBar(myRhythm())}</div>`)}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'sum' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>${shiftCard()}<div class="sec-t2">${S.me.shift && !S.me.shift.rest ? '我的班次节奏' : '一天时间'}</div>${rhythmBar(myRhythm())}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/home?view=store&store=${sid}"><b>${all.length - done.length}</b><span>待完成</span></a><a href="#/must" class="${od ? 'bad' : ''}"><b>${od}</b><span>已超时</span></a><a href="#/must" class="${toCheck ? 'warn' : ''}"><b>${toCheck}</b><span>待点评</span></a><a href="#/rect" class="${openR ? 'warn' : ''}"><b>${openR}</b><span>待整改</span></a></div></div>
   ${upN ? `<div class="sec-t2 row between"><span>上级安排</span><a href="#/upper" class="small">全部 ${upN} ›</a></div><div class="list">${up.focus.slice(0, 2).map(f => `<a class="task" href="#/upper"><div class="b"><div class="ttl">${esc(f.title)}</div><div class="muted small">${esc(f.creator || '区域')} 下发 · 每日 ${esc(f.due_time)} · ${esc(f.assignee_name || '')} 落实 · 历史执行 ${pct(f.rate)}</div></div>${f.today ? `<span class="tag ${f.today.status === 'done' ? 'ok' : 'warn'}">${f.today.status === 'done' ? '今日已落实' : '今日待落实'}</span>` : ''}</a>`).join('')}
@@ -1653,7 +1725,7 @@ async function managerHome() {
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
-  $('#ho').onclick = () => handoverModal(team);
+  $('#ho').onclick = () => (S.me.shift?.punch?.in ? sumModal() : toast('请先打上班卡', true));
   document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
 }
 function formModal(title, body, onSubmit) {
@@ -2741,11 +2813,11 @@ route();
 
 // ---------- 管理角色首页：我的工作 + 一天时间 ----------
 const MGR_TILES = {
-  region_manager: [['#/dash', '区域看板', '看'], ['#/coach', '教练辅导', '教'], ['#/patrol', '巡店计划', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/pfind', '巡店筛选', '筛'], ['#/deleg', '店长授权', '授'], ['#/rect', '整改闭环', '改'], ['#/hrm', '人事指标', '人'], ['#/wcal', '工作日历', '历']],
+  region_manager: [['#/dash', '区域看板', '看'], ['#/dayrep', '门店日报', '报'], ['#/coach', '教练辅导', '教'], ['#/patrol', '巡店计划', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/pfind', '巡店筛选', '筛'], ['#/deleg', '店长授权', '授'], ['#/rect', '整改闭环', '改'], ['#/hrm', '人事指标', '人'], ['#/wcal', '工作日历', '历']],
   ops_manager: [['#/dash', '运营看板', '看'], ['#/pfind', '巡店筛选', '筛'], ['#/deleg', '店长授权', '授'], ['#/patrol', '巡店与复查', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安'], ['#/labor', '排班与人效', '排']],
   sales_manager: [['#/dash', '销售看板', '看'], ['#/issues', '问题门店', '问'], ['#/tasks', '销售任务', '任'], ['#/complaints', '客诉闭环', '诉'], ['#/rect', '整改闭环', '改'], ['#/notices', '消息提醒', '消']],
   hr_manager: [['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/people', '人员档案', '档'], ['#/pay', '绩效薪酬', '薪'], ['#/train', '培训认证', '培'], ['#/dataauth', '数据授权', '权']],
-  coach: [['#/cdesk', '教练工作台', '台'], ['#/coach', '本周辅导', '辅'], ['#/pfind', '巡店筛选', '筛'], ['#/patrol', '巡店计划', '巡'], ['#/deleg', '店长授权', '授'], ['#/wcal', '工作日历', '历'], ['#/engage', '敬业与留任', '留'], ['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安']],
+  coach: [['#/cdesk', '教练工作台', '台'], ['#/dayrep', '门店日报', '报'], ['#/coach', '本周辅导', '辅'], ['#/pfind', '巡店筛选', '筛'], ['#/patrol', '巡店计划', '巡'], ['#/deleg', '店长授权', '授'], ['#/wcal', '工作日历', '历'], ['#/engage', '敬业与留任', '留'], ['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安']],
   hq: [['#/hq', '总部视角', '总'], ['#/dataauth', '数据授权', '权'], ['#/hrm', '人事指标', '人'], ['#/care', '员工美好', '美'], ['#/brands', '品牌标准', '标'], ['#/suppliers', '供应商评价', '供'], ['#/wcal', '工作日历', '历']],
   train_manager: [['#/train', '培训与认证', '培'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消'], ['#/work', '易培训', '易']],
   dev_manager: [['#/home?pl=shop&lc=pipe', '管道与筹备', '管'], ['#/home?pl=shop&lc=run', '在营画像', '营'], ['#/home?pl=shop&lc=flow', '周转记录', '转'], ['#/work', '易开发', '易'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消']],

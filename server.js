@@ -2791,6 +2791,7 @@ function attendOf(sid, rows, days) {
   });
 }
 function myShift(u) {
+  if (u.level === 'store_manager') { const t = L.today(); return { date: t, code: '常', label: '店长常日班', start: '08:00', end: '17:30', rest: false, mgr: true, punch: Object.fromEntries(q('SELECT kind, at FROM punches WHERE user_id=? AND date=?', u.id, t).map(r => [r.kind, r.at])), log: dayLogOf(u.id, t) }; }
   if (u.level !== 'staff' || !u.store_id) return null;
   const t = L.today(), hm = L.nowHM(), y = L.addDays(t, -1), sid = u.store_id, SD = D.SHIFT_DEF, yc = D.shiftMap(sid, y).get(u.id), yd = SD[yc];
   let date = t, code = D.shiftMap(sid, t).get(u.id);
@@ -2802,7 +2803,7 @@ function myShift(u) {
   const pu = Object.fromEntries(q('SELECT kind, at FROM punches WHERE user_id=? AND date=?', u.id, date).map(r => [r.kind, r.at]));
   const night = !!df[1] && df[1] > df[2];
   return { date, code, label: df[0], start: df[1], end: df[2], rest: !df[1],
-    prev: pc && { code: pc, names: who(pc, i === 0 ? L.addDays(date, -1) : date) }, next: nc && { code: nc, names: who(nc, night ? L.addDays(date, 1) : date) }, punch: pu };
+    prev: pc && { code: pc, names: who(pc, i === 0 ? L.addDays(date, -1) : date) }, next: nc && { code: nc, names: who(nc, night ? L.addDays(date, 1) : date) }, punch: pu, log: dayLogOf(u.id, date) };
 }
 function laborOf(sid) {
   const t = L.today(), f30 = L.addDays(t, -30), b = bizRange(sid, f30, L.addDays(t, -1)), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid).rooms;
@@ -2856,7 +2857,10 @@ app.post('/api/punch', (req, res) => {
   if (!['in', 'out'].includes(k)) return err(res, '操作无效');
   if (k === 'out' && !s.punch.in) return err(res, '请先打上班卡');
   if (s.punch[k]) return err(res, '已经打过卡了');
-  const at = L.nowHM(); run('INSERT OR IGNORE INTO punches(user_id,date,kind,at) VALUES(?,?,?,?)', u.id, s.date, k, at);
+  const at = L.nowHM(), ds = dayStores(u), sid = ds.includes(Number(req.body.store_id)) ? Number(req.body.store_id) : ds[0];
+  run('INSERT OR IGNORE INTO punches(user_id,date,kind,at) VALUES(?,?,?,?)', u.id, s.date, k, at);
+  if (k === 'in') run('INSERT OR IGNORE INTO day_log(user_id,date,store_id,code,end_hm,in_at,created_at) VALUES(?,?,?,?,?,?,?)', u.id, s.date, sid || null, s.code, s.end, at, L.nowStr());
+  else run('UPDATE day_log SET out_at=? WHERE user_id=? AND date=?', at, u.id, s.date);
   const late = k === 'in' && hmMin(at) > hmMin(s.start) + 5 && s.start <= s.end;
   res.json({ ok: true, at, msg: k === 'in' ? (late ? `已打卡 ${at}，迟到` : `上班打卡 ${at}`) : `下班打卡 ${at}` });
 });
@@ -3845,5 +3849,172 @@ if (!D.getSetting('seed_shift_v1', 0)) {
   for (let d = t; d <= L.addDays(t, 7); d = L.addDays(d, 1)) D.ensureInstances(d, sids);
   for (const sid of sids) D.refreshPending(sid, t, last);
 }
+
+
+// ---------- 上下班：今日清单与当日总结 ----------
+const dayLogOf = (uid, d) => { const r = q1('SELECT id, status, store_id, out_at FROM day_log WHERE user_id=? AND date=?', uid, d); return r || null; };
+const dayStores = u => (u.level === 'store_manager' ? visibleStores(u) : u.store_id ? [u.store_id] : []);
+const isNightCode = c => { const d = D.SHIFT_DEF[c]; return !!(d && d[1] && d[1] > d[2]); };
+const hmNow = () => hmMin(L.nowHM());
+const ageMin = at => (new Date(L.nowStr().replace(' ', 'T')) - new Date(String(at).replace(' ', 'T'))) / 60000;
+const DEST = { night: '转夜班', next: '交下一班', tomorrow: '转明天', delegate: '授权负一层', coach: '上报教练' };
+const NEG1 = ['店助', '前台经理', '客房经理'];
+const regionCoaches = sid => q(USER_SQL + " WHERE u.active=1 AND r.level IN ('coach','region_manager') AND u.region_id=(SELECT region_id FROM stores WHERE id=?) ORDER BY r.level='coach' DESC, u.id", sid);
+const storeStaff = sid => q(USER_SQL + ' WHERE u.store_id=? AND u.active=1', sid);
+function crewOn(sid, date, pred) { const m = D.shiftMap(sid, date); return storeStaff(sid).filter(p => pred(m.get(p.id))).map(p => ({ id: p.id, name: p.name, role: p.role_name, code: m.get(p.id) })); }
+const nightCrew = (sid, date) => crewOn(sid, date, isNightCode);
+function handTo(u, sid, s) {
+  const neg = storeStaff(sid).filter(p => NEG1.includes(p.role_name) && p.id !== u.id).map(p => ({ id: p.id, name: p.name, role: p.role_name, code: '' }));
+  let c, mode = 'night';
+  if (s && !s.mgr && s.next) { const nd = isNightCode(s.code) ? L.addDays(s.date, 1) : s.date; c = crewOn(sid, nd, x => x === s.next.code); mode = 'next'; }
+  else c = nightCrew(sid, s ? s.date : L.today());
+  c = c.filter(p => p.id !== u.id);
+  return { mode, crew: c, neg, list: [...c, ...neg.filter(n => !c.some(x => x.id === n.id))] };
+}
+function suggestTo(text, h) {
+  const by = re => h.crew.find(p => re.test(p.role));
+  const t = String(text);
+  const p = (/报修|设备|安全|消防|巡|水电/.test(t) && (by(/保安|工程/))) || (/客房|夜床|布草|做房/.test(t) && by(/客房|PA/)) || (/客诉|投诉|VIP|入住|晚到|宾客|回访|房价|账/.test(t) && by(/前台/)) || by(/前台经理|店助|前台/) || h.crew[0] || h.neg[0];
+  return p ? p.id : null;
+}
+function openItems(u, d) {
+  const ts = q("SELECT id, store_id, title, due_time FROM instances WHERE assignee_id=? AND date=? AND status='pending' ORDER BY due_time", u.id, d).map(i => ({ key: 't' + i.id, kind: 'task', id: i.id, store_id: i.store_id, text: i.title, time: i.due_time, days: 0, must: u.level === 'store_manager' }));
+  const cs = q("SELECT c.*, f.name from_name FROM carries c LEFT JOIN users f ON f.id=c.from_id WHERE c.to_id=? AND c.date<=? AND c.status IN ('open','ack') ORDER BY c.days DESC, c.id", u.id, d).map(c => ({ key: 'c' + c.id, kind: 'carry', id: c.id, store_id: c.store_id, text: c.text, days: c.days, from: c.from_name, dest: c.dest, status: c.status }));
+  return [...cs, ...ts];
+}
+function moveItem(u, it, dest, to, reason, today) {
+  const date = dest === 'tomorrow' ? L.addDays(today, 1) : today, stale = (it.days || 0) + (dest === 'tomorrow' ? 1 : 0);
+  const toId = dest === 'tomorrow' ? u.id : to;
+  if (it.kind === 'carry') run("UPDATE carries SET from_id=?, to_id=?, dest=?, date=?, status='open', days=?, reason=?, created_at=?, ack_at=NULL, nudged=0 WHERE id=?", u.id, toId, dest, date, stale, reason || '', L.nowStr(), it.id);
+  else run('INSERT INTO carries(from_id,to_id,store_id,src,src_id,text,dest,date,days,reason,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)', u.id, toId, it.store_id, 'task', it.id, it.text, dest, date, stale, reason || '', L.nowStr());
+  if (toId !== u.id) D.notify([toId], 'shift', `${u.name}${DEST[dest]}：${it.text}`, dest === 'coach' ? reason || '' : '请在今日清单里确认接收', dest === 'coach' ? '#/dayrep' : '#/home');
+  return stale;
+}
+function autoClose(u) {
+  const t = L.today();
+  for (const g of q("SELECT * FROM day_log WHERE user_id=? AND status='open' AND date<?", u.id, t)) {
+    if (isNightCode(g.code) && g.date === L.addDays(t, -1) && hmNow() < hmMin(g.end_hm || '08:00') + 120) continue;
+    const items = openItems(u, g.date).map(it => ({ ...it, dest: 'tomorrow', days: moveItem(u, it, 'tomorrow', null, '未总结，系统自动结转', L.addDays(t, -1)) }));
+    run("UPDATE day_log SET status='auto', items=?, note='未打下班卡，系统自动生成总结' WHERE id=?", JSON.stringify(items), g.id);
+  }
+}
+function nudge() {
+  try {
+    for (const c of q("SELECT c.*, t.name to_name FROM carries c JOIN users t ON t.id=c.to_id WHERE c.status='open' AND c.dest IN ('night','next') AND c.nudged=0")) {
+      if (ageMin(c.created_at) < 30) continue;
+      const ups = storeStaff(c.store_id).filter(p => p.role_name === '店助').map(p => p.id);
+      D.notify([...ups, c.from_id], 'shift', `${c.to_name} 30 分钟未确认接收`, c.text, '#/home'); run('UPDATE carries SET nudged=1 WHERE id=?', c.id);
+    }
+    const t = L.today();
+    for (const g of q("SELECT * FROM day_log WHERE status='open' AND out_at IS NULL AND reminded=0 AND date=?", t)) {
+      if (!g.end_hm || isNightCode(g.code) || hmNow() < hmMin(g.end_hm) + 120) continue;
+      D.notify([g.user_id], 'shift', '已过下班时间 2 小时', '请打下班卡并提交当日总结；23:59 前未提交，系统会自动把未完成事项转到明天', '#/home'); run('UPDATE day_log SET reminded=1 WHERE id=?', g.id);
+    }
+  } catch (e) { console.error('nudge', e.message); }
+}
+setInterval(nudge, 5 * 60000);
+function storeRisk(sid, t) {
+  const all = q('SELECT status FROM instances WHERE store_id=? AND date=?', sid, t), b = bizDay(sid, L.addDays(t, -1));
+  return { id: sid, name: sname(sid), total: all.length, done: all.filter(x => x.status === 'done').length,
+    rect: q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status!='closed' AND deadline<?", sid, t).n, bad: b.bad,
+    tonight: nightCrew(sid, t).map(p => `${p.code} ${p.name}`), stale: q1("SELECT COUNT(*) n FROM carries WHERE store_id=? AND status IN ('open','ack') AND days>=3", sid).n };
+}
+app.get('/api/day/start', (req, res) => {
+  const u = req.u, s = myShift(u), t = L.today(), y = L.addDays(t, -1), sids = dayStores(u), boss = u.level === 'store_manager' || NEG1.includes(u.role_name);
+  autoClose(u); nudge();
+  const items = openItems(u, s ? s.date : t), st = stageOf(u.id);
+  const night = boss ? q(`SELECT g.*, u.name, r.name role FROM day_log g JOIN users u ON u.id=g.user_id JOIN roles r ON r.id=u.role_id WHERE g.store_id IN (${sids.map(Number).join(',') || 0}) AND g.date=? AND g.status!='open' AND g.code IN ('B','C')`, y).map(g => ({ name: g.name, role: g.role, store: sname(g.store_id), note: g.note, n: JSON.parse(g.items || '[]').length })) : [];
+  const ho = s && ['前台', '保安'].includes(D.shiftGroup(u.role_name)) ? q1("SELECT s.*, a.name by_name FROM shift_logs s JOIN users a ON a.id=s.by WHERE s.store_id=? AND s.status='open' AND s.by!=?", u.store_id, u.id) : null;
+  res.json({ shift: s, carried: items.filter(i => i.kind === 'carry'), tasks: items.filter(i => i.kind === 'task').slice(0, 8), ntask: items.filter(i => i.kind === 'task').length, night,
+    stores: boss ? sids.map(x => storeRisk(x, t)) : [], stage: st && st.l ? { l: st.l, day: st.day, days: st.days, focus: st.focus, budget: st.budget } : null,
+    handoff: ho && { ...ho, issues: JSON.parse(ho.issues || '[]') } });
+});
+app.post('/api/carry/:id', (req, res) => {
+  const c = q1('SELECT * FROM carries WHERE id=?', req.params.id), op = (req.body || {}).op;
+  if (!c || c.to_id !== req.u.id) return deny(res);
+  if (op === 'ack') run("UPDATE carries SET status='ack', ack_at=? WHERE id=?", L.nowStr(), c.id);
+  else if (op === 'done') run("UPDATE carries SET status='done', ack_at=COALESCE(ack_at, ?) WHERE id=?", L.nowStr(), c.id);
+  else return err(res, '操作无效');
+  if (c.from_id !== req.u.id) D.notify([c.from_id], 'shift', `${req.u.name} ${op === 'ack' ? '已接收' : '已完成'}：${c.text}`, '', '#/home');
+  res.json({ ok: true });
+});
+app.get('/api/day/sum', (req, res) => {
+  const u = req.u, s = myShift(u); if (!s || s.rest) return deny(res, '今天不需要做当日总结');
+  const t = s.date, sids = dayStores(u), H = {};
+  const hOf = sid => (H[sid] ||= handTo(u, sid, s));
+  const items = openItems(u, t).map(it => { const h = hOf(it.store_id || sids[0]), nt = /客诉|投诉|VIP|回访|入住|晚到|宾客|报修|设备|安全|消防|巡|夜/.test(it.text);
+    return { ...it, store: sname(it.store_id), sdest: h.list.length && (nt || s.next) ? h.mode : 'tomorrow', sto: suggestTo(it.text, h) }; });
+  const mine = q('SELECT status FROM instances WHERE assignee_id=? AND date=?', u.id, t);
+  const team = u.level === 'store_manager' ? q(`SELECT g.status, g.items, u.name, r.name role FROM day_log g JOIN users u ON u.id=g.user_id JOIN roles r ON r.id=u.role_id WHERE g.store_id IN (${sids.map(Number).join(',') || 0}) AND g.date=? AND r.name IN ('店助','前台经理','客房经理')`, t).map(g => ({ name: g.name, role: g.role, status: g.status, n: JSON.parse(g.items || '[]').length })) : [];
+  const st = stageOf(u.id), log = dayLogOf(u.id, t);
+  res.json({ shift: s, date: t, done: mine.filter(x => x.status === 'done').length, total: mine.length, items, mode: s.mgr || !s.next ? 'night' : 'next',
+    hands: Object.fromEntries(sids.map(x => [x, hOf(x).list])), snap: u.level === 'store_manager' ? sids.map(x => { const b = bizDay(x, t), r = storeRisk(x, t); return { ...r, occ: Math.round(b.occ * 100), revpar: Math.round(b.revpar) }; }) : [],
+    team, stage: st && st.l ? { l: st.l, day: st.day, days: st.days } : null, handoff: ['前台', '保安'].includes(D.shiftGroup(u.role_name)), submitted: log && log.status === 'done' });
+});
+app.post('/api/day/sum', (req, res) => {
+  const u = req.u, s = myShift(u), b = req.body || {}; if (!s || s.rest) return deny(res);
+  if (!s.punch.in) return err(res, '请先打上班卡');
+  const t = s.date, log = dayLogOf(u.id, t); if (log && log.status === 'done') return err(res, '今天的总结已经提交');
+  const sel = Object.fromEntries((b.items || []).map(x => [x.key, x])), sids = dayStores(u), out = [];
+  const items = openItems(u, t);
+  for (const it of items) {
+    const x = sel[it.key] || { dest: 'tomorrow' }, dest = DEST[x.dest] ? x.dest : 'tomorrow';
+    if (dest === 'tomorrow' && it.must && !String(x.reason || '').trim()) return err(res, `「${it.text}」是店长必做，转明天要写原因`);
+    if (['night', 'next', 'delegate'].includes(dest)) { const ok = handTo(u, it.store_id || sids[0], s).list.some(p => p.id === Number(x.to)); if (!ok) return err(res, `请给「${it.text}」选择接收人`); }
+  }
+  for (const it of items) {
+    const x = sel[it.key] || { dest: 'tomorrow' }, dest = DEST[x.dest] ? x.dest : 'tomorrow';
+    let to = Number(x.to) || null; if (dest === 'coach') to = regionCoaches(it.store_id || sids[0])[0]?.id || null;
+    if (dest === 'coach' && !to) return err(res, '没有找到所属教练');
+    const days = moveItem(u, it, dest, to, x.reason, t);
+    out.push({ text: it.text, store: sname(it.store_id), dest, to_name: to && to !== u.id ? q1('SELECT name FROM users WHERE id=?', to)?.name : '', reason: x.reason || '', days, must: it.must });
+  }
+  if (!s.punch.out) run('INSERT OR IGNORE INTO punches(user_id,date,kind,at) VALUES(?,?,?,?)', u.id, t, 'out', L.nowHM());
+  const mine = q('SELECT status FROM instances WHERE assignee_id=? AND date=?', u.id, t);
+  const snap = { done: mine.filter(x => x.status === 'done').length, total: mine.length, stores: u.level === 'store_manager' ? sids.map(x => { const bz = bizDay(x, t), r = storeRisk(x, t); return { name: r.name, occ: Math.round(bz.occ * 100), revpar: Math.round(bz.revpar), bad: r.bad, rect: r.rect, done: r.done, total: r.total }; }) : [] };
+  if (b.guest || b.equip || b.cash) snap.hand = { guest: b.guest || '', equip: b.equip || '', cash: b.cash || '' };
+  if (log) run("UPDATE day_log SET status='done', out_at=COALESCE(out_at, ?), items=?, note=?, focus=?, snap=? WHERE id=?", L.nowHM(), JSON.stringify(out), b.note || '', b.focus || '', JSON.stringify(snap), log.id);
+  else run("INSERT INTO day_log(user_id,date,store_id,code,end_hm,out_at,status,items,note,focus,snap,created_at) VALUES(?,?,?,?,?,?,'done',?,?,?,?,?)", u.id, t, sids[0] || null, s.code, s.end, L.nowHM(), JSON.stringify(out), b.note || '', b.focus || '', JSON.stringify(snap), L.nowStr());
+  if (['前台', '保安'].includes(D.shiftGroup(u.role_name)) && !q1("SELECT 1 FROM shift_logs WHERE store_id=? AND status='open'", u.store_id)) {
+    const issues = out.filter(o => ['next', 'night'].includes(o.dest)).map(o => ({ text: o.text, done: false, from: t }));
+    run("INSERT INTO shift_logs(store_id,date,shift,by,issues,guest,equip,cash,status,created_at) VALUES(?,?,?,?,?,?,?,?,'open',?)", u.store_id, t, isNightCode(s.code) ? '夜班' : '早班', u.id, JSON.stringify(issues), b.guest || '', b.equip || '', b.cash || '', L.nowStr());
+  }
+  const esc = out.filter(o => o.dest === 'coach').length, stale = out.filter(o => o.days >= 3).length, mustT = out.filter(o => o.must && o.dest === 'tomorrow').length;
+  if (u.level === 'store_manager' && (esc || stale || mustT)) D.notify(regionCoaches(sids[0]).map(x => x.id), 'shift', `${u.name} 当日总结有异常`, [esc && `上报 ${esc} 项`, stale && `拖延 ${stale} 项`, mustT && `必做转明天 ${mustT} 项`].filter(Boolean).join(' · '), '#/dayrep');
+  D.audit(u.id, sids[0], '当日总结', `未完成 ${out.length} 项`);
+  res.json({ ok: true, n: out.length });
+});
+app.get('/api/day/report', (req, res) => {
+  const u = req.u; if (!isRegion(u)) return deny(res);
+  const t = L.today(), d = req.query.date || t, rows = [];
+  nudge();
+  for (const sid of visibleStores(u)) {
+    const flags = [], sms = D.storeManagers(sid);
+    for (const m of sms) {
+      const g = q1('SELECT * FROM day_log WHERE user_id=? AND date=?', m, d), nm = q1('SELECT name FROM users WHERE id=?', m)?.name;
+      if (!g) { if (d < t) flags.push(['未打卡', nm]); continue; }
+      if (g.status === 'auto' || (g.status === 'open' && d < t)) flags.push(['未总结', nm]);
+    }
+    const esc = q("SELECT c.text, f.name FROM carries c JOIN users f ON f.id=c.from_id WHERE c.store_id=? AND c.dest='coach' AND c.status IN ('open','ack')", sid);
+    const stale = q1("SELECT COUNT(*) n FROM carries WHERE store_id=? AND status IN ('open','ack') AND days>=3", sid).n;
+    const unack = q("SELECT created_at FROM carries WHERE store_id=? AND status='open' AND dest IN ('night','next')", sid).filter(c => ageMin(c.created_at) >= 30).length;
+    esc.forEach(e => flags.push(['上报', `${e.name}：${e.text}`])); if (stale) flags.push(['拖延项', `${stale} 项连续结转 3 天以上`]); if (unack) flags.push(['未确认接收', `${unack} 项`]);
+    const logs = q(`SELECT g.id, g.status, u.name FROM day_log g JOIN users u ON u.id=g.user_id WHERE g.date=? AND g.user_id IN (${sms.map(Number).join(',') || 0})`, d);
+    if (flags.length) rows.push({ id: sid, name: sname(sid), flags, logs });
+  }
+  res.json({ date: d, total: visibleStores(u).length, rows });
+});
+app.get('/api/day/log/:id', (req, res) => {
+  const g = q1('SELECT g.*, u.name, c.name comment_name FROM day_log g JOIN users u ON u.id=g.user_id LEFT JOIN users c ON c.id=g.comment_by WHERE g.id=?', req.params.id);
+  if (!g || !(g.user_id === req.u.id || (isRegion(req.u) && visibleStores(req.u).includes(g.store_id)) || (req.u.level === 'store_manager' && visibleStores(req.u).includes(g.store_id)))) return deny(res);
+  res.json({ ...g, items: JSON.parse(g.items || '[]'), snap: JSON.parse(g.snap || '{}'), can_comment: isRegion(req.u) && g.user_id !== req.u.id });
+});
+app.post('/api/day/log/:id/comment', (req, res) => {
+  const g = q1('SELECT * FROM day_log WHERE id=?', req.params.id), txt = String((req.body || {}).text || '').trim();
+  if (!g || !isRegion(req.u) || !visibleStores(req.u).includes(g.store_id)) return deny(res); if (!txt) return err(res, '请填写点评');
+  run('UPDATE day_log SET comment=?, comment_by=? WHERE id=?', txt, req.u.id, g.id);
+  run('INSERT INTO coach_logs(sm_id,coach_id,date,topic,note,next) VALUES(?,?,?,?,?,?)', g.user_id, req.u.id, L.today(), '当日总结点评', txt, '');
+  D.notify([g.user_id], 'shift', `${req.u.name} 点评了你的当日总结`, txt, '#/home'); res.json({ ok: true });
+});
 
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));
