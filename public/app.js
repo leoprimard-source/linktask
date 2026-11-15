@@ -800,15 +800,15 @@ VIEWS.dash = async () => {
     <div class="dkv">${[['今日超时', s.overdue, s.overdue], ['迟交', p.late], ['抽查合格率', p.pass_rate == null ? '-' : p.pass_rate + '%'], ['整改未闭环', p.rect_open], ['整改逾期', p.rect_late, p.rect_late], ['重点跟踪', p.focus_total ? p.focus_done + '/' + p.focus_total : '-']]
       .map(([l, v, b]) => `<div class="${b ? 'bad' : ''}"><b>${v}</b><span>${l}</span></div>`).join('')}</div></a>`; }).join('')}</div>
   <div class="grid g2" style="margin-top:12px">
-    <div class="card"><h3>区域每日完成率</h3><div class="chart">${d.trend.map(t => `<div class="c"><span>${t.rate ?? '-'}</span><i style="height:${(t.rate || 0) * 0.8 / max * 100}%;${t.rate !== null && t.rate < 85 ? 'background:var(--warn)' : ''}"></i><span>${t.date.slice(5)}</span></div>`).join('')}</div></div>
+    <div class="card"><h3>区域每日完成率</h3><div class="chart">${d.trend.map(t => `<div class="c"><span>${t.rate ?? '-'}</span><i style="height:${(t.rate || 0) * 0.8 / max * 100}%;${t.rate !== null && t.rate < 85 ? 'background:var(--warn)' : ''}"></i><span>${d.trend.length > 7 ? t.date.slice(8) : t.date.slice(5)}</span></div>`).join('')}</div></div>
     <div class="card"><h3>各场景完成情况</h3>${d.scenes.filter(s => s.total).map(s => `<div class="row" style="margin:6px 0;flex-wrap:nowrap"><span class="lbl">${esc(s.name)}</span><div style="flex:1;min-width:0">${rateBar(s.rate)}</div><span class="small muted nw">不合格 ${s.bad || 0}</span></div>`).join('') || '<div class="empty">无数据</div>'}</div>
     <div class="card"><h3>执行之星（完成率前 5）</h3>${peopleRows(top)}</div>
     <div class="card"><h3>需要关注（完成率后 5）</h3>${peopleRows(bottom)}</div>
   </div>`;
 };
 function peopleRows(list) {
-  return list.length ? `<table>${list.map(p => `<tr><td>${esc(p.name)} <span class="muted small">${esc(p.role_name)}</span><div class="muted small">${esc(p.store_name)}</div></td><td style="width:45%">${rateBar(p.rate)}</td>
-    <td class="n small"><span style="color:var(--ok)">优 ${p.good || 0}</span> · <span style="color:var(--bad)">差 ${p.bad || 0}</span></td></tr>`).join('')}</table>` : '<div class="empty">无数据</div>';
+  return list.length ? list.map(p => `<div class="prw"><div class="b"><div class="nw">${esc(p.name)} <span class="muted small">${esc(p.role_name)}</span></div><div class="muted small nw">${esc(p.store_name)}</div></div>
+    <div class="r">${rateBar(p.rate)}<span class="small"><span style="color:var(--ok)">优 ${p.good || 0}</span> · <span style="color:var(--bad)">差 ${p.bad || 0}</span></span></div></div>`).join('') : '<div class="empty">无数据</div>';
 }
 
 // ---------- issues / patrol screening ----------
