@@ -2866,6 +2866,12 @@ app.get('/api/onduty', (req, res) => {
   const ord = g => { const i = SH_ORDER.indexOf(g); return i < 0 ? 99 : i; };
   res.json({ now: hm, on: on.length, total: us.length, groups: Object.entries(G).map(([g, xs]) => ({ g, xs })).sort((a, b) => ord(a.g) - ord(b.g)), next: { at: nx[0], text: nx[1] }, gaps });
 });
+app.get('/api/dayplan', (req, res) => {
+  const u = req.u, sid = Number(req.query.store) || u.store_id; if (!sid || !visibleStores(u).includes(sid)) return deny(res);
+  const m = D.shiftMap(sid, L.today()), us = q(USER_SQL + " WHERE u.store_id=? AND u.active=1 AND r.level='staff' ORDER BY u.id", sid), G = {};
+  for (const x of us) { const c = m.get(x.id); if (c && D.SHIFT_DEF[c] && D.SHIFT_DEF[c][1]) (G[c] ||= []).push(x.name); }
+  res.json({ shifts: Object.entries(G).map(([code, names]) => ({ code, names })) });
+});
 app.post('/api/punch', (req, res) => {
   const u = req.u, s = myShift(u), k = (req.body || {}).kind; if (!s) return deny(res, '只有门店员工需要打卡');
   if (s.rest) return err(res, '今天休息，不需要打卡');
