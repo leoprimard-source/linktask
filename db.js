@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS rectifications(id INTEGER PRIMARY KEY, instance_id IN
   task TEXT, deadline TEXT, status TEXT DEFAULT 'open', created_by INTEGER, created_at TEXT, submit_note TEXT, submit_photo TEXT, submitted_at TEXT,
   verify_comment TEXT, verified_by INTEGER, verified_at TEXT, escalated INTEGER DEFAULT 0, source TEXT DEFAULT 'check');
 CREATE INDEX IF NOT EXISTS idx_rect_store ON rectifications(store_id, status);
+CREATE INDEX IF NOT EXISTS idx_rect_inst ON rectifications(instance_id);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, user_id INTEGER, created_at TEXT, kind TEXT, title TEXT, body TEXT, link TEXT, read INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
 CREATE TABLE IF NOT EXISTS reminder_log(date TEXT, time TEXT, PRIMARY KEY(date, time));

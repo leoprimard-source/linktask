@@ -12,7 +12,7 @@ app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '
 app.use(express.static(path.join(__dirname, 'public')));
 
 const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
-const LEVEL_LABEL = { region_manager: '区域经理', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', coach: '教练', hq: '总部运营', store_manager: '店长', staff: '员工' };
+const LEVEL_LABEL = { region_manager: '城市总', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', coach: '教练', hq: '总部运营', store_manager: '店长', staff: '员工' };
 
 app.get('/api/users', (req, res) => {
   const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
@@ -20,7 +20,7 @@ app.get('/api/users', (req, res) => {
   const us = q('SELECT * FROM user_stores'), rg = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
   res.json(users.map(u => ({ id: u.id, name: u.name, role_name: u.role_name, level: u.level,
     stores: u.level === 'store_manager' ? us.filter(x => x.user_id === u.id).map(x => stores.find(s => s.id === x.store_id)?.name)
-      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : [rg[u.region_id] || ''], reserve: u.reserve || null })));
+      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : [rg[u.region_id] || ''], reserve: u.reserve || null, region: rg[u.region_id] || '' })));
 });
 
 const tooLong = v => typeof v === 'string' ? !v.startsWith('data:image/') && v.length > 5000 : v && typeof v === 'object' ? Object.values(v).some(tooLong) : false;
@@ -36,7 +36,7 @@ app.use('/api', (req, res, next) => {
 });
 
 const DA_CATS = [['biz', '经营数据', '营收、利润、预算与门店经营报表'], ['pay', '薪酬绩效', '他人的工资、绩效单、奖金与申诉'], ['hr', '人事档案', '他人的个人档案、执行分明细、晋升路径、门店人员名单'], ['hrm', '人事指标', '编制、满编率、离职率、招聘、离职成本'], ['care', '员工关怀与帮扶', '关怀记录、困难帮扶、福利台账、员工声音'], ['risk', '离职预警', '离职风险名单与原因'], ['diag', '店长诊断与上手', '店长能力诊断、90 天上手进度'], ['mentor', '带教统计', '他人的带教记录与统计'], ['pii', '联系方式', '他人的手机号等个人联系方式，未授权时打码显示']];
-const DA_ROLES = [['region_manager', '区域经理'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['reserve_rm', '储备区域经理'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
+const DA_ROLES = [['region_manager', '城市总'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['reserve_rm', '储备区域经理'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
 const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['pay', 'biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], reserve_rm: ['biz', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii', 'care'], lead: ['hr', 'mentor'], staff: [] };
 let DA_CACHE = null;
 const daAuth = () => DA_CACHE || (DA_CACHE = { ...DA_DEF, ...D.getSetting('data_auth', {}) });
@@ -2620,7 +2620,7 @@ app.post('/api/handoff/:uid', (req, res) => {
 });
 
 // ---------- 品牌标准 ----------
-const BRAND_DEF = { '全季 4.0': { rate: 85, must: ['布草', '客用品', '床品', '早餐原料'], ramp: 1, cert: '全季 4.0 品牌认证', open_days: 120 }, '全季 3.6': { rate: 80, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '全季 3.6 品牌认证', open_days: 120 } };
+const BRAND_DEF = { '汉庭': { rate: 80, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '汉庭品牌认证', open_days: 90 }, '汉庭优佳': { rate: 82, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '汉庭优佳品牌认证', open_days: 90 }, '全季': { rate: 85, must: ['布草', '客用品', '床品', '早餐原料'], ramp: 1, cert: '全季品牌认证', open_days: 120 }, '泊金·全季': { rate: 90, must: ['布草', '客用品', '床品', '早餐原料'], ramp: 1, cert: '泊金·全季品牌认证', open_days: 120 }, '桔子': { rate: 85, must: ['布草', '客用品', '床品', '早餐原料'], ramp: 1, cert: '桔子品牌认证', open_days: 120 }, '星程': { rate: 80, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '星程品牌认证', open_days: 90 }, '你好': { rate: 75, must: ['布草', '客用品'], ramp: 0.9, cert: '你好品牌认证', open_days: 60 }, '宜必思': { rate: 80, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '宜必思品牌认证', open_days: 90 }, '怡莱': { rate: 75, must: ['布草', '客用品'], ramp: 0.9, cert: '怡莱品牌认证', open_days: 60 }, '全季 4.0': { rate: 85, must: ['布草', '客用品', '床品', '早餐原料'], ramp: 1, cert: '全季 4.0 品牌认证', open_days: 120 }, '全季 3.6': { rate: 80, must: ['布草', '客用品', '床品'], ramp: 0.95, cert: '全季 3.6 品牌认证', open_days: 120 } };
 const brands = () => { const s = D.getSetting('brand_std', {}), out = {}; for (const b of [...new Set([...Object.keys(BRAND_DEF), ...q('SELECT DISTINCT brand FROM stores WHERE brand IS NOT NULL').map(x => x.brand), ...q('SELECT DISTINCT brand FROM projects WHERE brand IS NOT NULL').map(x => x.brand)])]) out[b] = { ...PROC_STD, ramp: 1, cert: b + ' 品牌认证', open_days: 120, ...BRAND_DEF[b], ...s[b] }; return out; };
 const brandOf = sid => q1('SELECT brand FROM stores WHERE id=?', sid)?.brand;
 app.get('/api/brands', (req, res) => {
@@ -3603,7 +3603,7 @@ function seedCare() {
   });
 }
 seedCare();
-for (const [n, lv] of [['省区总经理', 'hq'], ['储备区域经理', 'coach']]) if (!q1('SELECT 1 FROM roles WHERE name=?', n)) run('INSERT INTO roles(name,level,sort) VALUES(?,?,0)', n, lv);
+for (const [n, lv] of [['省区总经理', 'hq'], ['储备区域经理', 'coach']]) if (!q1('SELECT 1 FROM roles WHERE name=?', n) && !(n === '省区总经理' && q1("SELECT 1 FROM roles WHERE name='省区运营官'"))) run('INSERT INTO roles(name,level,sort) VALUES(?,?,0)', n, lv);
 if (!q1('SELECT 1 FROM provinces')) run("INSERT INTO provinces(id,name) VALUES(1,'华东省区')");
 run('UPDATE regions SET province_id=1 WHERE province_id IS NULL');
 
@@ -3723,6 +3723,7 @@ function stageGrad(uid, st, steps) {
   return { items: G.map(([l, ok, v]) => ({ l, ok, v })), all: G.every(g => g[1]), n: sids.length };
 }
 function stageSuggest(st, gr) {
+  if (gr.n > 3) return { to: null, text: `兼管 ${gr.n} 家店，超过 3 家上限，建议教练评估减少兼管` };
   if (['ext', 'int'].includes(st.k) && gr.all) return { to: gr.n > 1 ? 'multi' : 'single', text: '毕业条件已全部达成，建议升阶' };
   if (st.k === 'reserve' && gr.all) return { to: 'int', text: '可以安排接店，按内提新店长进入' };
   if (st.k === 'single' && gr.n > 1) return { to: 'multi', text: '已经兼管多家店，建议切换为多店店长' };

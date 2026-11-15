@@ -4,7 +4,7 @@ const api = async (uid, p, body) => { const r = await fetch(B + p, { method: bod
 let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + m + (c ? '' : ' ' + JSON.stringify(x).slice(0, 300))); };
 (async () => {
   const users = (await api('', '/users')).j, by = (f) => users.find(f);
-  const sm = by(u => u.name === '陈峰'), coach = by(u => u.level === 'coach');
+  const sm = (by(u => u.name === '陈峰') || by(u => u.level === 'store_manager' && u.stores.length > 1)), coach = by(u => u.level === 'coach');
   let r = await api(sm.id, '/me'); ok(r.j.shift && r.j.shift.mgr, '店长有班次卡片', r.j.shift);
   const sids = r.j.stores?.map?.(s => s.id) || [];
   r = await api(sm.id, '/day/sum'); ok(r.s === 200, '下班前可预览总结', r.j);
@@ -26,11 +26,11 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   if (night) {
     const st = (await api(toNight.id, '/day/start')).j, c = st.carried.find(x => x.text === night.text);
     ok(!!c, '夜班接收人在清单里看到转来的事项', st.carried);
-    r = await api(by(u => u.name === '王建国').id, '/carry/' + c.id, { op: 'ack' }); ok(r.s === 403, '别人不能代为确认', r.j);
+    r = await api(by(u => u.level === 'region_manager').id, '/carry/' + c.id, { op: 'ack' }); ok(r.s === 403, '别人不能代为确认', r.j);
     r = await api(toNight.id, '/carry/' + c.id, { op: 'ack' }); ok(r.j.ok, '接收人确认接收', r.j);
   }
   if (coach) { r = await api(coach.id, '/day/report'); ok(r.s === 200 && r.j.rows.some(x => x.flags.some(f => f[0] === '上报')), '教练日报列出上报门店', r.j.rows?.slice(0, 2));
-    const lg = r.j.rows.flatMap(x => x.logs).find(l => l.name === '陈峰');
+    const lg = r.j.rows.flatMap(x => x.logs).find(l => l.name === sm.name);
     if (lg) { r = await api(coach.id, '/day/log/' + lg.id + '/comment', { text: '晨会再提前 10 分钟' }); ok(r.j.ok, '教练点评当日总结', r.j); }
   }
   r = await api(sm.id, '/day/report'); ok(r.s === 403, '店长看不到区域日报', r.j);

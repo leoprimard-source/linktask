@@ -7,7 +7,7 @@ const P = process.env.PORT || 3131, U = 'http://localhost:' + P, O = process.env
   const open = async (uid, route) => { const ctx = await b.newContext({ viewport: { width: 390, height: 844 } }), p = await ctx.newPage(), errs = [];
     p.on('pageerror', e => errs.push('PE:' + e.message)); p.on('response', r => { if (r.url().includes('/api/') && r.status() >= 400) errs.push(r.status() + ':' + r.url().replace(/.*\/api/, '')); });
     await p.goto(U + '/'); await p.evaluate(u => { localStorage.lt_uid = u; }, String(uid)); await p.goto(U + '/#/' + route); await p.waitForLoadState('networkidle'); await p.waitForTimeout(1200); return { p, errs, ctx }; };
-  const sm = by(u => u.name === '陈峰');
+  const sm = (by(u => u.name === '陈峰') || by(u => u.level === 'store_manager' && u.stores.length > 1));
   let { p, errs, ctx } = await open(sm.id, 'home');
   await p.click('[data-punch="in"]'); await p.waitForTimeout(500); await p.screenshot({ path: O + '/d1_sign.png' });
   await p.click('.sheet [data-i="0"]'); await p.waitForTimeout(1500);

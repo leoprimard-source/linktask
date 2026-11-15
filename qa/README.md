@@ -34,3 +34,7 @@ SRC_DATA=/path/to/src bash qa/start.sh 3130 /tmp/lt-test 0 fresh   # 先复制�
 - `order.js`：检查店长首页、团队页的板块顺序。
 
 脚本里默认端口为 3120（300 店）或 3103/3130（12 店），可用 `P` 覆盖。
+
+## 宁镇省区（真实架构）
+- `ningzhen.js`：在一份全新的 12 店副本上导入真实省区架构（306 店、11 位城市总、260 位店长、省区职能岗），表里没有的人保持虚拟，名字后带 `\u2063虚` 标记，前端显示为小字「虚」。人员表先导出为 JSON：`{ fn: [[岗位, 姓名]], hotels: [[酒店, 城市总, 店长]] }`，用法 `DATA_DIR=dir NZ_JSON=nz.json DAYS=30 node qa/ningzhen.js`。真实人员表不进仓库。
+- `mask.js`：对外分享前把真名打码（严古梅 → 严*梅），用法 `DATA_DIR=dir node qa/mask.js`。
