@@ -30,18 +30,19 @@ app.use('/api', (req, res, next) => {
   const id = Number(req.get('x-user-id'));
   const u = id && q1(USER_SQL + ' WHERE u.id=? AND u.active=1', id);
   if (!u) return res.status(401).json({ error: '请选择身份' });
+  if (u.level === 'hq' && u.view_region) { u.home_region = u.region_id; u.region_id = u.view_region; }
   req.u = u;
   next();
 });
 
 const DA_CATS = [['biz', '经营数据', '营收、利润、预算与门店经营报表'], ['pay', '薪酬绩效', '他人的工资、绩效单、奖金与申诉'], ['hr', '人事档案', '他人的个人档案、执行分明细、晋升路径、门店人员名单'], ['hrm', '人事指标', '编制、满编率、离职率、招聘、离职成本'], ['care', '员工关怀与帮扶', '关怀记录、困难帮扶、福利台账、员工声音'], ['risk', '离职预警', '离职风险名单与原因'], ['diag', '店长诊断与上手', '店长能力诊断、90 天上手进度'], ['mentor', '带教统计', '他人的带教记录与统计'], ['pii', '联系方式', '他人的手机号等个人联系方式，未授权时打码显示']];
-const DA_ROLES = [['region_manager', '区域经理'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
-const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['pay', 'biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii', 'care'], lead: ['hr', 'mentor'], staff: [] };
+const DA_ROLES = [['region_manager', '区域经理'], ['ops_manager', '运营经理'], ['sales_manager', '营销经理'], ['hr_manager', '人事经理'], ['dev_manager', '开发经理'], ['build_manager', '项目经理'], ['train_manager', '培训经理'], ['coach', '教练'], ['reserve_rm', '储备区域经理'], ['hq', '总部运营'], ['store_manager', '店长'], ['assistant', '店助'], ['lead', '主管（前台经理、客房经理）'], ['staff', '员工']];
+const DA_DEF = { region_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], ops_manager: ['biz', 'hr', 'hrm', 'care', 'risk'], sales_manager: ['biz', 'hrm'], hr_manager: ['pay', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor', 'pii'], dev_manager: ['hrm'], build_manager: ['hrm'], train_manager: ['hr', 'diag', 'mentor'], coach: ['pay', 'biz', 'hr', 'hrm', 'care', 'risk', 'diag', 'mentor'], reserve_rm: ['biz', 'hrm', 'care', 'risk', 'diag', 'mentor'], hq: ['biz', 'hrm', 'care', 'diag'], store_manager: ['biz', 'pay', 'hr', 'hrm', 'care', 'risk', 'mentor', 'pii'], assistant: ['biz', 'hr', 'mentor', 'pii', 'care'], lead: ['hr', 'mentor'], staff: [] };
 let DA_CACHE = null;
 const daAuth = () => DA_CACHE || (DA_CACHE = { ...DA_DEF, ...D.getSetting('data_auth', {}) });
 { const s0 = D.getSetting('data_auth', null); if (s0 && s0.coach && !D.getSetting('da_mig_coach_pay', 0)) { if (!s0.coach.includes('pay')) s0.coach.push('pay'); D.setSetting('data_auth', s0); D.setSetting('da_mig_coach_pay', 1); } }
 { const s0 = D.getSetting('data_auth', null); if (s0 && s0.assistant && !D.getSetting('da_mig_assist_care', 0)) { if (!s0.assistant.includes('care')) s0.assistant.push('care'); D.setSetting('data_auth', s0); D.setSetting('da_mig_assist_care', 1); } }
-const daKey = u => u.level !== 'staff' ? u.level : u.role_name === '店助' ? 'assistant' : LEADS[u.role_name] ? 'lead' : 'staff';
+const daKey = u => u.reserve === 'rm' ? 'reserve_rm' : u.level !== 'staff' ? u.level : u.role_name === '店助' ? 'assistant' : LEADS[u.role_name] ? 'lead' : 'staff';
 const daCan = (u, k) => (daAuth()[daKey(u)] || []).includes(k);
 const DA_ROUTES = [[/^\/(region\/biz|store\/\d+\/biz)(\/|$)/, 'biz'], [/^\/pay\/(\d+)$/, 'pay', 1], [/^\/pay-board$/, 'pay'], [/^\/(hr\/people|region\/people|store\/\d+\/people)$/, 'hr'], [/^\/(hr\/person|person|exec|career)\/(\d+)$/, 'hr', 2],
   [/^\/hrm$/, 'hrm'], [/^\/care$/, 'care'], [/^\/(diag|onboard)\/(\d+)$/, 'diag', 2], [/^\/mentor-stats\/(\d+)$/, 'mentor', 1]];
@@ -135,7 +136,7 @@ app.post('/api/me/region', (req, res) => {
   const u = req.u, rid = Number((req.body || {}).region_id), r = q1('SELECT * FROM regions WHERE id=?', rid);
   if (u.level !== 'hq') return deny(res, '只有总部和省区可以切换区域');
   if (!r) return err(res, '区域不存在');
-  run('UPDATE users SET region_id=? WHERE id=?', rid, u.id); D.audit(u.id, null, '切换区域', r.name); res.json({ ok: true });
+  run('UPDATE users SET view_region=? WHERE id=?', rid === (u.home_region ?? u.region_id) ? null : rid, u.id); D.audit(u.id, null, '切换查看区域', r.name); res.json({ ok: true });
 });
 app.get('/api/me', (req, res) => {
   const u = req.u;
@@ -872,7 +873,7 @@ function hrSummary0(u) {
     trend: perf.map(x => x.score) };
 }
 const hrAlertCount = u => q(USER_SQL + " WHERE u.active=1 AND u.region_id=? AND r.level IN ('staff','store_manager')", u.region_id).reduce((a, x) => a + hrSummary(x).alerts.length, 0);
-const canHR = u => ['region_manager', 'hr_manager', 'coach'].includes(u.level);
+const canHR = u => ['region_manager', 'hr_manager', 'coach'].includes(u.level) && u.reserve !== 'rm';
 app.get('/api/hr/people', (req, res) => {
   if (!canHR(req.u)) return deny(res);
   const sids = visibleStores(req.u);
