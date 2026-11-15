@@ -205,9 +205,7 @@ async function route() {
 async function loadMeta() {
   S.meta = await api('/meta');
   S.meta.uid = S.me.id;
-  const all = await (await fetch('/api/users')).json();
-  S.meta.managerStores = {};
-  for (const u of all) if (u.level === 'store_manager') S.meta.managerStores[u.id] = S.meta.stores.filter(s => u.stores.includes(s.name)).map(s => s.id);
+  S.meta.managerStores = S.meta.ms || {};
   pickStore();
 }
 async function refresh() { S.me = await api('/me'); await route(); }
@@ -224,33 +222,39 @@ new MutationObserver(ms => { for (const m of ms) { if (m.type === 'characterData
 // ---------- login ----------
 async function renderLogin() {
   const list = await (await fetch('/api/users')).json();
-  const stores = [...new Set(list.filter(u => u.level === 'staff' && u.reserve !== 'sm_off').map(u => u.stores[0]))];
+  const by = (a, b) => ((a.u ? 2 : 0) + (a.su ? 1 : 0)) - ((b.u ? 2 : 0) + (b.su ? 1 : 0));
+  const staff = list.filter(u => u.level === 'staff' && u.reserve !== 'sm_off');
+  const sTested = {}; staff.forEach(u => { sTested[u.stores[0]] ||= !!u.su; });
+  const stores = Object.keys(sTested).sort((a, b) => sTested[a] - sTested[b]);
+  const sms = list.filter(u => u.level === 'store_manager').sort(by);
   const row = u => `<button class="urow" data-uid="${u.id}"><span class="av">${esc(u.name.slice(0, 1))}</span><span class="grow"><b>${esc(u.name)}</b><small>${esc(u.stores.join('、'))}</small></span><span class="tag">${esc(u.role_name)}${u.reserve === 'sm' ? ' · 储备店长' : ''}</span></button>`;
-  const lead = list.filter(u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'].includes(u.level) || u.reserve === 'sm_off');
+  const lead = list.filter(u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'].includes(u.level) || u.reserve === 'sm_off').sort(by);
   const regs = [...new Set(list.map(u => u.region).filter(Boolean))];
   const group = (t, us) => `<div class="sec-t">${esc(t)}</div><div class="panel">${us.map(row).join('')}</div>`;
+  const fresh = stores.length > 12 && sms.find(u => !u.u && !u.su);
+  const KEYR = ['店助', '前台经理', '客房经理', '前台高级', '客房高级', '餐厅厨师', '工程', '保安'];
+  const rec = fresh ? [fresh, ...KEYR.map(r => staff.find(u => u.role_name === r && fresh.stores.includes(u.stores[0]) && !u.u)).filter(Boolean)] : [];
+  const staffOf = s => staff.filter(u => u.stores[0] === s).sort(by);
   $('#app').innerHTML = `<div class="phone">
     <header class="appbar"><img class="logo" src="/icon.svg" alt=""><b>宏图计划</b></header>
     <main class="main">
       <div class="hero"><h1>选择身份进入</h1><p>门店运营任务分发与闭环管理 · 演示模式，进入后可随时在右上角「···」切换身份，查看不同角色的视角。</p></div>
       ${regs.length > 1 ? `<div class="lfind"><input id="lq" placeholder="搜索姓名、门店或岗位"><select id="lr"><option value="">全部区域</option>${regs.map(r => `<option>${esc(r)}</option>`).join('')}</select></div><div id="lres"></div>` : ''}
-      <div id="lall">${group('区域管理', lead)}${group('门店店长', list.filter(u => u.level === 'store_manager'))}
-      ${stores.length > 12 ? stores.map(s => `<details class="tgrp"><summary>${esc(s)} · 员工 <i>展开</i></summary><div class="panel">${list.filter(u => u.level === 'staff' && u.stores[0] === s).map(row).join('')}</div></details>`).join('') : stores.map(s => group(s + ' · 员工', list.filter(u => u.level === 'staff' && u.stores[0] === s))).join('')}</div>
+      <div id="lall">${rec.length ? group('推荐体验 · ' + fresh.stores.join('、'), rec) : ''}${group('区域管理', lead)}${group('门店店长', sms)}
+      ${stores.length > 12 ? stores.map(s => `<details class="tgrp" data-s="${esc(s)}"><summary>${esc(s)} · 员工 <i>展开</i></summary><div class="panel"></div></details>`).join('') : stores.map(s => group(s + ' · 员工', staffOf(s))).join('')}</div>
     </main>
     <div class="foot">宏图计划 · 演示数据 · <a href="${SESSION_URL}" target="_blank" rel="noopener">需要修改？提交需求</a></div></div>`;
-  const bind = () => document.querySelectorAll('[data-uid]').forEach(b => b.onclick = () => {
+  $('.phone').onclick = e => { const b = e.target.closest('[data-uid]'); if (!b) return;
     localStorage.lt_uid = b.dataset.uid; S.meta = null; localStorage.removeItem('lt_store');
-    location.hash = '#/home'; route();
-  });
-  bind();
+    location.hash = '#/home'; route(); };
+  $('#lall').addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.s != null && d.open && !d.dataset.r) { d.dataset.r = 1; d.querySelector('.panel').innerHTML = staffOf(d.dataset.s).map(row).join(''); } }, true);
   const find = () => {
     const k = $('#lq').value.trim(), rg = $('#lr').value;
     $('#lall').hidden = !!(k || rg);
     if (!k && !rg) { $('#lres').innerHTML = ''; return; }
-    const hit = list.filter(u => (!rg || u.region === rg) && (!k || (u.name.replace(VX, '') + u.role_name + u.stores.join('')).includes(k)));
+    const hit = list.filter(u => (!rg || u.region === rg) && (!k || (u.name.replace(VX, '') + u.role_name + u.stores.join('')).includes(k))).sort(by);
     const top = hit.filter(u => u.level !== 'staff'), st = hit.filter(u => u.level === 'staff');
     $('#lres').innerHTML = (top.length ? group('管理岗', top.slice(0, 80)) : '') + (st.length ? group(`员工 · ${st.length} 人`, st.slice(0, 80)) : '') + (!hit.length ? '<div class="empty">没有找到</div>' : hit.length > 160 ? '<div class="muted small" style="padding:8px">结果较多，只显示前面的，请输入更多关键词</div>' : '');
-    bind();
   };
   if ($('#lq')) { $('#lq').oninput = find; $('#lr').onchange = find; }
 }

@@ -10,18 +10,28 @@ const app = express();
 app.use(require('compression')());
 app.use(express.json({ limit: '8mb' }));
 app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '7d' }));
-app.use(express.static(path.join(__dirname, 'public')));
+const ASSET_V = (() => { const h = require('crypto').createHash('md5'); for (const f of ['app.js', 'help.js', 'style.css']) h.update(fs.readFileSync(path.join(__dirname, 'public', f))); return h.digest('hex').slice(0, 8); })();
+const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace(/(src|href)="\/(app\.js|help\.js|style\.css)"/g, `$1="/$2?v=${ASSET_V}"`);
+app.get(['/', '/index.html'], (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(INDEX));
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: res => { if (res.req.query.v) res.set('Cache-Control', 'public, max-age=31536000, immutable'); } }));
 
 const USER_SQL = `SELECT u.*, r.name AS role_name, r.level FROM users u JOIN roles r ON r.id=u.role_id`;
 const LEVEL_LABEL = { region_manager: '城市总', ops_manager: '运营经理', sales_manager: '营销经理', hr_manager: '人事经理', dev_manager: '开发经理', build_manager: '项目经理', train_manager: '培训经理', coach: '教练', hq: '总部运营', store_manager: '店长', staff: '员工' };
 
+let USED = D.getSetting('used_uids', {}), USERS_C = null;
+const markUsed = id => { const t = L.today(); if (USED[id] === t) return; USED[id] = t; D.setSetting('used_uids', USED); USERS_C = null; };
 app.get('/api/users', (req, res) => {
-  const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
-  const stores = q('SELECT * FROM stores');
-  const us = q('SELECT * FROM user_stores'), rg = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
-  res.json(users.map(u => ({ id: u.id, name: u.name, role_name: u.role_name, level: u.level,
-    stores: u.level === 'store_manager' ? us.filter(x => x.user_id === u.id).map(x => stores.find(s => s.id === x.store_id)?.name)
-      : u.store_id ? [stores.find(s => s.id === u.store_id)?.name] : [rg[u.region_id] || ''], reserve: u.reserve || null, region: rg[u.region_id] || '' })));
+  if (!USERS_C) {
+    const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
+    const sn = Object.fromEntries(q('SELECT id, name FROM stores').map(s => [s.id, s.name])), rg = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
+    const us = {}; for (const x of q('SELECT * FROM user_stores')) (us[x.user_id] ||= []).push(x.store_id);
+    const sidsOf = u => (u.level === 'store_manager' ? us[u.id] || [] : u.store_id ? [u.store_id] : []);
+    const tested = new Set(users.filter(u => USED[u.id]).flatMap(sidsOf));
+    USERS_C = JSON.stringify(users.map(u => { const ss = sidsOf(u);
+      return { id: u.id, name: u.name, role_name: u.role_name, level: u.level, stores: ss.length ? ss.map(id => sn[id]) : [rg[u.region_id] || ''], reserve: u.reserve || null, region: rg[u.region_id] || '',
+        ...(USED[u.id] ? { u: 1 } : {}), ...(ss.some(id => tested.has(id)) ? { su: 1 } : {}) }; }));
+  }
+  res.type('json').send(USERS_C);
 });
 
 const tooLong = v => typeof v === 'string' ? !v.startsWith('data:image/') && v.length > 5000 : v && typeof v === 'object' ? Object.values(v).some(tooLong) : false;
@@ -33,6 +43,7 @@ app.use('/api', (req, res, next) => {
   if (!u) return res.status(401).json({ error: '请选择身份' });
   if (u.level === 'hq' && u.view_region) { u.home_region = u.region_id; u.region_id = u.view_region; }
   req.u = u;
+  if (req.path === '/me') markUsed(u.id);
   next();
 });
 
@@ -79,10 +90,10 @@ function visibleStores(u) {
 const canManage = (u, sid) => (rmLike(u) || u.level === 'store_manager') && visibleStores(u).includes(Number(sid));
 const catFilter = u => (u.level === 'sales_manager' ? 'sales' : u.level === 'ops_manager' ? 'ops' : null);
 const inStore = (x, sid) => x.store_id === Number(sid) || D.storeManagers(Number(sid)).includes(x.id);
-const MEMO = new Map(); let memoAt = 0;
-const memoReset = () => { MEMO.clear(); memoAt = Date.now(); };
+const MEMO = new Map(); let memoAt = 0; const MEMO_TTL = 180000;
+const memoReset = () => { MEMO.clear(); memoAt = Date.now(); USERS_C = null; };
 const memo = (name, fn) => (...a) => {
-  if (Date.now() - memoAt > 30000) memoReset();
+  if (Date.now() - memoAt > MEMO_TTL) memoReset();
   const k = name + JSON.stringify(a);
   if (!MEMO.has(k)) MEMO.set(k, fn(...a));
   return structuredClone(MEMO.get(k));
@@ -170,6 +181,7 @@ app.get('/api/meta', (req, res) => {
     roles: q('SELECT * FROM roles ORDER BY sort, id'),
     stores: q(`SELECT * FROM stores WHERE id IN (${ph}) ORDER BY id`, ...sids),
     users: q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${ph}) OR u.id IN (SELECT user_id FROM user_stores WHERE store_id IN (${ph}))) ORDER BY r.sort, u.id`, ...sids, ...sids),
+    ms: q(`SELECT user_id, store_id FROM user_stores WHERE store_id IN (${ph}) ORDER BY store_id`, ...sids).reduce((a, x) => ((a[x.user_id] ||= []).push(x.store_id), a), {}),
     settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
   });
 });
@@ -826,13 +838,15 @@ const LADDER = { 前台高级: ['前台初级', '前台中级'], 前台中级: [
 const CERTS = { 餐厅厨师: ['健康证', '中式烹调师证'], 工程: ['电工证', '健康证'], 保安: ['消防设施操作员证', '保安员证'], 店长: ['健康证', '全季店长认证'], 店助: ['健康证', '消防安全管理人证'] };
 const EDU = ['高中', '中专', '大专', '大专', '本科', '本科'];
 const MGR = ['store_manager', 'ops_manager', 'hr_manager', 'sales_manager', 'region_manager'];
+let SN = null, snAt = 0;
+const storeNames = () => (SN && Date.now() - snAt < 60000 ? SN : (snAt = Date.now(), SN = q('SELECT name FROM stores').map(s => s.name)));
 function profileOf(u) {
   const h = k => hash(k + u.id), t = L.today();
   const senior = MGR.includes(u.level) || /经理|店助|高级/.test(u.role_name);
   const hire = !senior && u.id % 6 === 1 ? L.addDays(t, -Math.floor(62 + h('p') * 26)) : L.addDays(t, -Math.floor((senior ? 1100 : 220) + h('hire') * (senior ? 1600 : 1000)));
   const days = Math.round((Date.parse(t) - Date.parse(hire)) / 864e5);
   const steps = [...(LADDER[u.role_name] || []), u.role_name];
-  const stores = q('SELECT name FROM stores').map(s => s.name);
+  const stores = storeNames();
   const home = u.store_id ? q1('SELECT name FROM stores WHERE id=?', u.store_id).name : q('SELECT s.name FROM user_stores us JOIN stores s ON s.id=us.store_id WHERE us.user_id=?', u.id).map(s => s.name).join('、') || '华东一区';
   const history = steps.map((r, i) => ({ role: r, from: L.addDays(hire, Math.floor(days * i / steps.length * (0.85 + h('s' + i) * 0.3))), store: i === steps.length - 1 ? home : stores[Math.floor(h('st' + i) * stores.length)] }));
   history[0].from = hire;
@@ -855,7 +869,7 @@ function perfOf(u) {
   });
 }
 const hrSummary = u => {
-  if (Date.now() - memoAt > 30000) memoReset();
+  if (Date.now() - memoAt > MEMO_TTL) memoReset();
   const k = 'hs' + u.id;
   if (!MEMO.has(k)) MEMO.set(k, hrSummary0(u));
   return structuredClone(MEMO.get(k));
@@ -3292,7 +3306,8 @@ function hcPeople(sid) {
   return [...sm.map(x => ({ ...x, pos: '店长' })), ...us.map(x => ({ ...x, pos: posOf(x.role_name) }))];
 }
 function leaveCost(m, fillDays) { const b = BASE_PAY[m.role] || 4500; return Math.round(LEAVE_COST.recruit + LEAVE_COST.train + (fillDays || 21) * b / 30 * LEAVE_COST.vacancy + b * LEAVE_COST.ramp); }
-function hrStats(sid) {
+const hrStats = sid => memo('hrst', hrStats0)(sid);
+function hrStats0(sid) {
   const t = L.today(), y1 = L.addDays(t, -365), m1 = L.addDays(t, -30), std = hcStd(sid);
   const ov = Object.fromEntries(q('SELECT pos, n FROM hc_plan WHERE store_id=?', sid).map(x => [x.pos, x.n]));
   const people = hcPeople(sid), act = people.length;
@@ -3432,7 +3447,8 @@ const bdOf = id => ({ m: 1 + Math.floor(hx('bm' + id) * 12), d: 1 + Math.floor(h
 const CARE_LV = ['hr_manager', 'region_manager', 'coach', 'ops_manager', 'hq', 'store_manager'];
 const canCareDo = (u, sid) => visibleStores(u).includes(Number(sid)) && (['store_manager', 'region_manager', 'coach', 'hr_manager'].includes(u.level) || (u.role_name === '店助' && Number(u.store_id) === Number(sid)));
 const nextRole = r => Object.keys(LADDER).find(k => LADDER[k][LADDER[k].length - 1] === r) || (['店助', '前台经理', '客房经理'].includes(r) ? '店长' : null);
-function careOf(sid) {
+const careOf = sid => memo('care', careOf0)(sid);
+function careOf0(sid) {
   const t = L.today(), ym = t.slice(0, 7), qs0 = qStart(t), y0 = t.slice(0, 4) + '-01-01', c = careCfg(), wk = wkOf(t), d90 = L.addDays(t, -90);
   const staff = hcPeople(sid).filter(x => x.pos !== '店长'), n = Math.max(1, staff.length), ids = staff.map(x => x.id);
   const menu = q1('SELECT * FROM meal_menu WHERE store_id=? AND week=?', sid, wk), weeks = [0, 7, 14, 21].map(k => L.addDays(wk, -k)), pub = weeks.filter(w => q1('SELECT 1 x FROM meal_menu WHERE store_id=? AND week=?', sid, w)).length;
