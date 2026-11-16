@@ -403,7 +403,7 @@ VIEWS.appr = async () => {
 VIEWS.cal = async () => {
   const lv = S.me.level, P = qs(), day = /^\d{4}-\d{2}-\d{2}$/.test(P.get('d') || '') ? P.get('d') : S.me.today, mode = P.get('m') === 'w' ? 'w' : 'd';
   const mon = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)), week = [...Array(7)].map((_, i) => addDays(mon, i));
-  const rh = ['staff', 'store_manager'].includes(lv) ? (day === S.me.today ? myRhythm() : RHYTHM) : MGR_RHYTHM[lv] || [];
+  const rh = ['staff', 'store_manager'].includes(lv) ? (day === S.me.today ? myRhythm() : RHYTHM) : [];
   const [wc, tasks] = await Promise.all([lv !== 'staff' && lv !== 'store_manager' ? api('/wcal?from=' + mon).catch(() => null) : null, Promise.all((mode === 'w' ? week : [day]).map(d => api('/my/tasks?date=' + d).catch(() => [])))]);
   const ev = d => ((wc && wc.items) || []).filter(i => i.date === d), tk = d => tasks[mode === 'w' ? week.indexOf(d) : 0] || [];
   const base = m => `#/cal?m=${m}&d=`;
@@ -2885,7 +2885,7 @@ if (IN_FEISHU) document.body.classList.add('in-feishu');
 
 route();
 
-// ---------- 管理角色首页：我的工作 + 一天时间 ----------
+// ---------- 管理角色首页：我的工作 ----------
 const MGR_TILES = {
   region_manager: [['#/dash', '区域看板', '看'], ['#/value', '减负价值', '省'], ['#/dayrep', '门店日报', '报'], ['#/coach', '教练辅导', '教'], ['#/patrol', '巡店计划', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/pfind', '巡店筛选', '筛'], ['#/deleg', '店长授权', '授'], ['#/rect', '整改闭环', '改'], ['#/hrm', '人事指标', '人'], ['#/wcal', '工作日历', '历']],
   ops_manager: [['#/dash', '运营看板', '看'], ['#/pfind', '巡店筛选', '筛'], ['#/deleg', '店长授权', '授'], ['#/patrol', '巡店与复查', '巡'], ['#/focus', '重点跟踪', '跟'], ['#/rect', '整改闭环', '改'], ['#/complaints', '客诉闭环', '诉'], ['#/safety', '安全与应急', '安'], ['#/labor', '排班与人效', '排']],
@@ -2897,21 +2897,10 @@ const MGR_TILES = {
   dev_manager: [['#/home?pl=shop&lc=pipe', '管道与筹备', '管'], ['#/home?pl=shop&lc=run', '在营画像', '营'], ['#/home?pl=shop&lc=flow', '周转记录', '转'], ['#/work', '易开发', '易'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消']],
   build_manager: [['#/home?pl=shop&lc=pipe', '筹备项目', '筹'], ['#/home?pl=shop&lc=run', '在营画像', '营'], ['#/home?pl=shop&lc=flow', '周转记录', '转'], ['#/work', '易筹建', '易'], ['#/standards', '品牌标准库', '标'], ['#/notices', '消息提醒', '消']]
 };
-const MGR_RHYTHM_OPS = [['08:30', '看区域看板'], ['09:30', '异常处理'], ['10:30', '巡店辅导'], ['14:00', '复查整改'], ['17:00', '重点跟踪'], ['20:00', '日结复盘']];
-const MGR_RHYTHM = {
-  region_manager: MGR_RHYTHM_OPS, ops_manager: MGR_RHYTHM_OPS,
-  coach: [['08:30', '看辅导清单'], ['09:30', '例外事项'], ['10:30', '到店辅导'], ['14:00', '上手验收'], ['17:00', '记录辅导'], ['20:00', '日结复盘']],
-  sales_manager: [['09:00', '看销售看板'], ['10:00', '门店销售跟进'], ['14:00', '渠道与点评'], ['16:00', '客诉跟进'], ['18:00', '日结复盘']],
-  hr_manager: [['09:00', '人事预警'], ['10:00', '招聘面试'], ['14:00', '员工关怀'], ['16:00', '用工合规'], ['17:30', '日结复盘']],
-  hq: [['09:00', '区域排名'], ['10:30', '政策标准'], ['14:00', '跨区对比'], ['17:00', '日结复盘']],
-  train_manager: [['09:00', '达标提醒'], ['10:00', '开班授课'], ['14:00', '认证考核'], ['17:00', '培训复盘']],
-  dev_manager: [['09:00', '线索跟进'], ['10:30', '业主拜访'], ['14:00', '选址评估'], ['17:00', '管道复盘']],
-  build_manager: [['09:00', '节点检查'], ['10:30', '工地巡查'], ['14:00', '供应商协调'], ['17:00', '进度复盘']]
-};
 function mgrTop() {
   const lv = S.me.level, ts = MGR_TILES[lv]; if (!ts || $('#topw')) return;
   const items = ts.filter(([h]) => { const k = h.slice(2).split('?')[0]; return !NAV_DA[k] || da(NAV_DA[k]); });
-  const h = `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${items.map(([href, l, c], i) => `<a href="${href}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div><div class="sec-t2">一天时间</div>${rhythmBar(MGR_RHYTHM[lv] || MGR_RHYTHM_OPS)}</div>`;
+  const h = `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${items.map(([href, l, c], i) => `<a href="${href}"><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div></div>`;
   let a = $('#main .pltabs') || $('#main .storebar') || $('#main .pghd');
   if (a && a.classList.contains('pghd') && a.nextElementSibling?.matches('p.muted')) a = a.nextElementSibling;
   a ? a.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
