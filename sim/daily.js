@@ -61,7 +61,12 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     const m = sms(r.store_id)[0]; if (!m) continue; const pass = rnd() < 0.85;
     if (await call(m, `/rectifications/${r.id}/verify`, pass ? { pass: true, comment: '复查通过' } : { pass: false, comment: '仍不达标', deadline: addDays(today, 3) })) act.rver++;
   }
-  // 4. 城市总 / 教练：完成今天计划内的巡店
+  // 4. 教练：每天按「该先去哪家」排第一的门店安排一次巡店；城市总 / 教练完成今天计划内的巡店
+  for (const c of q("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level='coach'")) {
+    if (q1("SELECT 1 x FROM patrols WHERE created_by=? AND planned_date=?", c.id, today)) continue;
+    const go = (await call(c.id, '/cdesk', null, 'GET'))?.go?.[0];
+    if (go) await call(c.id, '/patrols', { store_id: go.sid, planned_date: today, reason: '模拟：教练按例外优先巡店' });
+  }
   const codes = q("SELECT code, title FROM templates WHERE src='audit' AND active=1").map(t => t.code);
   for (const p of q("SELECT id, store_id, created_by FROM patrols WHERE planned_date<=? AND status='planned'", today)) {
     const results = {}; for (const c of codes) if (rnd() < (1 - storeQ(p.store_id)) * 0.3) results[c] = { result: 'fail', comment: '模拟巡店：现场未达标' };
@@ -76,14 +81,14 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   const regions = q("SELECT g.name, COUNT(*) n, SUM(i.status='done') d FROM instances i JOIN stores s ON s.id=i.store_id JOIN regions g ON g.id=s.region_id WHERE i.date=? GROUP BY g.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*)", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1) }));
   const worst = q("SELECT s.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.escalated>=1) e FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.date=? GROUP BY s.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*) LIMIT 10", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1), escalated: r.e }));
   const ln = (() => { try { return q1("SELECT COUNT(*) n, COALESCE(SUM(deferred),0) df, COUNT(DISTINCT store_id) st FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=?", today); } catch { return { n: 0, df: 0, st: 0 }; } })();
-  const ld = (() => { try { return q1("SELECT ROUND(AVG(m)) avg, MAX(m) mx, SUM(m>60) over FROM (SELECT SUM(minutes) m FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? GROUP BY store_id)", today); } catch { return {}; } })();
+  const ld = (() => { try { return q1("SELECT ROUND(AVG(m)) avg, MAX(m) mx, SUM(m>60) ovr FROM (SELECT SUM(minutes) m FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? GROUP BY store_id)", today); } catch { return {}; } })();
   const rep = { date: today, lines: { ...ln, ...ld }, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
   const prevF = path.join(OUT, `sim-${addDays(today, -1)}.json`); if (fs.existsSync(prevF)) rep.prev = JSON.parse(fs.readFileSync(prevF)).today;
   fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, `sim-${today}.json`), JSON.stringify(rep, null, 1));
   const dv = (k, u = '') => rep.prev ? `（昨天 ${rep.prev[k]}${u}）` : '';
   const md = [`# 宏图每日模拟日报 ${today}（截至 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}）`, '', `- 今日任务 ${rep.today.tasks} 条，完成 ${rep.today.done} 条，完成率 ${rep.today.rate}%${dv('rate', '%')}`,
     `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}（其中升到教练 ${rep.today.esc2} 条${dv('esc2')}，进城市总例外清单门店 ${rep.today.esc3} 家）；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
-    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.over ?? 0} 家`,
+    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.ovr ?? 0} 家`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,
     `- 接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${rep.secs} 秒`].join('\n');
   fs.writeFileSync(path.join(OUT, `sim-${today}.md`), md); console.log(md); console.log(JSON.stringify(stat.err));
