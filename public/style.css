@@ -725,5 +725,13 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 #hx-ov{background:#fff;border-radius:18px;padding:12px 14px;margin:4px 0 12px}
 #hx-ov>#myshift{box-shadow:none;background:none;margin:0;padding:0 0 10px;border:0;border-bottom:1px solid #F2F3F5;border-radius:0}
 #hx-ov>.sf-sum{margin:0;padding:10px 0 0;border-radius:0}
-#hx-top .ck-i .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #hx-top .mtiles{grid-template-columns:repeat(4,1fr);padding:12px 8px}
+.storebar .storename{display:flex;flex-direction:column;align-items:flex-start;white-space:normal;overflow:visible;gap:1px}
+.storename .snm{font:600 17px/1.3 var(--font);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
+.storename .rl{font:400 12px/1.3 var(--font);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.storebar{gap:10px}
+
+.task .b .muted.small,.prow .b .muted.small{display:block;-webkit-line-clamp:unset;overflow:visible}
+.conv .last{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4}
+.estores a{width:92px}.estores a span:last-child{white-space:normal;word-break:break-all;line-height:1.3}
+.prw .nw{white-space:normal;overflow:visible}

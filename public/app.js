@@ -3433,3 +3433,13 @@ async function loadOnDuty() {
   const tabs = $('#main .pltabs'); tabs ? tabs.insertAdjacentHTML('afterend', h) : $('#main').insertAdjacentHTML('afterbegin', h);
 }
 { const h0 = VIEWS.home; VIEWS.home = async () => { if (S.me.reserve === 'sm_off') return VIEWS.rsv(); await h0(); fillRhl(sidQ() || S.store || S.me.store_id); if (qs().get('pl') === 'ren' || qs().get('tab') === 'ren') loadOnDuty(); }; }
+// 首页顶栏：店名/区域名完整显示（最多两行），下面一行显示本人姓名和角色
+function decorateBars() {
+  if (!S.me) return;
+  document.querySelectorAll('.storebar .storename:not([data-rl])').forEach(b => {
+    b.dataset.rl = 1; const nm = document.createElement('span'); nm.className = 'snm';
+    [...b.childNodes].forEach(n => nm.append(n)); b.append(nm);
+    b.insertAdjacentHTML('beforeend', `<small class="rl">${esc(S.me.name)} · ${esc(S.me.role_name || CENTER[S.me.level] || '')}</small>`);
+  });
+}
+{ let tm; new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(decorateBars, 30); }).observe(document.body, { childList: true, subtree: true }); }
