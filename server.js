@@ -3305,6 +3305,44 @@ app.get('/api/dispatch/stats', (req, res) => {
   const mine = q("SELECT title, COUNT(*) n, SUM(deferred) deferred, created_at FROM flex_tasks WHERE source='line' AND created_by=? GROUP BY title, created_at ORDER BY created_at DESC LIMIT 10", u.id);
   res.json({ cap, lines, top, over, stores: sids.length, mine, line });
 });
+function handpack(sid) {
+  const t = L.today(), sc = storeScore(sid), d30 = L.addDays(t, -30);
+  const rate = q1("SELECT COUNT(*) n, SUM(status='done') d FROM instances WHERE store_id=? AND date BETWEEN ? AND ?", sid, d30, L.addDays(t, -1));
+  const team = q(USER_SQL + ' WHERE u.active=1 AND u.store_id=? ORDER BY r.sort, u.id', sid).map(x => ({ id: x.id, name: x.name, role_name: x.role_name, tier: hrSummary(x).tier }));
+  return {
+    store: { id: sid, name: sname(sid), total: sc.total, grade: sc.grade, type: sc.type_tag, tactic: sc.tactic, weak: sc.weak, tags: tagsOf(sid), dims: STORE_DIMS_FN().map(([k, l]) => ({ l, v: sc.dims[k] })) },
+    rate30: rate.n ? Math.round((rate.d || 0) * 100 / rate.n) : null,
+    rects: q("SELECT r.id, COALESCE(i.title, r.task) title, r.deadline, r.status, u.name who FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id LEFT JOIN users u ON u.id=r.assignee_id WHERE r.store_id=? AND r.status!='closed' ORDER BY r.deadline", sid),
+    complaints: q("SELECT id, level, body, due_at, status FROM complaints WHERE store_id=? AND status NOT IN ('closed','handled','done','resolved') ORDER BY id DESC LIMIT 20", sid),
+    repairs: q("SELECT id, title, urgency, status FROM repairs WHERE store_id=? AND status IN ('open','accepted') ORDER BY id DESC LIMIT 20", sid),
+    plans: q("SELECT id, title, due, progress FROM store_plans WHERE store_id=? AND status='open'", sid),
+    lines: q("SELECT i.id, i.title, i.date, i.due_time FROM instances i WHERE i.store_id=? AND i.src='flex' AND i.status='pending' AND i.date>=? AND i.title LIKE '【%' ORDER BY i.date", sid, t),
+    delegs: q("SELECT d.title, d.scope, d.end, u.name who FROM delegations d LEFT JOIN users u ON u.id=d.to_id WHERE d.store_id=? AND d.active=1 AND COALESCE(d.end,'9999')>=?", sid, t),
+    rules: q("SELECT l.layer, l.off, l.due_time, l.reason, t.title FROM tpl_layers l JOIN templates t ON t.id=l.tpl_id JOIN stores s ON s.id=? WHERE (l.layer='store' AND l.scope_id=s.id) OR (l.layer='region' AND l.scope_id=s.region_id)", sid),
+    patrol: q1("SELECT score, summary, done_at FROM patrols WHERE store_id=? AND status='done' ORDER BY done_at DESC LIMIT 1", sid),
+    esc30: q1('SELECT SUM(level=2) e2, SUM(level=3) e3 FROM esc_events WHERE store_id=? AND date>=?', sid, d30),
+    team, tiers: team.reduce((a, x) => ({ ...a, [x.tier]: (a[x.tier] || 0) + 1 }), {}),
+    acks: q('SELECT a.*, u.name FROM handpack_ack a JOIN users u ON u.id=a.user_id WHERE a.store_id=? ORDER BY a.id DESC LIMIT 5', sid),
+    at: L.nowStr(), today: t,
+  };
+}
+const canPack = (u, sid) => u.level !== 'staff' && visibleStores(u).includes(Number(sid));
+app.get('/api/handpack/:sid', (req, res) => {
+  const sid = Number(req.params.sid); if (!canPack(req.u, sid)) return deny(res);
+  res.json({ ...handpack(sid), cands: q(USER_SQL + " WHERE u.active=1 AND r.level='store_manager' AND u.region_id=(SELECT region_id FROM stores WHERE id=?)", sid).map(x => ({ id: x.id, name: x.name, store: sname(x.store_id) })) });
+});
+app.post('/api/handpack/:sid/send', (req, res) => {
+  const sid = Number(req.params.sid), to = q1(USER_SQL + " WHERE u.id=? AND r.level='store_manager'", (req.body || {}).to); if (!canPack(req.u, sid) || !to) return deny(res);
+  D.notify([to.id], 'assign', `门店交接包：${sname(sid)}`, `${req.u.name} 发来门店交接包，请查看待办、风险和团队，确认接收`, '#/handpack?store=' + sid);
+  D.audit(req.u.id, sid, '发送门店交接包', `→ ${to.name}`); res.json({ ok: true });
+});
+app.post('/api/handpack/:sid/ack', (req, res) => {
+  const sid = Number(req.params.sid); if (!canPack(req.u, sid) || req.u.level !== 'store_manager') return deny(res, '只有接手店长可以确认');
+  run('INSERT INTO handpack_ack(store_id,user_id,note,at) VALUES(?,?,?,?)', sid, req.u.id, (req.body || {}).note || '', L.nowStr());
+  const st = q1('SELECT region_id FROM stores WHERE id=?', sid);
+  D.notify([...coachesOf(sid), ...D.regionUsers(st.region_id, 'region_manager')], 'assign', `${req.u.name} 已确认接收 ${sname(sid)}`, (req.body || {}).note || '交接包已确认', '#/handpack?store=' + sid);
+  D.audit(req.u.id, sid, '确认门店交接包', (req.body || {}).note || ''); res.json({ ok: true });
+});
 const KPI_ROLES = ['coach', 'region_manager', 'ops_manager', 'hr_manager', 'train_manager', 'sales_manager', 'dev_manager', 'build_manager', 'hq'];
 function kpiOf(u) {
   const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';

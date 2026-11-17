@@ -59,6 +59,7 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS handpack_ack(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, note TEXT, at TEXT)');
 db.exec('CREATE TABLE IF NOT EXISTS tpl_layers(tpl_id INTEGER, layer TEXT, scope_id INTEGER, off INTEGER, due_time TEXT, reason TEXT, by INTEGER, at TEXT, PRIMARY KEY(tpl_id, layer, scope_id))');
 db.exec('CREATE TABLE IF NOT EXISTS coach_stores(coach_id INTEGER, store_id INTEGER, by INTEGER, at TEXT, PRIMARY KEY(coach_id, store_id))');
 db.exec('CREATE TABLE IF NOT EXISTS esc_events(id INTEGER PRIMARY KEY, date TEXT, store_id INTEGER, inst_id INTEGER, level INTEGER, title TEXT, who TEXT, at TEXT)');
