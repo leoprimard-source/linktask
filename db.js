@@ -55,7 +55,7 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
   ['instances', 'reading TEXT'], ['instances', 'manual INTEGER DEFAULT 0'], ['instances', 'why TEXT'], ['flex_tasks', 'line TEXT'], ['templates', "layer TEXT DEFAULT 'hq'"], ['templates', 'scope_id INTEGER'], ['flex_tasks', 'minutes INTEGER'], ['flex_tasks', 'deferred INTEGER DEFAULT 0'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
   ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
-  ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT']]) {
+  ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT'], ['instances', 'photos TEXT'], ['instances', 'due_date TEXT'], ['delegations', 'notify_done INTEGER DEFAULT 0'], ['templates', 'win TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
@@ -218,7 +218,7 @@ const insInst = () => db.prepare(`INSERT OR IGNORE INTO instances(store_id,date,
   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 function ensureInstances(date, storeIds) {
   ensureInstances0(date, storeIds);
-  if (date < L.today()) run("UPDATE instances SET status='missed' WHERE status='pending' AND date=?", date);
+  if (date < L.today()) run("UPDATE instances SET status='missed' WHERE status='pending' AND date=? AND due_date IS NULL", date);
   else applyDeleg(date);
 }
 function applyDeleg(date) {
@@ -228,7 +228,7 @@ function applyDeleg(date) {
     const rv = `CASE WHEN ${d.review ? 1 : 0}=1 OR (src='tpl' AND (SELECT tag FROM templates WHERE id=src_id)='清零项') THEN 1 ELSE 0 END`;
     const w = d.scope === 'one' ? 'id=?' : d.scope === 'task' ? 'src=? AND src_id=?' : '1=1';
     const args = d.scope === 'one' ? [d.inst_id] : d.scope === 'task' ? [d.src, d.src_id] : [];
-    run(`UPDATE instances SET assignee_id=?, deleg_id=?, deleg_review=${rv} WHERE store_id=? AND date=? AND status='pending' AND deleg_id IS NULL AND assignee_id=? AND ${w}`, d.to_id, d.id, d.store_id, date, d.from_id, ...args);
+    run(`UPDATE instances SET assignee_id=?, deleg_id=?, deleg_review=${rv} WHERE store_id=? AND (date=? OR (due_date IS NOT NULL AND date<=? AND due_date>=?)) AND status='pending' AND deleg_id IS NULL AND assignee_id=? AND ${w}`, d.to_id, d.id, d.store_id, date, date, date, d.from_id, ...args);
   }
 }
 
@@ -292,7 +292,8 @@ function ensureInstances0(date, storeIds) {
         const exists = q1("SELECT 1 FROM instances WHERE src='tpl' AND src_id=? AND store_id=? AND date=?", t.id, sid, date);
         if (exists) continue;
         const base = shiftPick(sid, baseAssignee(sid, t), date, ef.due);
-        st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, ef.due, t.need_photo);
+        const ir = st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, ef.due, t.need_photo);
+        if (t.win === 'month' && ir.changes) run('UPDATE instances SET due_date=? WHERE id=?', L.addDays(L.addDays(date.slice(0, 8) + '01', 32).slice(0, 8) + '01', -1), ir.lastInsertRowid);
       }
     }
     for (const f of flex) {

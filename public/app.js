@@ -261,7 +261,7 @@ async function renderLogin() {
 
 // ---------- notices ----------
 const CONV = { task: ['任务助手', '#3370FF', '任'], patrol: ['巡店与跟踪', '#14A38B', '巡'], rect: ['整改', '#F29A2E', '改'], ops: ['门店运营', '#7C6CF2', '运'], hr: ['人事与关怀', '#E5534B', '人'], help: ['说明咨询', '#2BA6DE', '问'], praise: ['认可', '#D9A44E', '赞'], region: ['区域与项目', '#5B8C5A', '区'], sys: ['系统通知', '#8F959E', '系'] };
-const CONV_KIND = { assign: 'task', remind: 'task', escalate: 'task', cover: 'task', shift: 'task', patrol: 'patrol', focus: 'patrol', plan: 'patrol', rectify: 'rect', repair: 'ops', complaint: 'ops', safety: 'ops', proc: 'ops', pay: 'hr', care: 'hr', hr: 'hr', onboard: 'hr', coach: 'hr', praise: 'praise', owner: 'region', report: 'region', project: 'region' };
+const CONV_KIND = { assign: 'task', deleg_done: 'task', remind: 'task', escalate: 'task', cover: 'task', shift: 'task', patrol: 'patrol', focus: 'patrol', plan: 'patrol', rectify: 'rect', repair: 'ops', complaint: 'ops', safety: 'ops', proc: 'ops', pay: 'hr', care: 'hr', hr: 'hr', onboard: 'hr', coach: 'hr', praise: 'praise', owner: 'region', report: 'region', project: 'region' };
 const convOf = n => ((n.link || '').startsWith('#/help') ? 'help' : CONV_KIND[n.kind] || 'sys');
 const ntime = t => (t || '').slice(0, 10) === S.me.today ? (t || '').slice(11, 16) : (t || '').slice(5, 10);
 const pins = () => { try { return JSON.parse(localStorage.lt_pin || '[]'); } catch (e) { return []; } };
@@ -1341,7 +1341,7 @@ VIEWS.task = async id => {
   const t = await api('/instances/' + id);
   const can = t.status === 'pending' && t.date <= S.me.today && (t.assignee_id === S.me.id || TEAM(t));
   const apps = appsFor(t);
-  let photo = null;
+  let photo = null, photos = [];
   $('#main').innerHTML = `<div class="bluepage"><div class="bp-hd">${esc(t.scene_name || '任务')}</div><div class="bp-body">
     <div class="tk-card"><div class="gt">${esc(t.title)}</div>
       <div class="gtags">${originTag(t.origin)} ${stdTags(t)} ${statusTag(t)} ${checkTag(t)}</div>
@@ -1354,11 +1354,11 @@ VIEWS.task = async id => {
       <div id="ai-out"></div></div>
     <form id="f" class="tk-form">
       ${t.need_value ? '<label class="f"><span>计量读数（必填）</span><input name="reading" required placeholder="例如：巡检 15 个点位，异常 0 处"></label>' : ''}
-      <div class="f"><span>现场照片${t.need_photo ? '（必传）' : '（可选）'}</span><div class="ph-row"><div class="ph-prev" id="pv">${icon('cam')}</div>
-        <label class="btn sm">拍照 / 相册<input type="file" accept="image/*" capture="environment" id="pf" hidden></label></div></div>
+      <div class="f"><span>现场照片${t.need_photo ? '（必传' : '（可选'}，最多 10 张）</span><div class="ph-row" style="flex-wrap:wrap"><div class="ph-prev" id="pv">${icon('cam')}</div><span id="pvs" class="row" style="gap:4px;flex-wrap:wrap"></span>
+        <label class="btn sm">拍照 / 相册<input type="file" accept="image/*" multiple id="pf" hidden></label></div></div>
       <label class="f"><span>完成说明</span><textarea name="note" id="note" placeholder="例如：已按标准完成，无异常"></textarea></label>
       <button class="btn primary block">提交完成</button></form>`
-    : `<div class="tk-card">${t.status === 'done' ? `<div class="gl">完成时间：${esc(t.done_at)}</div>${t.reading ? `<div class="gl">计量读数：${esc(t.reading)}</div>` : ''}${t.done_note ? `<div class="gl">完成说明：${esc(t.done_note)}</div>` : ''}${t.photo ? `<img class="tk-img" src="${esc(t.photo)}" alt="">` : ''}
+    : `<div class="tk-card">${t.status === 'done' ? `<div class="gl">完成时间：${esc(t.done_at)}</div>${t.reading ? `<div class="gl">计量读数：${esc(t.reading)}</div>` : ''}${t.done_note ? `<div class="gl">完成说明：${esc(t.done_note)}</div>` : ''}${(t.photos ? JSON.parse(t.photos) : t.photo ? [t.photo] : []).map(x => `<img class="tk-img" src="${esc(x)}" alt="">`).join('')}
       ${t.check_result ? `<div class="note">${t.check_result === 'good' ? '店长肯定' : '不合格'}：${esc(t.check_comment || '')}（${esc(t.checker_name || '')}）</div>` : ''}` : `<div class="muted">${t.date > S.me.today ? '未到执行日期' : '该任务由 ' + esc(t.assignee_name || '-') + ' 负责'}</div>`}
       <div class="row" style="margin-top:10px"><span class="sp"></span>${TEAM(t) && t.assignee_id !== S.me.id && t.status === 'done' && !t.check_result ? `<button class="btn primary" id="chk">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn" id="det">完整记录</button></div></div>`}
   </div></div>`;
@@ -1366,8 +1366,10 @@ VIEWS.task = async id => {
   if ($('#chk')) $('#chk').onclick = () => checkModal(t);
   if (!can) return;
   const out = (html, cls = '') => { $('#ai-out').insertAdjacentHTML('beforeend', `<div class="ai-msg ${cls}">${html}</div>`); };
-  const setPhoto = (src, ai) => { photo = src; $('#pv').innerHTML = `<img src="${src}" alt="">${ai ? '<i>AI 演示</i>' : ''}`; };
-  $('#pf').onchange = async e => { if (e.target.files[0]) setPhoto(await compressImage(e.target.files[0])); };
+  const setPhoto = (src, ai) => { photo = src; if (!photos.length || ai) photos[0] = src; $('#pv').innerHTML = `<img src="${src}" alt="">${ai ? '<i>AI 演示</i>' : ''}`; };
+  const drawPh = () => { $('#pvs').innerHTML = photos.slice(1).map((x, i) => `<span class="ph-prev" style="width:48px;height:48px"><img src="${x}" alt="" data-rm="${i + 1}"></span>`).join(''); $('#pvs').querySelectorAll('[data-rm]').forEach(im => im.onclick = () => { photos.splice(Number(im.dataset.rm), 1); drawPh(); }); };
+  $('#pf').onchange = async e => { const fs = [...e.target.files]; if (photos.length + fs.length > 10) toast('照片最多 10 张', true);
+    for (const f of fs.slice(0, 10 - photos.length)) photos.push(await compressImage(f)); if (photos[0]) setPhoto(photos[0]); drawPh(); e.target.value = ''; };
   $('#ai-photo').onclick = () => { out('正在根据任务内容生成现场照片…', 'muted'); setTimeout(() => { setPhoto(aiPhoto(t), true); out(`已生成「${esc(t.title)}」的演示照片，图上标注「AI 生成」。<b>正式使用时应以现场实拍为准</b>，AI 只做构图辅助和质检。`); }, 700); };
   $('#ai-note').onclick = () => {
     const pts = stdPoints(t); const r = $('#f').reading ? $('#f').reading.value : '';
@@ -1383,7 +1385,7 @@ VIEWS.task = async id => {
   };
   $('#f').onsubmit = async e => {
     e.preventDefault(); const d = formData(e.target);
-    if (await act(() => api(`/instances/${t.id}/complete`, { note: d.note, reading: d.reading || '', photo }), '已完成')) history.length > 1 ? history.back() : (location.hash = '#/home');
+    if (await act(() => api(`/instances/${t.id}/complete`, { note: d.note, reading: d.reading || '', photo, photos }), '已完成')) history.length > 1 ? history.back() : (location.hash = '#/home');
   };
 };
 
@@ -1416,8 +1418,8 @@ VIEWS.me = async () => {
   const sid = pickStore(p.get('store'));
   const mode = p.get('mode') || 'month', cp = p.get('cp') || 'cur';
   const staff = S.me.level === 'staff';
-  const [d, rs] = await Promise.all([api(`/profile?store=${sid}&mode=${mode}${staff ? '&mine=1' : ''}`), api('/rectifications?mine=1')]);
-  const link = o => '#/me?' + new URLSearchParams({ store: sid, mode, cp, ...o });
+  const [d, rs] = await Promise.all([api(`/profile?store=${sid}&mode=${mode}${p.get('ym') ? '&ym=' + p.get('ym') : ''}${staff ? '&mine=1' : ''}`), api('/rectifications?mine=1')]);
+  const link = o => '#/me?' + new URLSearchParams({ store: sid, mode, cp, ym: p.get('ym') || '', ...o });
   const st = d.store, c = d.completion[cp];
   const ymd = s => (s ? `${s.slice(0, 4)}年${s.slice(5, 7)}月${s.slice(8, 10)}日` : '-');
   const open = rs.filter(r => r.status !== 'closed').length;
@@ -1425,7 +1427,7 @@ VIEWS.me = async () => {
   <div class="pf-store"><div class="row between"><button class="storename sm" id="sp">${esc(st.name)}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button><span class="mono muted">${esc(st.code)}</span></div>
     <div class="row" style="gap:6px;margin:4px 0 8px"><span class="tag acc">${esc(st.brand || '')}</span><span class="tag acc">${esc(st.stype || '')}</span></div>
     <div class="pf-kv"><span>首次开业 ${ymd(st.open_date)}</span><span>房量 ${st.rooms || '-'}</span><span>品牌审计 ${st.patrol_score != null ? `<a href="#/standards?store=${sid}">${st.patrol_score} 分</a>` : '未检查'}</span><span>品牌一致性 未检查</span></div></div>
-  <div class="pf-score"><div class="pf-st">${staff ? '个人综合分' : '宏图综合分'} <button class="q" id="q">?</button></div>
+  <div class="pf-score"><div class="pf-st row between"><span>${staff ? '个人综合分' : '宏图综合分'} <button class="q" id="q">?</button></span>${mode === 'month' ? `<select id="ymsel" class="sm">${d.months.map((m, i) => `<option value="${i ? m : 'cur'}" ${d.ym === m && (i || p.get('ym') === 'cur') ? 'selected' : ''}>${i ? Number(m.slice(5)) + '月' : '本月至今'}</option>`).join('')}</select>` : ''}</div>
     <div class="pf-big"><b>${d.score ?? '--'}</b><span>分</span><div>取数：${d.from.slice(5).replace('-', '.')}-${d.to.slice(5).replace('-', '.')}<br>由健康度 ${d.health ?? '-'}、任务完成率 ${d.completion_rate ?? '-'}% 综合得出</div></div>
     <div class="pf-in"><div class="row between"><h3>${staff ? '我的工作健康度' : '门店健康度'} ${d.health ?? '-'}</h3><div class="seg"><a href="${link({ mode: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a><a href="${link({ mode: 'month' })}" class="${mode === 'month' ? 'on' : ''}">月</a></div></div>
       <div class="hl3">${[['ok', '达标'], ['warn', '预警'], ['bad', '异常']].map(([k, l]) => `<button data-hs="${k}"><span><i class="hd ${k}"></i>${l}</span><b>${d.counts[k]}</b></button>`).join('')}</div>
@@ -1437,6 +1439,7 @@ VIEWS.me = async () => {
   <div class="panel menu">${[...(staff || S.me.level === 'store_manager' ? [['#/my', '我的任务']] : []), ['#/' + rectRoute(), `我的整改${open ? ` <span class="tag warn">${open}</span>` : ''}`], ['#/standards', '品牌标准库'], ['#/feed', '门店群拍墙'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
     <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
   if (S.meta.stores.length > 1) $('#sp').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name) + (s.id === sid ? ' ✓' : ''), () => { location.hash = link({ store: s.id }); }]), '切换门店');
+  if ($('#ymsel')) $('#ymsel').onchange = e => { location.hash = link({ ym: e.target.value }); };
   $('#q').onclick = () => modal('综合分怎么算', `<p>综合分 = 健康度 × 60% + 任务完成率 × 40%。</p><p>健康度：${d.indicators.length} 项指标中，达标计 100 分，预警计 60 分，异常计 0 分，取平均。指标包括任务执行、抽查质量、品牌标准（清零项、M2 复查、F4 群拍等）、场景完成率${staff ? '' : '和经营数据'}。</p><p class="muted small">经营数据为模拟数据。</p>`);
   const hd = only => modal(staff ? '我的工作健康度' : '门店健康度详情', ['bad', 'warn', 'ok'].filter(k => !only || k === only).map(k => {
     const xs = d.indicators.filter(i => i.status === k); if (!xs.length) return '';
@@ -3104,11 +3107,11 @@ async function delegModal(t) {
     <label class="f"><span>接手人</span><select name="to_id">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select></label>
     <label class="f"><span>范围</span><select name="scope"><option value="one">仅本次（${t.date}）</option><option value="task">这项任务长期授权</option></select></label>
     <label class="f" id="dend" style="display:none"><span>授权到</span><input type="date" name="end" value="${addDays(S.me.today, 6)}" min="${S.me.today}" max="${addDays(S.me.today, 90)}"></label>
-    <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核（清零项必须复核）</label>
+    <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核（清零项必须复核）</label><label class="row small"><input type="checkbox" name="notify_done" checked> 任务完成实时反馈（员工完成后通知我）</label>
     <div class="row"><span class="sp"></span><button class="btn primary">确认授权</button></div></form>`, m => {
     const sc = m.querySelector('[name=scope]'); sc.onchange = () => { m.querySelector('#dend').style.display = sc.value === 'task' ? '' : 'none'; };
     m.querySelector('#f').onsubmit = async e => { e.preventDefault(); const f = e.target;
-      const body = { scope: sc.value, to_id: Number(f.to_id.value), review: f.review.checked, store_id: t.store_id, inst_id: t.id, src: t.src, src_id: t.src_id, start: S.me.today, end: f.end.value };
+      const body = { scope: sc.value, to_id: Number(f.to_id.value), review: f.review.checked, notify_done: f.notify_done.checked, store_id: t.store_id, inst_id: t.id, src: t.src, src_id: t.src_id, start: S.me.today, end: f.end.value };
       if (sc.value === 'one') { delete body.start; delete body.end; }
       const r = await act(() => api('/deleg', body), '已授权'); if (r) { closeModal(); route(); } };
   });
@@ -3116,7 +3119,7 @@ async function delegModal(t) {
 VIEWS.deleg = async () => {
   const d = await api('/deleg' + (S.store ? '?store=' + S.store : ''));
   const scopeL = x => x.scope === 'one' ? '单次' : x.scope === 'task' ? '按任务' : x.scope === 'appr' ? '审批' : '整体';
-  const row = (x, own) => `<div class="task"><div class="b"><div class="ttl">${esc(x.title)} → ${esc(x.to_name)} <span class="tag">${scopeL(x)}</span>${x.active ? (x.end < S.me.today ? '<span class="tag">已到期</span>' : '<span class="tag ok">生效中</span>') : '<span class="tag">已撤销</span>'}${x.review ? '<span class="tag warn">需复核</span>' : ''}</div>
+  const row = (x, own) => `<div class="task"><div class="b"><div class="ttl">${esc(x.title)} → ${esc(x.to_name)} <span class="tag">${scopeL(x)}</span>${x.active ? (x.end < S.me.today ? '<span class="tag">已到期</span>' : '<span class="tag ok">生效中</span>') : '<span class="tag">已撤销</span>'}${x.notify_done ? '<span class="tag acc">完成提醒</span>' : ''}${x.review ? '<span class="tag warn">需复核</span>' : ''}</div>
     <div class="muted small">${x.start}${x.end !== x.start ? ' ~ ' + x.end : ''} · ${esc(x.created_at)}</div></div>${own && x.active && x.end >= S.me.today ? `<button class="btn sm" data-rv="${x.id}">收回</button>` : ''}</div>`;
   if (d.mode === 'sm') {
     const s = d.stats;
@@ -3128,18 +3131,18 @@ VIEWS.deleg = async () => {
     <div class="sec-t2">整体授权（出差、休假期间）</div>
     <form id="fa" class="card"><div class="row" style="flex-wrap:wrap;gap:6px"><select name="to_id">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select>
       <input type="date" name="start" value="${S.me.today}" min="${S.me.today}"><span>至</span><input type="date" name="end" value="${addDays(S.me.today, 2)}" min="${S.me.today}" max="${addDays(S.me.today, 30)}"></div>
-      <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核</label><button class="btn primary sm">授权全部亲做任务</button></form>
+      <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核</label><label class="row small"><input type="checkbox" name="notify_done" checked> 任务完成实时反馈（员工完成后通知我）</label><button class="btn primary sm">授权全部亲做任务</button></form>
     <div class="sec-t2">按任务长期授权</div>
-    <form id="ft" class="card"><div class="row" style="flex-wrap:wrap;gap:6px"><select name="task">${d.tasks.map(x => `<option value="${x.src}:${x.src_id}">${esc(x.title)}</option>`).join('')}</select>
+    <form id="ft" class="card"><div class="row" style="flex-wrap:wrap;gap:6px"><select name="task">${[['daily', '日任务'], ['weekly', '周任务'], ['monthly', '月任务']].map(([k, l]) => { const xs = d.tasks.filter(x => (x.freq || 'daily') === k); return xs.length ? `<optgroup label="${l}">${xs.map(x => `<option value="${x.src}:${x.src_id}">${esc(x.title)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>
       <select name="to_id">${d.cands.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.role_name)}</option>`).join('')}</select>
       <span>到</span><input type="date" name="end" value="${addDays(S.me.today, 6)}" min="${S.me.today}" max="${addDays(S.me.today, 90)}"></div>
-      <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核</label><button class="btn primary sm">授权这项任务</button></form>
+      <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核</label><label class="row small"><input type="checkbox" name="notify_done" checked> 任务完成实时反馈（员工完成后通知我）</label><button class="btn primary sm">授权这项任务</button></form>
     <p class="muted small">单次授权：在任务详情里点「授权下转」。</p>
     <div class="sec-t2">我的授权 ${d.mine.length}</div><div class="list">${d.mine.map(x => row(x, true)).join('') || '<div class="empty">还没有授权</div>'}</div>`;
     const go = body => act(() => api('/deleg', { ...body, store_id: d.store_id }), '已授权').then(r => r && route());
     if ($('#fp')) $('#fp').onsubmit = e => { e.preventDefault(); const f = e.target; go({ scope: 'appr', to_id: Number(f.to_id.value), start: S.me.today, end: f.end.value }); };
-    $('#fa').onsubmit = e => { e.preventDefault(); const f = e.target; go({ scope: 'all', to_id: Number(f.to_id.value), start: f.start.value, end: f.end.value, review: f.review.checked }); };
-    $('#ft').onsubmit = e => { e.preventDefault(); const f = e.target, [src, sid] = f.task.value.split(':'); go({ scope: 'task', src, src_id: Number(sid), to_id: Number(f.to_id.value), start: S.me.today, end: f.end.value, review: f.review.checked }); };
+    $('#fa').onsubmit = e => { e.preventDefault(); const f = e.target; go({ scope: 'all', to_id: Number(f.to_id.value), start: f.start.value, end: f.end.value, review: f.review.checked, notify_done: f.notify_done.checked }); };
+    $('#ft').onsubmit = e => { e.preventDefault(); const f = e.target, [src, sid] = f.task.value.split(':'); go({ scope: 'task', src, src_id: Number(sid), to_id: Number(f.to_id.value), start: S.me.today, end: f.end.value, review: f.review.checked, notify_done: f.notify_done.checked }); };
     document.querySelectorAll('[data-rv]').forEach(b => b.onclick = () => confirm('收回该授权？未完成的任务回到你名下') && act(async () => { await api(`/deleg/${b.dataset.rv}/revoke`, {}); route(); }, '已收回'));
     return;
   }

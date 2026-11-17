@@ -146,7 +146,7 @@ function pillarOf(r) {
 }
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
-  return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.date < t || (r.date === t && r.due_time < hm)),
+  return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.due_date ? r.due_date < t : (r.date < t || (r.date === t && r.due_time < hm))),
     covered: !r.deleg_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
 }
 
@@ -224,15 +224,21 @@ app.post('/api/instances/:id/complete', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it) return err(res, '任务不存在');
   if (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id)) return deny(res, '只能完成分配给自己的任务');
-  if (it.status === 'missed' || (it.status === 'pending' && it.date < L.today())) return err(res, '该任务已逾期未完成，不能补做');
+  if (it.status === 'missed' || (it.status === 'pending' && (it.due_date || it.date) < L.today())) return err(res, '该任务已逾期未完成，不能补做');
   if (it.status === 'done') return err(res, '任务已完成');
-  const photo = savePhoto(req.body.photo) || it.photo;
+  const raw = Array.isArray(req.body.photos) ? req.body.photos : [];
+  if (raw.length > 10) return err(res, '照片最多 10 张');
+  const photos = raw.map(savePhoto).filter(Boolean);
+  const photo = photos[0] || savePhoto(req.body.photo) || it.photo;
   if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
   const tpl = it.src === 'tpl' ? q1('SELECT need_value FROM templates WHERE id=?', it.src_id) : null;
   const reading = (req.body.reading || '').trim();
   if (tpl && tpl.need_value && !reading) return err(res, '该任务需要填写计量读数');
-  run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=?, reading=? WHERE id=?", L.nowStr(), req.body.note || '', photo, reading || null, it.id);
+  const at = L.nowStr();
+  run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=?, photos=?, reading=? WHERE id=?", at, req.body.note || '', photo, photos.length > 1 ? JSON.stringify(photos) : null, reading || null, it.id);
   D.audit(req.u.id, it.store_id, '完成任务', it.title);
+  const dg = it.deleg_id && q1('SELECT from_id, notify_done FROM delegations WHERE id=?', it.deleg_id);
+  if (dg?.notify_done) D.notify([dg.from_id], 'deleg_done', '【任务完成提醒】', `您授权给员工「${req.u.name}」的任务「${it.title}」已完成。完成时间：${Number(at.slice(5, 7))}月${Number(at.slice(8, 10))}日 ${at.slice(11, 16)}。点击查看任务完成详情`, '#/task/' + it.id);
   res.json({ ok: true });
 });
 app.post('/api/instances/:id/undo', (req, res) => {
@@ -575,9 +581,9 @@ app.get('/api/calendar', (req, res) => {
 app.get('/api/profile', (req, res) => {
   const sc = homeScope(req, res); if (!sc) return;
   const u = req.u, t = L.today(), y = L.addDays(t, -1);
-  const week = req.query.mode === 'week';
-  const ms = (t.endsWith('-01') ? y : t).slice(0, 8) + '01';
-  const from = week ? L.addDays(t, -7) : ms, to = y;
+  const week = req.query.mode === 'week', ym = /^\d{4}-\d{2}$/.test(req.query.ym || '') ? req.query.ym : req.query.ym === 'cur' ? null : L.addDays(t.slice(0, 8) + '01', -1).slice(0, 7);
+  const ms = ym ? ym + '-01' : (t.endsWith('-01') ? y : t).slice(0, 8) + '01';
+  const from = week ? L.addDays(t, -7) : ms, to = ym && monthEnd(ms) < y ? monthEnd(ms) : y;
   const store = q1('SELECT * FROM stores WHERE id=?', sc.sid);
   const patrol = q1("SELECT score, done_at FROM patrols WHERE store_id=? AND status='done' AND COALESCE(kind,'patrol')='patrol' ORDER BY done_at DESC LIMIT 1", sc.sid);
   const rows = decorate(q(INST_SQL + ` WHERE i.date BETWEEN ? AND ?${sc.w}`, from, to, ...sc.p));
@@ -641,7 +647,7 @@ app.get('/api/profile', (req, res) => {
   const score = health == null || cr == null ? null : Math.round(health * 0.6 + cr * 0.4);
   const since = L.addDays('2021-03-01', Math.floor(hash('since' + u.id) * 1200));
   res.json({ user: { name: u.name, role: u.role_name, level: u.level, since }, store: { ...store, patrol_score: patrol?.score ?? null, patrol_at: patrol?.done_at || null },
-    from, to, mode: week ? 'week' : 'month', health, completion_rate: cr, score, counts: { ok: cnt('ok'), warn: cnt('warn'), bad: cnt('bad') }, indicators: ind, completion });
+    from, to, ym: week ? null : ms.slice(0, 7), months: monthsBack(7).map(m => m.slice(0, 7)).reverse(), mode: week ? 'week' : 'month', health, completion_rate: cr, score, counts: { ok: cnt('ok'), warn: cnt('warn'), bad: cnt('bad') }, indicators: ind, completion });
 });
 
 function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; }
@@ -1569,7 +1575,7 @@ app.get('/api/deleg', (req, res) => {
   if (u.level === 'store_manager') {
     const sid = visibleStores(u).includes(Number(req.query.store)) ? Number(req.query.store) : visibleStores(u)[0];
     const mine = q("SELECT d.*, u.name to_name FROM delegations d JOIN users u ON u.id=d.to_id WHERE d.from_id=? AND d.store_id=? ORDER BY d.active DESC, d.id DESC LIMIT 40", u.id, sid);
-    const tasks = q("SELECT src, src_id, title, MIN(due_time) due_time FROM instances WHERE store_id=? AND orig_assignee_id=? AND date>=? GROUP BY src, src_id ORDER BY due_time", sid, u.id, L.addDays(t, -7));
+    const tasks = q("SELECT i.src, i.src_id, i.title, MIN(i.due_time) due_time, COALESCE(tp.freq, 'daily') freq FROM instances i LEFT JOIN templates tp ON i.src='tpl' AND tp.id=i.src_id WHERE i.store_id=? AND i.orig_assignee_id=? AND i.date>=? GROUP BY i.src, i.src_id ORDER BY due_time", sid, u.id, [L.addDays(t, -7), t.slice(0, 8) + '01'].sort()[0]);
     const stg = stageOf(u.id);
     return res.json({ mode: 'sm', stage: stg && { k: stg.k, l: stg.l, perm: stg.perm }, appr: stg?.k === 'multi' ? neg1(sid) : null, store_id: sid, mine, tasks, cands: delegCands(sid), stats: delegStats(sid).find(x => x.sm_id === u.id) || null });
   }
@@ -1606,8 +1612,8 @@ app.post('/api/deleg', (req, res) => {
   if (stg?.must && scope !== 'all' && isMust(title) && to.reserve !== 'sm') return err(res, '单店店长的必做项（' + MUST_KW.join('、') + '）只能授权给店内储备店长');
   if (stg?.cap && scope === 'task') { const s0 = delegStats(sid).find(x => x.sm_id === u.id); if (s0 && s0.ratio >= stg.cap) return err(res, `${stg.l}转出比例上限 ${stg.cap}%，当前 ${s0.ratio}%`); }
   if (scope === 'one' && q1('SELECT 1 FROM leaves WHERE user_id=? AND date=?', to.id, start)) return err(res, `${to.name} 当天休息，请换人`);
-  const id = Number(run('INSERT INTO delegations(store_id,from_id,to_id,scope,inst_id,src,src_id,title,start,end,review,active,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)',
-    sid, u.id, to.id, scope, inst?.id || null, src, src_id, title, start, end, b.review === false || b.review === 0 ? 0 : 1, L.nowStr()).lastInsertRowid);
+  const id = Number(run('INSERT INTO delegations(store_id,from_id,to_id,scope,inst_id,src,src_id,title,start,end,review,active,created_at,notify_done) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)',
+    sid, u.id, to.id, scope, inst?.id || null, src, src_id, title, start, end, b.review === false || b.review === 0 ? 0 : 1, L.nowStr(), b.notify_done ? 1 : 0).lastInsertRowid);
   for (let d = start; d <= end && d <= L.addDays(t, 30); d = L.addDays(d, 1)) { D.ensureInstances(d, [sid]); D.applyDeleg(d); }
   const n = q1('SELECT COUNT(*) n FROM instances WHERE deleg_id=?', id).n;
   D.notify([to.id], 'assign', '店长授权任务', `${u.name} 将「${title}」授权给你（${start}${end !== start ? ' 至 ' + end : ''}）`, '#/my');
@@ -1926,6 +1932,24 @@ function seedRepairs() {
   }
 }
 seedRepairs();
+function seedElevator() {
+  if (q1("SELECT 1 x FROM templates WHERE title LIKE '每月电梯维保%'")) return;
+  const fire = q1("SELECT * FROM templates WHERE title LIKE '%消防%' AND active=1 AND need_photo=1 ORDER BY freq='monthly' DESC, id LIMIT 1"), sm = q1("SELECT id FROM roles WHERE name='店长'"), sc = q1("SELECT id FROM scenes WHERE name='后场'");
+  for (const n of [1, 2]) run(`INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,freq_val,category,need_photo,active,src,tag,layer,pillar,win) VALUES(?,?,?,?,?,'monthly',1,'ops',1,1,'std',?,'hq',?,'month')`,
+    sc?.id || fire?.scene_id, sm?.id, `每月电梯维保（第 ${n} 次）`, (fire?.standard || '按维保合同完成维保，留存维保单').replace(/消防/g, '电梯') + '\n完成条件：上传维保单及现场照片（必传，最多 10 张），本月 31 日前完成。', '18:00', fire?.tag || null, fire?.pillar || null);
+}
+seedElevator();
+(function elevatorThisMonth() {
+  const t = L.today(), ms = t.slice(0, 8) + '01', me = monthEnd(t);
+  for (const tp of q("SELECT * FROM templates WHERE title LIKE '每月电梯维保%' AND active=1")) {
+    if (q1("SELECT 1 x FROM instances WHERE src='tpl' AND src_id=? AND date=? LIMIT 1", tp.id, ms)) continue;
+    D.tx(() => { for (const sid of q('SELECT id FROM stores').map(x => x.id)) {
+      const a = D.baseAssignee(sid, tp); if (!a) continue;
+      run(`INSERT OR IGNORE INTO instances(store_id,date,src,src_id,scene_id,title,standard,category,origin,assignee_id,orig_assignee_id,due_time,need_photo,due_date) VALUES(?,?,'tpl',?,?,?,?,'ops','fixed',?,?,?,1,?)`,
+        sid, ms, tp.id, tp.scene_id, tp.title, tp.standard, a, a, tp.due_time, me);
+    } });
+  }
+})();
 
 // ---------- lifecycle ----------
 const LC_NODES = [['sign', '签约', 0], ['design', '设计', 30], ['permit', '证照报建', 50], ['build', '工程筹建', 150], ['fire', '消防验收', 160], ['accept', '品牌验收', 170], ['hire', '招聘培训', 178], ['trial', '试营业', 185], ['open', '正式开业', 190]];
@@ -3258,7 +3282,7 @@ function runReminders(date, time, onlyStores) {
   }
   return n;
 }
-const markMissed = () => run("UPDATE instances SET status='missed' WHERE status='pending' AND date<?", L.today()).changes;
+const markMissed = () => run("UPDATE instances SET status='missed' WHERE status='pending' AND COALESCE(due_date, date)<?", L.today()).changes;
 function runNightAudit(date, sids) {
   const r = D.nightAudit(date, sids);
   for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
