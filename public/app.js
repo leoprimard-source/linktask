@@ -529,7 +529,7 @@ VIEWS.tasks = async () => {
     ${ts.map(t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
       <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.category === 'sales' ? '<span class="tag">销售</span>' : ''}</div>
       <div class="row small" style="margin-top:2px"><span>${esc(t.assignee_name || '未分配')} <span class="muted">${esc(t.assignee_role || '')}</span></span>
-        ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''} ${statusTag(t)} ${checkTag(t)} ${t.photo ? '<span class="tag">有照片</span>' : ''}</div></div>
+        ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.why ? `<span class="tag">${esc(t.why)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''} ${statusTag(t)} ${checkTag(t)} ${t.photo ? '<span class="tag">有照片</span>' : ''}</div></div>
       <div class="row">${canCheck && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn sm" data-view="${t.id}">详情</button></div></div>`).join('')}</div>`).join('')
     : '<div class="list"><div class="empty">没有符合条件的任务</div></div>'}`;
   document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => taskDetail(Number(b.dataset.view)));
@@ -545,7 +545,7 @@ async function taskDetail(id) {
     <div>标准</div><div class="pre">${esc(t.standard || '-')}</div>
     <div>截止</div><div class="mono">${esc(t.date)} ${esc(t.due_time)}</div>
     ${t.reading ? `<div>计量读数</div><div>${esc(t.reading)}</div>` : ''}
-    <div>执行人</div><div>${esc(t.assignee_name)} ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''}</div>
+    <div>执行人</div><div>${esc(t.assignee_name)} ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.why ? `<span class="tag">${esc(t.why)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''}</div>
     <div>状态</div><div>${statusTag(t)} ${checkTag(t)}</div>
     ${t.done_note ? `<div>完成说明</div><div>${esc(t.done_note)}</div>` : ''}
     ${t.check_result ? `<div>抽查</div><div>${esc(t.checker_name)}：${esc(t.check_comment)} <span class="muted small">${esc(t.checked_at)}</span></div>` : ''}
@@ -1740,6 +1740,16 @@ function rhythmBar(R = RHYTHM) {
 const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
 const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
   ${m.leave ? '<span class="tag warn">休息</span>' : `<span class="small">${m.today.done}/${m.today.total}${m.today.overdue ? ` · <em class="bad">超时${m.today.overdue}</em>` : ''}</span>`}<span class="muted small">30天合格 ${pct(m.s30.pass)}</span></a>`;
+async function nightCard(sid) {
+  const n = await api(`/night-audit?store=${sid}`).catch(() => null), w = $('#topw');
+  if (!n || !w) return;
+  const need = n.list.filter(t => t.status === 'pending' && /待店长安排/.test(t.why || '')), moved = n.list.filter(t => !/待店长安排|店长改派/.test(t.why || ''));
+  w.insertAdjacentHTML('afterbegin', `<div class="card" id="nac"><div class="row between"><b>今日夜审</b><span class="muted small">${n.row ? `${esc(n.row.at.slice(11, 16))} 按排班、请假、顶岗、授权派发 ${n.row.total} 项` : '今天还没有夜审'}</span></div>
+    <div class="muted small" style="margin:4px 0">按班次改派 ${moved.length} 项 · 待你安排 <b class="${need.length ? 'warn' : ''}">${need.length}</b> 项</div>
+    ${need.slice(0, 3).map(t => `<a class="task" href="#/task/${t.id}"><div class="b"><div class="ttl">${esc(t.due_time)} ${esc(t.title)}</div><div class="muted small">${esc(t.why)}</div></div></a>`).join('')}
+    <button class="btn sm" id="narun">重新夜审</button></div>`);
+  $('#narun').onclick = async () => { const r = await api('/night-audit/run', { store: sid }); toast(`已重新派发：改派 ${r.moved} 项，待安排 ${r.need} 项`); managerHome(); };
+}
 async function managerHome() {
   const p = qs();
   const sid = pickStore(p.get('store'));
@@ -1764,6 +1774,7 @@ async function managerHome() {
   <div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
   { const sg = $('.scgrid'), t = $('#topw'); if (sg && t) { const w = document.createElement('div'); w.id = 'scops'; w.append(sg.previousElementSibling, sg); t.after(w); } }
+  nightCard(sid);
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');

@@ -243,7 +243,7 @@ app.post('/api/instances/:id/reassign', (req, res) => {
   if (!it || !canManage(req.u, it.store_id)) return deny(res);
   const to = q1('SELECT * FROM users WHERE id=? AND active=1', req.body.user_id);
   if (!to || !inStore(to, it.store_id)) return err(res, '请选择本店在职人员');
-  run('UPDATE instances SET assignee_id=? WHERE id=?', to.id, it.id);
+  run("UPDATE instances SET assignee_id=?, manual=1, why='店长改派' WHERE id=?", to.id, it.id);
   D.notify([to.id], 'assign', '新增临时任务', `${it.date} ${it.due_time} ${it.title}`, '#/my');
   D.audit(req.u.id, it.store_id, '临时改派', `${it.title} → ${to.name}`);
   res.json({ ok: true });
@@ -3250,6 +3250,21 @@ function runReminders(date, time, onlyStores) {
   return n;
 }
 const markMissed = () => run("UPDATE instances SET status='missed' WHERE status='pending' AND date<?", L.today()).changes;
+function runNightAudit(date, sids) {
+  const r = D.nightAudit(date, sids);
+  for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
+  return r;
+}
+app.get('/api/night-audit', (req, res) => {
+  const sid = Number(req.query.store) || req.u.store_id; if (!sid || !visibleStores(req.u).includes(sid)) return deny(res);
+  const t = L.today(), row = q1('SELECT * FROM night_audit WHERE date=? AND store_id=?', t, sid);
+  const list = decorate(q(INST_SQL + " WHERE i.store_id=? AND i.date=? AND i.why IS NOT NULL ORDER BY i.due_time", sid, t));
+  res.json({ row, list });
+});
+app.post('/api/night-audit/run', (req, res) => {
+  const sid = Number(req.body.store); if (!sid || !canManage(req.u, sid)) return deny(res);
+  res.json(runNightAudit(L.today(), [sid])[0]);
+});
 function tick() {
   try {
     const date = L.today(), time = L.nowHM();
@@ -3260,6 +3275,7 @@ function tick() {
       runReminders(date, time);
     }
     D.ensureInstances(date);
+    if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
     const esc = D.getSetting('escalate_minutes', 30), escBy = {};
     for (const it of q("SELECT i.*, st.name store_name, u.name uname FROM instances i JOIN stores st ON st.id=i.store_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.date=? AND i.status='pending' AND i.escalated=0", date)) {
       if (L.addMinutes(it.due_time, esc) < time) {

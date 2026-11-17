@@ -53,12 +53,13 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT, user_id INTEGE
 for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEXT'],
   ['users', 'view_region INTEGER'], ['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
-  ['instances', 'reading TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
+  ['instances', 'reading TEXT'], ['instances', 'manual INTEGER DEFAULT 0'], ['instances', 'why TEXT'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
   ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
   ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS night_audit(date TEXT, store_id INTEGER, total INTEGER, moved INTEGER, need_sm INTEGER, at TEXT, PRIMARY KEY(date, store_id))');
 db.exec(`CREATE TABLE IF NOT EXISTS sm_stage(user_id INTEGER PRIMARY KEY, stage TEXT, start TEXT, set_by INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS stage_steps(user_id INTEGER, stage TEXT, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, stage, step));
 CREATE TABLE IF NOT EXISTS punches(user_id INTEGER, date TEXT, kind TEXT, at TEXT, PRIMARY KEY(user_id, date, kind));
@@ -292,6 +293,30 @@ function refreshPending(storeId, d1, d2) {
   for (const d of new Set(rows.map(r => r.date))) applyDeleg(d);
 }
 
+// 夜审：每天凌晨按当天排班、请假、顶岗、授权重新派发当天未开始的任务；店长手动改派的不动
+function nightAudit(date, storeIds) {
+  const stores = storeIds && storeIds.length ? storeIds : q('SELECT id FROM stores').map(s => s.id), at = L.nowStr(), out = [];
+  shiftReset(); ensureInstances0(date, stores);
+  const tpls = new Map(q('SELECT * FROM templates').map(t => [t.id, t]));
+  for (const sid of stores) {
+    const sm = new Set(storeManagers(sid)); let moved = 0, need = 0;
+    const rows = q("SELECT * FROM instances WHERE store_id=? AND date=? AND status='pending' AND src='tpl' AND COALESCE(manual,0)=0 AND deleg_id IS NULL", sid, date);
+    tx(() => {
+      for (const r of rows) {
+        const tpl = tpls.get(r.src_id); if (!tpl) continue;
+        const own = baseAssignee(sid, tpl), base = shiftPick(sid, own, date, r.due_time), fin = coverFor(base, date, sid);
+        const why = fin === own ? null : sm.has(fin) && !sm.has(own) ? '无合适在班人员，待店长安排' : fin !== base ? '原负责人请假，由顶岗人执行' : '原负责人不在班，由在班同组人员执行';
+        if (why === '无合适在班人员，待店长安排') need++;
+        if (fin !== r.assignee_id || why !== r.why) { moved += fin !== r.assignee_id; run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, why=? WHERE id=?', fin, own, why, r.id); }
+      }
+      run('INSERT OR REPLACE INTO night_audit VALUES(?,?,?,?,?,?)', date, sid, rows.length, moved, need, at);
+    });
+    out.push({ sid, total: rows.length, moved, need });
+  }
+  applyDeleg(date);
+  return out;
+}
+
 function notify(userIds, kind, title, body, link) {
   const at = L.nowStr();
   const st = db.prepare('INSERT INTO notifications(user_id,created_at,kind,title,body,link) VALUES(?,?,?,?,?,?)');
@@ -302,4 +327,4 @@ function audit(userId, storeId, action, detail) {
 }
 
 module.exports = { db, q, q1, run, tx, DATA_DIR, getSetting, setSetting, storeManagers, regionUsers, baseAssignee, coverFor,
-  ensureInstances, refreshPending, applyDeleg, notify, audit, SHIFT_DEF, shiftGroup, roleShifts, restCode, shiftMap, onShift, shiftPick, shiftReset };
+  ensureInstances, refreshPending, nightAudit, applyDeleg, notify, audit, SHIFT_DEF, shiftGroup, roleShifts, restCode, shiftMap, onShift, shiftPick, shiftReset };
