@@ -121,9 +121,10 @@ function storeSwitch(route, extra = '') {
 // ---------- nav ----------
 const NAV = {
   staff: [['sec', '我的工作'], ['my', '我的任务'], ['mycare', '员工美好'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['engage', '敬业度调研'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['insight', '员工执行洞察'], ['meet', '经营月会'], ['value', '减负统计'], ['deleg', '任务授权'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
-    ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
-    ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['tpllayer', '任务模板分层'], ['handpack', '门店交接包'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['my', '我的任务'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['repair', '工程报修'], ['safety', '安全与应急'],
+    ['sec', '人员与排班'], ['team', '门店人员'], ['leave', '休息与顶岗'], ['labor', '排班与人效'], ['assign', '场景分配'], ['flex', '灵活任务'], ['deleg', '任务授权'], ['insight', '员工执行洞察'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['hrm', '人事指标'],
+    ['sec', '经营与监督'], ['meet', '经营月会'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['value', '减负统计'], ['audit', '操作日志'],
+    ['sec', '成长与标准'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['handpack', '门店交接包'], ['tpllayer', '任务模板分层'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   hq: [['sec', '总部'], ['datasrc', '数据源接入'], ['meet', '经营月会'], ['vhotel', '虚拟酒店'], ['exempt', '综合分豁免策略'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
@@ -1245,7 +1246,7 @@ VIEWS.work = async () => {
   const tools = [['cal', '日历'], ['dir', '通讯录'], ...(S.me.level !== 'staff' && !byK.wcal ? [['wcal', '工作日历']] : [])];
   secs.unshift({ t: '日程与协作', items: tools }); all.unshift(...tools); tools.forEach(([k, l]) => { byK[k] = l; });
   const fk = 'lt_fav_' + S.me.id; let fav; try { fav = JSON.parse(localStorage[fk]); } catch (e) { fav = null; }
-  fav = (Array.isArray(fav) ? fav : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
+  fav = (Array.isArray(fav) ? fav : S.me.level === 'store_manager' ? ['desk', 'tasks', 'rect', 'leave', 'assign', 'deleg', 'meet', 'insight'] : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
   const ed = !!S.workEdit, col = k => TILE_COLORS[[...k].reduce((a, c) => a + c.charCodeAt(0), 0) % TILE_COLORS.length];
   const tile = (k, l, e) => `<a class="tile" ${e ? `href="javascript:void 0" data-fv="${k}"` : `href="#/${k}"`}><span class="tic" style="background:${col(k)}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}${e ? `<i class="fvb ${fav.includes(k) ? 'rm' : ''}">${fav.includes(k) ? '−' : '+'}</i>` : ''}</span><span>${esc(l)}</span></a>`;
   $('#main').innerHTML = `<input class="fsearch" id="ws" placeholder="搜索应用" autocomplete="off" style="width:100%;margin-bottom:4px"><div id="wres"></div><div id="wbody">
@@ -1789,10 +1790,10 @@ const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono
 const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
   ${m.leave ? '<span class="tag warn">休息</span>' : `<span class="small">${m.today.done}/${m.today.total}${m.today.overdue ? ` · <em class="bad">超时${m.today.overdue}</em>` : ''}</span>`}<span class="muted small">30天合格 ${pct(m.s30.pass)}</span></a>`;
 async function loadCard(sid) {
-  const d = await api(`/load?store=${sid}`).catch(() => null), w = $('#nac') || $('#topw');
+  const d = await api(`/load?store=${sid}`).catch(() => null), w = $('#topw');
   if (!d || !w) return;
   const pct = Math.min(100, Math.round(d.total * 100 / d.cap));
-  w.insertAdjacentHTML(w.id === 'nac' ? 'afterend' : 'afterbegin', `<div class="card" id="ldc"><div class="row between"><b>今日条线任务</b><span class="small ${d.total > d.cap ? 'warn' : 'muted'}">${d.total} / ${d.cap} 分钟</span></div>
+  w.insertAdjacentHTML('afterbegin', `<div class="card" id="ldc"><div class="row between"><b>今日条线任务</b><span class="small ${d.total > d.cap ? 'warn' : 'muted'}">${d.total} / ${d.cap} 分钟</span></div>
     <div style="height:6px;border-radius:3px;background:#eef0f3;margin:6px 0"><div style="height:6px;border-radius:3px;width:${pct}%;background:${d.total > d.cap ? '#f54a45' : '#3370ff'}"></div></div>
     <div class="muted small">${d.lines.map(l => `${esc(l.line)} ${l.n} 项 ${l.m} 分钟`).join(' · ') || '今天各条线没有派任务'}${d.next ? ` · 已顺延到后面 ${d.next} 项` : ''}</div>
     ${d.items.filter(x => x.status !== 'done').slice(0, 3).map(x => `<a class="task" href="${x.iid ? '#/task/' + x.iid : '#/home'}"><div class="b"><div class="ttl">${esc(x.due_time)} ${esc(x.title)}</div><div class="muted small">${esc(x.creator || '')} · 约 ${x.minutes} 分钟</div></div></a>`).join('')}</div>`);
@@ -1816,7 +1817,7 @@ VIEWS.datasrc = async () => {
       m => { m.querySelector('#dsf').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/datasources/' + x.kind, formData(e.target)), '已保存')) { closeModal(); VIEWS.datasrc(); } }; }); });
 };
 const AI_DUTY = [
-  ['凌晨派发', '按排班、请假、顶岗把当天任务派给在班的人', '规则引擎，已上线', '店长处理“待安排”'],
+  ['凌晨派发', '按排班、请假、顶岗把当天任务派给在班的人', '规则引擎，已上线', '找不到在班人员的进店长「待指派」'],
   ['超时升级', '超时先提醒店长，再升教练，再进城市总例外清单', '规则引擎，已上线', '教练、城市总只处理例外'],
   ['条线负荷', '各条线任务统一进门店，超出店长每天上限自动顺延', '规则引擎，已上线', '条线负责人定任务和优先级'],
   ['巡店筛选', '按门店画像、漏做、整改逾期排出该先去哪家店', '规则引擎，已上线', '教练定巡店计划'],
@@ -2041,7 +2042,7 @@ async function opsBriefCard(sid, mode = 'day') {
 function smArrange() {
   const main = $('#main'); if (!main || $('#hx-top')) return;
   const top = document.createElement('div'), more = document.createElement('div'); top.id = 'hx-top'; more.id = 'hx-more';
-  more.innerHTML = '<div class="sec-t2">更多看板</div>';
+  more.innerHTML = '';
   const pl = main.querySelector('.pltabs') || main.querySelector('.storebar'); pl.after(top); top.after(more);
   const st = JSON.parse(localStorage.lt_fold || '{}'), byText = t => [...main.querySelectorAll('.sec-t2')].find(x => x.textContent.trim().startsWith(t));
   const fold = (key, title, nodes, badge) => {
@@ -2054,16 +2055,22 @@ function smArrange() {
     if (!document.body.contains(top)) return obs.disconnect();
     obs.disconnect();
     const three = [...main.querySelectorAll('section.yic')].find(x => (x.querySelector('b')?.textContent || '').startsWith('今日三件事'));
-    [$('#myshift'), $('.sf-sum'), three, $('#inbox'), byText('我的工作'), $('.mtiles')].filter(Boolean).forEach(n => top.append(n));
-    const ob = $('#obrief'), bad = ob ? ob.querySelectorAll('.tag.bad').length : 0;
-    fold('brief', '运营简报', [ob], ob ? (bad ? `${bad} 个模块有异常` : '各模块正常') : '');
-    const nac = $('#nac'), ldc = $('#ldc'); fold('disp', '今日条线任务', [nac, ldc], ldc ? ldc.querySelector('.row span')?.textContent || '' : '');
-    const tb = $('#tbud'); fold('budget', '今日预计用时', [tb], tb ? (tb.querySelector('b')?.textContent.replace('今日预计用时 ', '') || '') : '');
-    fold('exempt', '综合分豁免', [$('#exc')], $('#exc') ? ($('#exc b')?.textContent.split('·')[1] || '').trim() : '');
-    const rh = byText('门店一天节奏'); fold('rhythm', '门店一天节奏', [rh, $('.rhythm'), $('#rhl')], ($('.rhythm .on')?.textContent || '').replace(/\s+/g, ' ').trim());
-    fold('scene', '场景运营', [$('#scops')], (() => { const xs = [...document.querySelectorAll('#scops .scb')]; return xs.length ? `${xs.filter(x => x.classList.contains('od')).length} 个场景有超时` : ''; })());
-    const mt = byText('今日必做推荐'), ml = mt && mt.nextElementSibling; fold('must', '今日必做推荐', [mt, ml], mt ? (mt.querySelector('a')?.textContent || '') : '');
-    ['brief', 'disp', 'budget', 'exempt', 'rhythm', 'scene', 'must'].forEach(k => { const d = more.querySelector(`[data-fold="${k}"]`); if (d) more.append(d); });
+    let ov = $('#hx-ov'); if (!ov) { ov = document.createElement('div'); ov.id = 'hx-ov'; }
+    [$('#myshift'), $('.sf-sum')].filter(Boolean).forEach(n => { if (n.parentNode !== ov) ov.append(n); });
+    [ov, three, $('#inbox'), byText('我的工作'), $('.mtiles')].filter(Boolean).forEach(n => top.append(n));
+    if (three && $('#inbox .ibx')) { const ck = [...three.querySelectorAll('.ck-i .ttl')].map(x => x.textContent);
+      $('#inbox').querySelectorAll('.ibx').forEach(x => { if (ck.some(t => t.includes(x.querySelector('.ttl').textContent))) x.remove(); });
+      $('#inbox').querySelectorAll('.list').forEach(l => { if (!l.children.length) (l.closest('details') || l).remove(); });
+      const hd = $('#inbox .sec-t2 span'), sm = $('#inbox details summary'), nx = $('#inbox').querySelectorAll('.ibx').length;
+      if (hd) hd.textContent = `待我处理 · ${nx}`; if (sm) sm.firstChild.textContent = `${$('#inbox > .list') ? '其余' : '全部'} ${$('#inbox details').querySelectorAll('.ibx').length} 项 `; if (!nx) $('#inbox').innerHTML = ''; }
+    const join = xs => xs.filter(Boolean).join(' · ');
+    const ob = $('#obrief'), bad = ob ? ob.querySelectorAll('.tag.bad').length : 0, sco = [...document.querySelectorAll('#scops .scb.od')].length;
+    const mt = byText('今日必做推荐'), ml = mt && mt.nextElementSibling;
+    const ua = byText('上级安排'), ul = ua && ua.nextElementSibling;
+    fold('ops', '今日运营', [ua, ul, ob, $('#scops'), mt, ml], join([ua && `上级安排 ${(ua.querySelector('a')?.textContent || '').replace(/[^0-9]/g, '')} 项`, ob && (bad ? `简报 ${bad} 项异常` : '简报正常'), sco && `${sco} 个场景超时`, mt && `必做 ${(mt.querySelector('a')?.textContent || '').replace(/[^0-9]/g, '')} 项`]));
+    const ldc = $('#ldc'), tb = $('#tbud'), rh = byText('门店一天节奏');
+    fold('plan', '今日安排', [tb, ldc, $('#exc'), rh, $('.rhythm'), $('#rhl')], join([tb && '预计 ' + (tb.querySelector('b')?.textContent.replace('今日预计用时 ', '') || ''), ldc && '条线 ' + (ldc.querySelector('.row span')?.textContent || '')]));
+    ['ops', 'plan'].forEach(k => { const d = more.querySelector(`[data-fold="${k}"]`); if (d) more.append(d); });
     obs.observe(main, { childList: true, subtree: true });
   };
   let tm; const obs = new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(run, 120); }); run();
@@ -2078,7 +2085,7 @@ async function managerHome() {
   const openR = rs.filter(x => x.status !== 'closed').length, upN = up.focus.length + up.rects.length;
   const groups = {}; for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   const top = ts => { const c = {}; ts.forEach(t => { c[t.assignee_name] = (c[t.assignee_name] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2).map(x => x[0]).join('、'); };
-  const tiles = [['#/flex', '派定制任务', '派', ''], ['#/upper', '上级安排', '上', upN], ['#/assign', '场景分配', '景', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR], ['#/leave', '休息顶岗', '岗', ''], ['sum', '当日总结', '结', '']];
+  const tiles = [['#/flex', '派任务', '派', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR]];
   $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
     ${calMini(date)}<a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
   ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'sum' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>${shiftCard()}<div class="sec-t2">门店一天节奏</div>${storeRhythm()}</div>`)}
@@ -2097,7 +2104,7 @@ async function managerHome() {
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
-  $('#ho').onclick = () => (S.me.shift?.punch?.in ? sumModal() : toast('请先打上班卡', true));
+  if ($('#ho')) $('#ho').onclick = () => (S.me.shift?.punch?.in ? sumModal() : toast('请先打上班卡', true));
   document.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { location.hash = '#/group?' + new URLSearchParams({ store: sid, date, tab: 'day', g: el.dataset.go }); });
 }
 function formModal(title, body, onSubmit) {
@@ -2222,8 +2229,11 @@ async function loadInbox(sid) {
   const xs = await api('/inbox' + (sid ? '?store=' + sid : ''));
   if (!$('#inbox')) return;
   const row = (x, i) => `<a class="task ibx" ${x.act ? `data-act="${esc(x.act)}"` : `href="${esc(x.link)}"`} data-i="${i}"><span class="tag ${x.lv}">${esc(x.tag)}</span><div class="b"><div class="ttl">${esc(x.title)}</div>${x.sub ? `<div class="muted small">${esc(x.sub)}</div>` : ''}</div><i class="chev">›</i></a>`;
-  el.innerHTML = xs.length ? `<div class="sec-t2 row between"><span>待我处理 · ${xs.length}</span></div><div class="list">${xs.slice(0, 4).map(row).join('')}</div>
-    ${xs.length > 4 ? `<details class="tgrp"><summary>其余 ${xs.length - 4} 项 <i>展开</i></summary><div class="list">${xs.slice(4).map((x, i) => row(x, i + 4)).join('')}</div></details>` : ''}` : '';
+  const n = S.me.level === 'store_manager' ? Math.min(2, xs.filter(x => x.lv === 'bad').length) : 4;
+  if (n < 4) xs.sort((a, b) => (b.lv === 'bad') - (a.lv === 'bad'));
+  const rest = xs.slice(n), tags = [...new Set(rest.map(x => x.tag))].slice(0, 3).join('、');
+  el.innerHTML = xs.length ? `<div class="sec-t2 row between"><span>待我处理 · ${xs.length}</span></div>${n ? `<div class="list">${xs.slice(0, n).map(row).join('')}</div>` : ''}
+    ${rest.length ? `<details class="tgrp"><summary>${n ? '其余' : '全部'} ${rest.length} 项 <em>${esc(tags)}</em><i>展开</i></summary><div class="list">${rest.map((x, i) => row(x, i + n)).join('')}</div></details>` : ''}` : '';
   el.querySelectorAll('[data-act]').forEach(a => a.onclick = () => inboxAct(a.dataset.act, xs[Number(a.dataset.i)], sid));
 }
 function inboxAct(code, x, sid) {
