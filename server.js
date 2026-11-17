@@ -3305,6 +3305,27 @@ app.get('/api/dispatch/stats', (req, res) => {
   const mine = q("SELECT title, COUNT(*) n, SUM(deferred) deferred, created_at FROM flex_tasks WHERE source='line' AND created_by=? GROUP BY title, created_at ORDER BY created_at DESC LIMIT 10", u.id);
   res.json({ cap, lines, top, over, stores: sids.length, mine, line });
 });
+app.get('/api/coach-stores', (req, res) => {
+  if (!['hq', 'region_manager'].includes(req.u.level)) return deny(res);
+  const where = req.u.level === 'hq' ? '' : 'WHERE s.region_id=' + Number(req.u.region_id);
+  const stores = q(`SELECT s.id, s.name, g.name region_name, cs.coach_id, u.name coach_name FROM stores s LEFT JOIN regions g ON g.id=s.region_id LEFT JOIN coach_stores cs ON cs.store_id=s.id LEFT JOIN users u ON u.id=cs.coach_id ${where} ORDER BY g.id, s.id`);
+  const coaches = q("SELECT u.id, u.name, r.name role_name, g.name region_name FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN regions g ON g.id=u.region_id WHERE r.level='coach' AND u.active=1 ORDER BY u.id");
+  res.json({ stores, coaches, min: D.getSetting('coach_min', 30), max: D.getSetting('coach_max', 50) });
+});
+app.post('/api/coach-stores', (req, res) => {
+  if (!['hq', 'region_manager'].includes(req.u.level)) return deny(res);
+  const b = req.body || {}, c = q1("SELECT u.id, u.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND r.level='coach'", b.coach_id); if (!c) return err(res, '教练不存在');
+  const scope = req.u.level === 'hq' ? null : new Set(q('SELECT id FROM stores WHERE region_id=?', req.u.region_id).map(r => r.id));
+  const ids = (b.stores || []).map(Number).filter(x => !scope || scope.has(x)), at = L.nowStr();
+  D.tx(() => {
+    const old = q('SELECT store_id FROM coach_stores WHERE coach_id=?', c.id).map(r => r.store_id).filter(x => !scope || scope.has(x));
+    for (const x of old) run('DELETE FROM coach_stores WHERE coach_id=? AND store_id=?', c.id, x);
+    for (const x of ids) { run('DELETE FROM coach_stores WHERE store_id=?', x); run('INSERT INTO coach_stores VALUES(?,?,?,?)', c.id, x, req.u.id, at); }
+  });
+  D.notify([c.id], 'assign', `你负责的门店已更新：${ids.length} 家`, '教练工作台和例外事项将只显示这些门店', '#/cdesk');
+  D.audit(req.u.id, null, '教练门店分配', `${c.name} → ${ids.length} 家`);
+  res.json({ ok: true, n: ids.length });
+});
 const LAYER_N = { hq: '总部', province: '省区', region: '区域', store: '门店' };
 function layerScope(u, layer, sid) {
   if (layer === 'hq') return u.level === 'hq' ? 0 : null;
