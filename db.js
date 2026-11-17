@@ -59,6 +59,7 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS meetings(id INTEGER PRIMARY KEY, store_id INTEGER, ym TEXT, title TEXT, inst_id INTEGER, sm_id INTEGER, rm_id INTEGER, invite_rm INTEGER DEFAULT 0, invite_why TEXT, start_at TEXT, status TEXT DEFAULT \'pending\', minutes_url TEXT, valid INTEGER, fr_joined INTEGER, rm_joined INTEGER, src TEXT, demo INTEGER DEFAULT 0, created_at TEXT, done_at TEXT)');
 db.exec('CREATE TABLE IF NOT EXISTS exempts(date TEXT, store_id INTEGER, tpl_id INTEGER, ym TEXT, score INTEGER, PRIMARY KEY(date, store_id, tpl_id))');
 db.exec('CREATE TABLE IF NOT EXISTS month_scores(store_id INTEGER, ym TEXT, score INTEGER, at TEXT, PRIMARY KEY(store_id, ym))');
 db.exec('CREATE TABLE IF NOT EXISTS saves(user_id INTEGER, kind TEXT, key TEXT, date TEXT, min INTEGER, teach INTEGER, PRIMARY KEY(user_id, key, date))');

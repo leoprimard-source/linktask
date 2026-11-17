@@ -230,6 +230,7 @@ app.post('/api/instances/:id/complete', (req, res) => {
   if (raw.length > 10) return err(res, '照片最多 10 张');
   const photos = raw.map(savePhoto).filter(Boolean);
   const photo = photos[0] || savePhoto(req.body.photo) || it.photo;
+  if (it.src === 'meet') return err(res, '经营月会根据华通会议状态自动判定完成，无需手动提交');
   if (it.need_photo && !photo) return err(res, '该任务需要上传照片');
   const tpl = it.src === 'tpl' ? q1('SELECT need_value FROM templates WHERE id=?', it.src_id) : null;
   const reading = (req.body.reading || '').trim();
@@ -645,7 +646,7 @@ app.get('/api/profile', (req, res) => {
   };
   const cr = R(rows.filter(done), rows);
   const score = health == null || cr == null ? null : Math.round(health * 0.6 + cr * 0.4);
-  const since = L.addDays('2021-03-01', Math.floor(hash('since' + u.id) * 1200));
+  const since = smSince(u.id);
   res.json({ user: { name: u.name, role: u.role_name, level: u.level, since }, store: { ...store, patrol_score: patrol?.score ?? null, patrol_at: patrol?.done_at || null },
     from, to, ym: week ? null : ms.slice(0, 7), months: monthsBack(7).map(m => m.slice(0, 7)).reverse(), mode: week ? 'week' : 'month', health, completion_rate: cr, score, counts: { ok: cnt('ok'), warn: cnt('warn'), bad: cnt('bad') }, indicators: ind, completion });
 });
@@ -3654,6 +3655,64 @@ app.post('/api/night-audit/run', (req, res) => {
   const sid = Number(req.body.store); if (!sid || !canManage(req.u, sid)) return deny(res);
   res.json(runNightAudit(L.today(), [sid])[0]);
 });
+// ---------- BRD11 经营月会：每月 3 日 9:00 下发，华通会议状态回调判定完成（华通未接入，接口为模拟） ----------
+const uname = id => (id && q1('SELECT name FROM users WHERE id=?', id)?.name) || '';
+const smSince = uid => L.addDays('2021-03-01', Math.floor(hash('since' + uid) * 1200));
+const MEET_STAGES = ['成熟', '改造', '爬坡'];
+const rmOf = sid => { const st = q1('SELECT region_id FROM stores WHERE id=?', sid); return st ? D.regionUsers(st.region_id, 'region_manager')[0] || null : null; };
+const supCount = (smId, sid) => q1('SELECT COUNT(*) n FROM meetings WHERE sm_id=? AND store_id=? AND rm_joined=1', smId, sid).n;
+function genMeetings(ym, demo) {
+  const m = Number(ym.slice(5)), d3 = ym + '-03', due = demo ? L.addDays(L.today(), 7) : ym + '-15', at = L.nowStr(); const byRm = {}; let n = 0;
+  for (const st of q(`SELECT id, name, code FROM stores WHERE lc_stage IN (${MEET_STAGES.map(() => '?').join(',')})`, ...MEET_STAGES)) {
+    if (q1('SELECT 1 FROM meetings WHERE store_id=? AND ym=?', st.id, ym)) continue;
+    const sm = D.storeManagers(st.id)[0]; if (!sm) continue;
+    const rm = rmOf(st.id), since = smSince(sm), months = (L.today() > since ? (Date.parse(L.today()) - Date.parse(since)) / 2629800000 : 0), sup = supCount(sm, st.id);
+    const invite = rm && months <= 6 && sup < 2 ? 1 : 0;
+    const title = `${m}月经营月会[请打开麦克风]${st.name}${st.code || st.id}`;
+    const ir = run("INSERT INTO instances(store_id,date,src,src_id,title,standard,category,origin,assignee_id,orig_assignee_id,due_time,need_photo,status,due_date) VALUES(?,?,'meet',0,?,?,'ops','fixed',?,?,'23:59',0,'pending',?)",
+      st.id, demo ? L.today() : d3, `${m}月经营月会`, `华通自动建会，会议开启时自动开启纪要。建议 ${m} 月 8 日 23:59 前召开，${demo ? '演示任务 7 天内' : `${m} 月 15 日 23:59`} 过期。\n完成条件：华通回传有效纪要链接且加盟商参会，系统自动判定完成，无需手动提交。`, sm, sm, due);
+    const id = run('INSERT INTO meetings(store_id,ym,title,inst_id,sm_id,rm_id,invite_rm,invite_why,start_at,src,demo,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', st.id, ym, title, ir.lastInsertRowid, sm, rm, invite,
+      invite ? `店长任职 ${Math.floor(months)} 个月（≤6 个月），被督导 ${sup} 次（<2 次）` : '', (demo ? L.today() : ym + '-06') + ' 15:00', 'huatong_mock', demo ? 1 : 0, at).lastInsertRowid;
+    run('UPDATE instances SET src_id=? WHERE id=?', id, ir.lastInsertRowid);
+    D.notify([sm], 'task', st.name, `叮！您本月的经营月会链接已生成${invite ? '（本次将由区域经理为您督导）' : ''}，请及时前往【宏图】查看！`, '#/meet?store=' + st.id);
+    if (invite) (byRm[rm] ||= []).push(st.id);
+    const co = coachesOf(st.id); if (co.length) D.notify(co, 'task', `【未来模式测试】${st.name} ${m}月经营月会`, '教练为虚拟测试角色，仅同步月会信息，不替代区域经理督导', '#/meet?store=' + st.id);
+    n++;
+  }
+  for (const [rm, xs] of Object.entries(byRm)) D.notify([Number(rm)], 'task', `${m}月${xs.length}家店经营沟通月会待您督导`, `${m}月${xs.length}家店经营沟通月会邀请您参与督导，请前往【宏图】查看会议时间，如有冲突可调整月会时间。`, '#/meet');
+  return n;
+}
+function meetDone(mt, r) {
+  const ok = r.minutes_url && r.valid && r.fr_joined;
+  run('UPDATE meetings SET minutes_url=?, valid=?, fr_joined=?, rm_joined=?, status=?, done_at=? WHERE id=?', r.minutes_url || null, r.valid ? 1 : 0, r.fr_joined ? 1 : 0, mt.invite_rm && r.rm_joined ? 1 : 0, ok ? 'done' : 'pending', ok ? L.nowStr() : null, mt.id);
+  if (ok) run("UPDATE instances SET status='done', done_at=?, done_note=? WHERE id=? AND status!='done'", L.nowStr(), '华通会议纪要：' + r.minutes_url, mt.inst_id);
+  return ok;
+}
+function huatongMockQuery(mt) {
+  const h = hash('ht' + mt.id + L.today()); if (h < 0.55) return null;
+  return { minutes_url: `https://huatong.example/minutes/${mt.id}`, valid: h > 0.6, fr_joined: h > 0.62, rm_joined: hash('rmj' + mt.id) > 0.3 };
+}
+function meetSweep(date) { let n = 0; for (const mt of q("SELECT m.* FROM meetings m JOIN instances i ON i.id=m.inst_id WHERE m.status='pending' AND i.status='pending' AND i.due_date>=?", date)) { const r = huatongMockQuery(mt); if (r && meetDone(mt, r)) n++; } return n; }
+const meetMembers = mt => { const i = q1('SELECT assignee_id, deleg_id FROM instances WHERE id=?', mt.inst_id), dg = i?.deleg_id && q1('SELECT d.to_id, u.name FROM delegations d JOIN users u ON u.id=d.to_id WHERE d.id=? AND d.active=1 AND d.end>=?', i.deleg_id, L.today());
+  return [{ role: '店长', name: uname(mt.sm_id) }, { role: '加盟商主管理员', name: '（华小盟，待接入）' }, ...(dg ? [{ role: '被授权人', name: dg.name }] : []), ...(mt.invite_rm ? [{ role: '区域经理（督导）', name: uname(mt.rm_id) }] : [])]; };
+app.get('/api/meet', (req, res) => {
+  const u = req.u, vis = visibleStores(u), ym = req.query.ym || L.today().slice(0, 7), sid = Number(req.query.store) || null;
+  const rows = q('SELECT m.*, st.name store_name, i.status task_status, i.due_date FROM meetings m JOIN stores st ON st.id=m.store_id LEFT JOIN instances i ON i.id=m.inst_id WHERE m.ym=? ORDER BY m.store_id', ym).filter(m => vis.includes(m.store_id) && (!sid || m.store_id === sid) && (u.level !== 'region_manager' || m.invite_rm || sid));
+  const sup = q('SELECT m.rm_id, u.name, COUNT(*) invited, SUM(m.rm_joined) joined FROM meetings m JOIN users u ON u.id=m.rm_id WHERE m.ym=? AND m.invite_rm=1 GROUP BY m.rm_id ORDER BY invited DESC', ym).filter(x => u.level !== 'region_manager' || x.rm_id === u.id);
+  res.json({ ym, sim: true, items: rows.slice(0, 200).map(m => ({ ...m, members: sid ? meetMembers(m) : undefined })), total: rows.length, done: rows.filter(m => m.status === 'done').length, sup, can_demo: u.level === 'hq' });
+});
+app.post('/api/meet/:id/time', (req, res) => {
+  const mt = q1('SELECT * FROM meetings WHERE id=?', Number(req.params.id)); if (!mt) return err(res, '会议不存在');
+  if (![mt.sm_id, mt.rm_id].includes(req.u.id)) return err(res, '只有店长和受邀区域经理可以变更月会时间');
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(req.body.start_at || '')) return err(res, '请选择时间');
+  run('UPDATE meetings SET start_at=? WHERE id=?', req.body.start_at, mt.id); D.audit(req.u.id, mt.store_id, '变更月会时间', req.body.start_at); res.json({ ok: true });
+});
+app.post('/api/huatong/meeting-callback', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res);
+  const mt = q1("SELECT * FROM meetings WHERE store_id=? AND ym=?", Number(req.body.hotel_id), req.body.ym || L.today().slice(0, 7)); if (!mt) return err(res, '该门店本月没有月会任务');
+  res.json({ ok: true, done: meetDone(mt, req.body), mock: true });
+});
+app.post('/api/meet/demo', (req, res) => { if (req.u.level !== 'hq') return deny(res); res.json({ n: genMeetings(L.today().slice(0, 7), true) }); });
 // ---------- BRD11 员工执行洞察周报（规则生成的四象限，非 AI 模型） ----------
 const QUAD = { star: ['优秀执行型', '任务完成率及提交质量均较好，建议持续表扬'], qual: ['质量提升型', '完成率较高但抽查不合格较多，建议加强操作标准培训'], eff: ['效率提升型', '完成质量较好但完成率有提升空间，建议加强任务跟进'], focus: ['重点辅导型', '完成率及提交质量均有提升空间，建议一对一辅导'] };
 const QUAD_MSG = { star: n => `${n}，本周你的任务完成又快又好，继续保持，谢谢！`, qual: n => `${n}，本周任务都按时做了，但有几项抽查没通过。我们一起再过一遍标准，下周争取一次通过。`, eff: n => `${n}，本周任务质量不错，还有几项没按时完成。上班先看一眼宏图待办，有困难随时找我。`, focus: n => `${n}，这周找个时间我们聊 15 分钟，一起把任务要求和完成标准再对一遍。` };
@@ -3792,6 +3851,8 @@ function tick() {
     }
     D.ensureInstances(date);
     if (D.getSetting('exempt_done', '') !== date) { D.setSetting('exempt_done', date); const r = applyExempt(date); if (r.n) console.log('exempt', date, r); }
+    if (date.endsWith('-03') && time >= '09:00' && D.getSetting('meet_gen', '') !== date.slice(0, 7)) { D.setSetting('meet_gen', date.slice(0, 7)); console.log('meetings', genMeetings(date.slice(0, 7))); }
+    if (time >= '21:00' && D.getSetting('meet_sweep', '') !== date) { D.setSetting('meet_sweep', date); console.log('meet sweep', meetSweep(date)); }
     if (time >= '06:30' && D.getSetting('push_done', '') !== date) { D.setSetting('push_done', date); console.log('daily push', pushDaily(date)); }
     if (L.weekday(date) === 1 && time >= '09:00' && D.getSetting('save_week_sent', '') !== date) { D.setSetting('save_week_sent', date); saveWeekly(date); insightPush(date); }
     if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
