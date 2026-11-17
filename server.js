@@ -188,7 +188,7 @@ app.get('/api/meta', (req, res) => {
     stores: q(`SELECT * FROM stores WHERE id IN (${ph}) ORDER BY id`, ...sids),
     users: q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${ph}) OR u.id IN (SELECT user_id FROM user_stores WHERE store_id IN (${ph}))) ORDER BY r.sort, u.id`, ...sids, ...sids),
     ms: q(`SELECT user_id, store_id FROM user_stores WHERE store_id IN (${ph}) ORDER BY store_id`, ...sids).reduce((a, x) => ((a[x.user_id] ||= []).push(x.store_id), a), {}),
-    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), escalate2_minutes: D.getSetting('escalate2_minutes', 120), escalate3_count: D.getSetting('escalate3_count', 5), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
+    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), escalate2_minutes: D.getSetting('escalate2_minutes', 120), escalate3_count: D.getSetting('escalate3_count', 5), sm_load_cap: D.getSetting('sm_load_cap', 60), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
   });
 });
 
@@ -3203,6 +3203,7 @@ app.post('/api/settings', onlyRM, (req, res) => {
   if (Array.isArray(req.body.reminder_times)) D.setSetting('reminder_times', req.body.reminder_times.filter(t => /^\d{2}:\d{2}$/.test(t)).sort());
   if (req.body.escalate_minutes !== undefined) D.setSetting('escalate_minutes', Math.max(0, Number(req.body.escalate_minutes) || 0));
   if (req.body.escalate2_minutes !== undefined) D.setSetting('escalate2_minutes', Math.max(0, Number(req.body.escalate2_minutes) || 120));
+  if (req.body.sm_load_cap !== undefined) D.setSetting('sm_load_cap', Math.max(10, Number(req.body.sm_load_cap) || 60));
   if (req.body.escalate3_count !== undefined) D.setSetting('escalate3_count', Math.max(1, Number(req.body.escalate3_count) || 5));
   if (Array.isArray(req.body.patrol_checklist)) D.setSetting('patrol_checklist', req.body.patrol_checklist);
   D.audit(req.u.id, null, '修改设置', JSON.stringify(req.body).slice(0, 200));
@@ -3263,6 +3264,47 @@ function runNightAudit(date, sids) {
   for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
   return r;
 }
+const LINES = { hr_manager: '人事', train_manager: '培训', sales_manager: '营销', dev_manager: '开发', build_manager: '工程项目', ops_manager: '运营', region_manager: '运营', coach: '教练', hq: '总部' };
+const lineLoad = (sid, d) => q1("SELECT COALESCE(SUM(minutes),0) m FROM flex_tasks WHERE store_id=? AND source='line' AND active=1 AND start_date=?", sid, d).m;
+app.post('/api/dispatch', (req, res) => {
+  const u = req.u, b = req.body || {}, line = LINES[u.level]; if (!line) return deny(res, '只有职能条线可以向门店派发任务');
+  const title = (b.title || '').trim(), min = Math.max(5, Math.min(240, Number(b.minutes) || 10)), date = b.date || L.today(), due = b.due_time || '17:00';
+  if (!title) return err(res, '请填写任务名称');
+  if (date < L.today()) return err(res, '日期不能早于今天');
+  const vis = new Set(visibleStores(u)), sids = (b.stores === 'all' ? [...vis] : (b.stores || []).map(Number)).filter(x => vis.has(x));
+  if (!sids.length) return err(res, '请选择门店');
+  const cap = D.getSetting('sm_load_cap', 60), at = L.nowStr(), out = { n: 0, deferred: [], skipped: [] }, todayS = [];
+  D.tx(() => { for (const sid of sids) {
+    const sm = D.storeManagers(sid)[0]; if (!sm) { out.skipped.push(sid); continue; }
+    let d = date; for (let k = 0; !b.urgent && k < 7 && lineLoad(sid, d) + min > cap; k++) d = L.addDays(d, 1);
+    run(`INSERT INTO flex_tasks(store_id,scene_id,title,standard,assignee_id,recur,recur_val,start_date,end_date,due_time,need_photo,source,created_by,created_at,ref,line,minutes,deferred) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      sid, null, `【${line}】${title}`, b.standard || '', sm, 'once', null, d, d, due, b.need_photo ? 1 : 0, 'line', u.id, at, null, line, min, d === date ? 0 : 1);
+    out.n++; if (d !== date) out.deferred.push({ sid, name: sname(sid), date: d }); if (d <= L.today()) todayS.push(sid);
+    D.notify(D.storeManagers(sid), 'assign', `${line}条线任务：${title}`, `${d} ${due} 前完成，预计占用 ${min} 分钟${d !== date ? '（当天条线负荷已满，已顺延）' : ''}`, '#/home');
+  } });
+  if (todayS.length) D.ensureInstances(L.today(), todayS);
+  D.audit(u.id, null, '条线派发', `${title} → ${out.n} 家门店，顺延 ${out.deferred.length}`);
+  res.json(out);
+});
+app.get('/api/load', (req, res) => {
+  const sid = Number(req.query.store) || req.u.store_id; if (!sid || !visibleStores(req.u).includes(sid)) return deny(res);
+  const t = L.today(), items = q(`SELECT f.id, f.title, f.line, f.minutes, f.deferred, f.due_time, c.name creator, i.id iid, i.status FROM flex_tasks f LEFT JOIN users c ON c.id=f.created_by
+    LEFT JOIN instances i ON i.src='flex' AND i.src_id=f.id AND i.date=? WHERE f.store_id=? AND f.source='line' AND f.active=1 AND f.start_date=? ORDER BY f.due_time`, t, sid, t);
+  const lines = {}; for (const x of items) { const g = lines[x.line] ||= { line: x.line, m: 0, n: 0 }; g.m += x.minutes || 0; g.n++; }
+  res.json({ cap: D.getSetting('sm_load_cap', 60), total: items.reduce((a, x) => a + (x.minutes || 0), 0), lines: Object.values(lines), items,
+    next: q1("SELECT COUNT(*) n FROM flex_tasks WHERE store_id=? AND source='line' AND active=1 AND start_date>?", sid, t).n });
+});
+app.get('/api/dispatch/stats', (req, res) => {
+  const u = req.u; if (u.level === 'staff' || u.level === 'store_manager') return deny(res);
+  const sids = visibleStores(u), cap = D.getSetting('sm_load_cap', 60), line = LINES[u.level] || null;
+  if (!sids.length) return res.json({ cap, lines: [], top: [], over: 0, stores: 0, mine: [], line });
+  const IN = sids.map(Number).join(','), t = L.today(), from = L.addDays(t, -6);
+  const lines = q(`SELECT line, COUNT(*) n, COUNT(DISTINCT store_id) stores, SUM(minutes) m, SUM(deferred) deferred FROM flex_tasks WHERE source='line' AND store_id IN (${IN}) AND start_date BETWEEN ? AND ? GROUP BY line ORDER BY m DESC`, from, t);
+  const top = q(`SELECT f.store_id sid, s.name, SUM(f.minutes) m, COUNT(*) n FROM flex_tasks f JOIN stores s ON s.id=f.store_id WHERE f.source='line' AND f.active=1 AND f.start_date=? AND f.store_id IN (${IN}) GROUP BY f.store_id ORDER BY m DESC LIMIT 10`, t);
+  const over = q1(`SELECT COUNT(*) n FROM (SELECT store_id FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? AND store_id IN (${IN}) GROUP BY store_id HAVING SUM(minutes)>?)`, t, cap).n;
+  const mine = q("SELECT title, COUNT(*) n, SUM(deferred) deferred, created_at FROM flex_tasks WHERE source='line' AND created_by=? GROUP BY title, created_at ORDER BY created_at DESC LIMIT 10", u.id);
+  res.json({ cap, lines, top, over, stores: sids.length, mine, line });
+});
 app.get('/api/exceptions', (req, res) => {
   const u = req.u; if (u.level === 'staff' || u.level === 'store_manager') return deny(res);
   const sids = visibleStores(u); if (!sids.length) return res.json({ stores: [] });
@@ -3302,7 +3344,7 @@ function tick() {
     for (const [sid, list] of Object.entries(escBy)) D.notify(D.storeManagers(Number(sid)), 'escalate', list.length > 1 ? `超时升级：${list[0].store_name} ${list.length} 项任务超时` : `超时升级：${list[0].title}`,
       brief(list) + `，已超时 ${esc} 分钟以上。`, '#/tasks?store=' + sid);
     for (const [sid, list] of Object.entries(esc2By)) D.notify(coachesOf(Number(sid)), 'escalate', `二级升级：${list[0].store_name} ${list.length} 项任务店长未处理`, brief(list) + `，超时 ${esc2} 分钟或属清零项。`, '#/cdesk');
-    for (const r of q("SELECT i.store_id, st.name, st.region_id, COUNT(*) n FROM instances i JOIN stores st ON st.id=i.store_id WHERE i.date=? AND i.escalated>=1 GROUP BY i.store_id HAVING n>=? AND NOT EXISTS (SELECT 1 FROM esc_events x WHERE x.date=i.date AND x.store_id=i.store_id AND x.level=3)", date, esc3)) {
+    for (const r of q("SELECT i.store_id, st.name, st.region_id, COUNT(*) n FROM instances i JOIN stores st ON st.id=i.store_id WHERE i.date=? AND i.escalated>=1 AND i.status!='done' GROUP BY i.store_id HAVING n>=? AND NOT EXISTS (SELECT 1 FROM esc_events x WHERE x.date=i.date AND x.store_id=i.store_id AND x.level=3)", date, esc3)) {
       ev.run(date, r.store_id, null, 3, `当天 ${r.n} 项任务超时`, '', at0);
       D.notify(D.regionUsers(r.region_id, 'region_manager'), 'escalate', `三级升级：${r.name} 当天 ${r.n} 项任务超时`, '已进入例外清单，请联系教练和店长跟进', '#/cdesk');
     }

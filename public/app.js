@@ -124,15 +124,15 @@ const NAV = {
   store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['value', '减负统计'], ['deleg', '任务授权'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
-  coach: [['sec', '教练'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  train_manager: [['sec', '培训'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  dev_manager: [['sec', '门店发展'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  build_manager: [['sec', '项目管理'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
-  hr_manager: [['sec', '人事'], ['hrm', '人事指标'], ['care', '员工美好'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['dataauth', '数据授权'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  ops_manager: [['sec', '区域运营'], ['dash', '区域运营看板'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['hrm', '人事指标'], ['care', '员工美好'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  sales_manager: [['sec', '区域销售'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
-  region_manager: [['sec', '全局'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
+  coach: [['sec', '教练'], ['dispatch', '条线派发'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['dispatch', '条线派发'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  train_manager: [['sec', '培训'], ['dispatch', '条线派发'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
+  dev_manager: [['sec', '门店发展'], ['dispatch', '条线派发'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
+  build_manager: [['sec', '项目管理'], ['dispatch', '条线派发'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
+  hr_manager: [['sec', '人事'], ['dispatch', '条线派发'], ['hrm', '人事指标'], ['care', '员工美好'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['dataauth', '数据授权'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  ops_manager: [['sec', '区域运营'], ['dispatch', '条线派发'], ['dash', '区域运营看板'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['hrm', '人事指标'], ['care', '员工美好'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  sales_manager: [['sec', '区域销售'], ['dispatch', '条线派发'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
+  region_manager: [['sec', '全局'], ['dispatch', '条线派发'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
@@ -1003,6 +1003,7 @@ VIEWS.settings = async () => {
       <label class="f"><span>每日定点提醒时间（逗号分隔）</span><input name="times" value="${esc(st.reminder_times.join(','))}"></label>
       <label class="f"><span>超时多少分钟后升级提醒店长</span><input type="number" name="esc" value="${st.escalate_minutes}"></label>
       <label class="f"><span>超时多少分钟后升级到教练（清零项立即升级）</span><input type="number" name="esc2" value="${st.escalate2_minutes}"></label>
+      <label class="f"><span>店长每天条线任务上限（分钟）</span><input type="number" name="cap" value="${st.sm_load_cap}"></label>
       <label class="f"><span>一家门店当天超时多少项进城市总例外清单</span><input type="number" name="esc3" value="${st.escalate3_count}"></label>
       <button class="btn">保存</button></form></div>
     <div class="card"><h3>品牌标准 / 巡店评分表</h3><p class="small">已融合《品牌审计线下检查标准 2026Q3（全季）》${st.audit_count} 条及 M-L-F 分解：自动生成门店固定工作，巡店按同一套条款打分。</p><a class="btn" href="#/standards">打开品牌标准库</a></div>
@@ -1016,7 +1017,7 @@ VIEWS.settings = async () => {
   $('#fr').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/roles', formData(e.target)), '岗位已新增')) reload(); };
   $('#fs').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/scenes', formData(e.target)), '场景已新增')) reload(); };
   document.querySelectorAll('[data-sc]').forEach(a => a.onclick = () => confirm('停用该场景？其下固定工作将不再生成') && act(async () => { await api('/scenes', { id: Number(a.dataset.sc), active: 0 }); reload(); }, '已停用'));
-  $('#fm').onsubmit = async e => { e.preventDefault(); const d = formData(e.target); if (await act(() => api('/settings', { reminder_times: d.times.split(/[,，\s]+/).filter(Boolean), escalate_minutes: d.esc, escalate2_minutes: d.esc2, escalate3_count: d.esc3 }), '已保存')) reload(); };
+  $('#fm').onsubmit = async e => { e.preventDefault(); const d = formData(e.target); if (await act(() => api('/settings', { reminder_times: d.times.split(/[,，\s]+/).filter(Boolean), escalate_minutes: d.esc, escalate2_minutes: d.esc2, escalate3_count: d.esc3, sm_load_cap: d.cap }), '已保存')) reload(); };
   const edit = tplEdit;
   $('#nt').onclick = () => edit({});
   document.querySelectorAll('[data-et]').forEach(b => b.onclick = () => edit(tpls.find(t => t.id === Number(b.dataset.et))));
@@ -1742,6 +1743,36 @@ function rhythmBar(R = RHYTHM) {
 const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
 const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
   ${m.leave ? '<span class="tag warn">休息</span>' : `<span class="small">${m.today.done}/${m.today.total}${m.today.overdue ? ` · <em class="bad">超时${m.today.overdue}</em>` : ''}</span>`}<span class="muted small">30天合格 ${pct(m.s30.pass)}</span></a>`;
+async function loadCard(sid) {
+  const d = await api(`/load?store=${sid}`).catch(() => null), w = $('#nac') || $('#topw');
+  if (!d || !w) return;
+  const pct = Math.min(100, Math.round(d.total * 100 / d.cap));
+  w.insertAdjacentHTML(w.id === 'nac' ? 'afterend' : 'afterbegin', `<div class="card" id="ldc"><div class="row between"><b>今日条线任务</b><span class="small ${d.total > d.cap ? 'warn' : 'muted'}">${d.total} / ${d.cap} 分钟</span></div>
+    <div style="height:6px;border-radius:3px;background:#eef0f3;margin:6px 0"><div style="height:6px;border-radius:3px;width:${pct}%;background:${d.total > d.cap ? '#f54a45' : '#3370ff'}"></div></div>
+    <div class="muted small">${d.lines.map(l => `${esc(l.line)} ${l.n} 项 ${l.m} 分钟`).join(' · ') || '今天各条线没有派任务'}${d.next ? ` · 已顺延到后面 ${d.next} 项` : ''}</div>
+    ${d.items.filter(x => x.status !== 'done').slice(0, 3).map(x => `<a class="task" href="${x.iid ? '#/task/' + x.iid : '#/home'}"><div class="b"><div class="ttl">${esc(x.due_time)} ${esc(x.title)}</div><div class="muted small">${esc(x.creator || '')} · 约 ${x.minutes} 分钟</div></div></a>`).join('')}</div>`);
+}
+VIEWS.dispatch = async () => {
+  const d = await api('/dispatch/stats');
+  $('#main').innerHTML = `<div class="row between"><h1>条线派发</h1>${d.line ? '<button class="btn primary" id="nd">向门店派任务</button>' : ''}</div>
+  <p class="muted small" style="margin-top:-6px">人事、培训、营销、开发、工程、运营等条线的门店工作统一从这里派发，直接进店长当天待办。每家店店长每天条线任务上限 ${d.cap} 分钟，超出的自动顺延到下一个有空的日子，紧急任务除外。</p>
+  <div class="card"><b>近 7 天各条线派发</b><table class="tbl"><tr><th>条线</th><th>任务</th><th>门店</th><th>占用店长分钟</th><th>顺延</th></tr>${d.lines.map(l => `<tr><td>${esc(l.line)}</td><td>${l.n}</td><td>${l.stores}</td><td>${l.m}</td><td>${l.deferred}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">暂无</td></tr>'}</table></div>
+  <div class="card"><div class="row between"><b>今日店长条线负荷最高的门店</b><span class="muted small">${d.over} / ${d.stores} 家超上限</span></div>${d.top.map(x => `<div class="row between" style="padding:4px 0"><span>${esc(x.name)}</span><span class="small ${x.m > d.cap ? 'warn' : 'muted'}">${x.m} 分钟 · ${x.n} 项</span></div>`).join('') || '<div class="empty">今天没有条线任务</div>'}</div>
+  ${d.mine.length ? `<div class="card"><b>我最近派发的</b>${d.mine.map(x => `<div class="row between" style="padding:4px 0"><span>${esc(x.title)}</span><span class="muted small">${x.n} 家${x.deferred ? `，顺延 ${x.deferred}` : ''}</span></div>`).join('')}</div>` : ''}`;
+  if (d.line) $('#nd').onclick = () => modal('向门店派任务', `<form id="df">
+    <label class="f"><span>任务名称</span><input name="title" required></label>
+    <label class="f"><span>标准 / 要求</span><textarea name="standard"></textarea></label>
+    <label class="f"><span>预计占用店长（分钟）</span><input type="number" name="minutes" value="15"></label>
+    <label class="f"><span>日期</span><input type="date" name="date" value="${S.me.today}"></label>
+    <label class="f"><span>完成时间</span><input type="time" name="due_time" value="17:00"></label>
+    <label class="f"><span>门店（可多选）</span><select name="stores" multiple size="6"><option value="all" selected>全部可见门店（${d.stores} 家）</option>${storeOptions()}</select></label>
+    <label class="row"><input type="checkbox" name="urgent"> 紧急：不受负荷上限，当天必须完成</label>
+    <label class="row"><input type="checkbox" name="need_photo"> 需要拍照</label>
+    <button class="btn primary">派发</button></form>`, m => { m.querySelector('#df').onsubmit = async e => {
+      e.preventDefault(); const f = e.target, sel = [...f.stores.selectedOptions].map(o => o.value);
+      try { const r = await api('/dispatch', { title: f.title.value, standard: f.standard.value, minutes: f.minutes.value, date: f.date.value, due_time: f.due_time.value, stores: sel.includes('all') ? 'all' : sel.map(Number), urgent: f.urgent.checked, need_photo: f.need_photo.checked });
+        closeModal(); toast(`已派发 ${r.n} 家门店${r.deferred.length ? `，${r.deferred.length} 家当天负荷已满已顺延` : ''}`); VIEWS.dispatch(); } catch (x) { toast(x.message, true); } }; });
+};
 async function nightCard(sid) {
   const n = await api(`/night-audit?store=${sid}`).catch(() => null), w = $('#topw');
   if (!n || !w) return;
@@ -1776,7 +1807,7 @@ async function managerHome() {
   <div class="scgrid">${Object.entries(groups).map(([g, ts]) => { const d2 = ts.filter(t => t.status === 'done').length, rr = Math.round(d2 * 100 / ts.length), o2 = ts.filter(t => t.overdue).length;
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
   { const sg = $('.scgrid'), t = $('#topw'); if (sg && t) { const w = document.createElement('div'); w.id = 'scops'; w.append(sg.previousElementSibling, sg); t.after(w); } }
-  nightCard(sid);
+  nightCard(sid).then(() => loadCard(sid));
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');

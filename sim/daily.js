@@ -28,6 +28,15 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
 (async () => {
   const t0 = Date.now(), act = { done: 0, checked: 0, bad: 0, rsub: 0, rver: 0, patrol: 0 };
   await call(sms(1)[0] || 4, '/home');                   // 触发当天任务生成
+  // 0. 职能条线：每天第一轮各条线向本区域部分门店派任务，走统一出口和店长负荷上限
+  const LT = { hr_manager: ['员工档案信息核对', '新员工入职面谈'], train_manager: ['本周岗位技能抽考', '服务标准微课学习'], sales_manager: ['周末房价与渠道检查', 'OTA 点评回复'],
+    dev_manager: ['门店业主满意度回访'], build_manager: ['消防设施月检拍照'], ops_manager: ['能耗抄表上报', '早餐出品抽检'] };
+  if (!q1("SELECT 1 FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=? LIMIT 1", today)) {
+    for (const u of q("SELECT u.id, u.region_id, r.level FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level IN ('hr_manager','train_manager','sales_manager','dev_manager','build_manager','ops_manager')")) {
+      const ss = q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(x => x.id).filter(() => rnd() < 0.4), ts = LT[u.level];
+      if (ss.length) await call(u.id, '/dispatch', { title: ts[Math.floor(rnd() * ts.length)], minutes: [10, 15, 20, 30][Math.floor(rnd() * 4)], date: today, due_time: '16:00', stores: ss, urgent: rnd() < 0.05 });
+    }
+  }
   // 1. 一线员工：按门店执行力完成今日任务，其余漏做
   const hm = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16);   // 当前时间 + 1 小时内到期的任务
   const inst = q("SELECT id, store_id, assignee_id, need_photo FROM instances WHERE date=? AND status='pending' AND assignee_id IS NOT NULL AND (due_time IS NULL OR due_time<=? OR ?='1')", today, hm, process.env.FINAL || '');
@@ -66,13 +75,15 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   const rect = q1("SELECT SUM(status!='closed') open, SUM(status!='closed' AND deadline<?) late, SUM(status='closed' AND substr(verified_at,1,10)=?) closed FROM rectifications", today, today);
   const regions = q("SELECT g.name, COUNT(*) n, SUM(i.status='done') d FROM instances i JOIN stores s ON s.id=i.store_id JOIN regions g ON g.id=s.region_id WHERE i.date=? GROUP BY g.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*)", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1) }));
   const worst = q("SELECT s.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.escalated>=1) e FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.date=? GROUP BY s.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*) LIMIT 10", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1), escalated: r.e }));
-  const rep = { date: today, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
+  const ln = (() => { try { return q1("SELECT COUNT(*) n, COALESCE(SUM(deferred),0) df, COUNT(DISTINCT store_id) st FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=?", today); } catch { return { n: 0, df: 0, st: 0 }; } })();
+  const ld = (() => { try { return q1("SELECT ROUND(AVG(m)) avg, MAX(m) mx, SUM(m>60) over FROM (SELECT SUM(minutes) m FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? GROUP BY store_id)", today); } catch { return {}; } })();
+  const rep = { date: today, lines: { ...ln, ...ld }, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
   const prevF = path.join(OUT, `sim-${addDays(today, -1)}.json`); if (fs.existsSync(prevF)) rep.prev = JSON.parse(fs.readFileSync(prevF)).today;
   fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, `sim-${today}.json`), JSON.stringify(rep, null, 1));
   const dv = (k, u = '') => rep.prev ? `（昨天 ${rep.prev[k]}${u}）` : '';
   const md = [`# 宏图每日模拟日报 ${today}（截至 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}）`, '', `- 今日任务 ${rep.today.tasks} 条，完成 ${rep.today.done} 条，完成率 ${rep.today.rate}%${dv('rate', '%')}`,
     `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}（其中升到教练 ${rep.today.esc2} 条${dv('esc2')}，进城市总例外清单门店 ${rep.today.esc3} 家）；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
-    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`,
+    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.over ?? 0} 家`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,
     `- 接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${rep.secs} 秒`].join('\n');
   fs.writeFileSync(path.join(OUT, `sim-${today}.md`), md); console.log(md); console.log(JSON.stringify(stat.err));
