@@ -3374,6 +3374,44 @@ app.get('/api/stress', (req, res) => {
   res.json({ stores: sids.length, days: `${d7} 至 ${y}`, input: { absent, sm_stores: smStores, coach_stores: coachStores, line_x: lineX }, rows,
     max: { sm: Math.max(1, Math.floor(STRESS_CAP.store_manager * 0.8 / (smOne || 1))), coach: Math.floor(STRESS_CAP.coach * 0.8 / (coOne || 1)) }, minutes: STRESS_MIN, simulated: true });
 });
+const DS_STATUS = { demo: '模拟数据', pending: '对接中', live: '已接入' };
+const canDS = u => ['hq', 'region_manager'].includes(u.level);
+app.get('/api/datasources', (req, res) => {
+  if (!canDS(req.u)) return deny(res);
+  res.json({ list: q('SELECT * FROM data_sources ORDER BY id'), logs: q('SELECT * FROM import_log ORDER BY id DESC LIMIT 20'), edit: req.u.level === 'hq', key: D.getSetting('import_key', '') ? '已设置' : '' });
+});
+app.post('/api/datasources/:kind', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res, '只有总部可以修改数据源');
+  const b = req.body || {}, d = q1('SELECT * FROM data_sources WHERE kind=?', req.params.kind); if (!d || (b.status && !DS_STATUS[b.status])) return err(res, '数据源不存在');
+  run('UPDATE data_sources SET status=COALESCE(?,status), owner=COALESCE(?,owner), note=COALESCE(?,note) WHERE kind=?', b.status || null, b.owner ?? null, b.note ?? null, d.kind);
+  D.audit(req.u.id, null, '数据源设置', `${d.name} → ${DS_STATUS[b.status || d.status]}${b.owner ? '，对接人 ' + b.owner : ''}`); res.json({ ok: true });
+});
+function importRows(kind, rows, by) {
+  const d = q1('SELECT * FROM data_sources WHERE kind=?', kind); if (!d) return null;
+  const keys = new Set(d.metrics.split(',').map(x => x.split(' ')[0])), codes = new Map(q('SELECT id, code, name FROM stores').flatMap(s => [[String(s.code), s.id], [s.name, s.id]]));
+  const bad = [], at = L.nowStr(), batch = Date.now(), ins = D.db.prepare('INSERT OR REPLACE INTO ext_data VALUES(?,?,?,?,?,?,?)'); let ok = 0;
+  D.tx(() => rows.forEach((r, i) => {
+    const sid = codes.get(String(r.store_code ?? r.store ?? '').trim()), k = String(r.k ?? r.metric ?? '').trim(), v = Number(r.v ?? r.value);
+    const why = !sid ? '门店编码不存在' : !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '') ? '日期格式应为 YYYY-MM-DD' : !keys.has(k) ? `指标 ${k} 不在 ${[...keys].join('/')} 中` : !Number.isFinite(v) ? '数值不是数字' : null;
+    if (why) bad.push({ row: i + 1, why }); else { ins.run(kind, sid, r.date, k, v, r.txt || null, batch); ok++; }
+  }));
+  run('INSERT INTO import_log(source,at,by,total,ok,bad,err) VALUES(?,?,?,?,?,?,?)', kind, at, by, rows.length, ok, bad.length, JSON.stringify(bad.slice(0, 20)));
+  run('UPDATE data_sources SET last_at=?, rows=(SELECT COUNT(*) FROM ext_data WHERE source=?) WHERE kind=?', at, kind, kind);
+  return { total: rows.length, ok, bad: bad.slice(0, 50) };
+}
+const parseCsv = t => { const [h, ...ls] = String(t || '').trim().split(/\r?\n/).map(l => l.split(',').map(x => x.trim())); return h ? ls.filter(l => l.length > 1).map(l => Object.fromEntries(h.map((k, i) => [k, l[i]]))) : []; };
+app.post('/api/import/:kind', (req, res) => {
+  if (!canDS(req.u)) return deny(res);
+  const b = req.body || {}, rows = Array.isArray(b.rows) ? b.rows : parseCsv(b.csv);
+  if (!rows.length) return err(res, '没有数据：rows 为数组，或 csv 为带表头 store_code,date,k,v 的文本');
+  if (rows.length > 20000) return err(res, '单次最多 20000 行');
+  const r = importRows(req.params.kind, rows, req.u.name); if (!r) return err(res, '数据源不存在');
+  D.audit(req.u.id, null, '数据导入', `${req.params.kind} 共 ${r.total} 行，成功 ${r.ok}，失败 ${r.bad.length}`); res.json(r);
+});
+app.get('/api/ext-data', (req, res) => {
+  const sid = Number(req.query.store); if (!sid || !visibleStores(req.u).includes(sid)) return deny(res);
+  res.json(q('SELECT e.*, d.status FROM ext_data e JOIN data_sources d ON d.kind=e.source WHERE e.store_id=? AND e.date>=? ORDER BY e.date DESC', sid, L.addDays(L.today(), -30)));
+});
 const KPI_ROLES = ['coach', 'region_manager', 'ops_manager', 'hr_manager', 'train_manager', 'sales_manager', 'dev_manager', 'build_manager', 'hq'];
 function kpiOf(u) {
   const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';

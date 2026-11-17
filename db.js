@@ -59,6 +59,16 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec(`CREATE TABLE IF NOT EXISTS data_sources(id INTEGER PRIMARY KEY, kind TEXT UNIQUE, name TEXT, sys TEXT, metrics TEXT, owner TEXT, status TEXT DEFAULT 'demo', note TEXT, last_at TEXT, rows INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS ext_data(source TEXT, store_id INTEGER, date TEXT, k TEXT, v REAL, txt TEXT, batch INTEGER, PRIMARY KEY(source, store_id, date, k));
+CREATE TABLE IF NOT EXISTS import_log(id INTEGER PRIMARY KEY, source TEXT, at TEXT, by TEXT, total INTEGER, ok INTEGER, bad INTEGER, err TEXT)`);
+if (!db.prepare('SELECT 1 FROM data_sources LIMIT 1').get()) for (const r of [
+  ['pms', 'PMS 酒店管理系统', '华住 PMS', 'occ 出租率,adr 平均房价,revpar 每间可售房收入,rev 客房收入'],
+  ['hr', '人事系统', 'HR / 考勤', 'headcount 在职人数,leave 离职人数,attend 出勤率'],
+  ['review', '点评平台', '美团 / 携程 / 飞猪', 'score 点评分,bad 差评数,reply 回复率'],
+  ['energy', '能耗', '电表 / 水表', 'power 用电度数,water 用水吨数'],
+  ['finance', '财务', '财务系统', 'gop 经营毛利,cost 人工成本'],
+]) db.prepare("INSERT INTO data_sources(kind,name,sys,metrics,status,note) VALUES(?,?,?,?,'demo','当前使用模拟数据，等待 IT 提供接口')").run(...r);
 db.exec('CREATE TABLE IF NOT EXISTS handpack_ack(id INTEGER PRIMARY KEY, store_id INTEGER, user_id INTEGER, note TEXT, at TEXT)');
 db.exec('CREATE TABLE IF NOT EXISTS tpl_layers(tpl_id INTEGER, layer TEXT, scope_id INTEGER, off INTEGER, due_time TEXT, reason TEXT, by INTEGER, at TEXT, PRIMARY KEY(tpl_id, layer, scope_id))');
 db.exec('CREATE TABLE IF NOT EXISTS coach_stores(coach_id INTEGER, store_id INTEGER, by INTEGER, at TEXT, PRIMARY KEY(coach_id, store_id))');
