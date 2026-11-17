@@ -3424,7 +3424,7 @@ function kpiOf(u) {
   const l3 = () => { const days = Number(t.slice(8, 10)), n = q1(`SELECT COUNT(*) n FROM esc_events WHERE level=3 AND date>=? AND store_id IN (${IN})`, m0).n; return [Math.max(0, 100 - P(n, sids.length * days)), `进例外清单 ${n} 店次`]; };
   const line = () => { const f = q("SELECT id, deferred FROM flex_tasks WHERE source='line' AND created_by=? AND start_date BETWEEN ? AND ?", u.id, m0, t); const ids = f.map(x => x.id).join(',') || 'NULL';
     const r = q1(`SELECT COUNT(*) n, SUM(status='done') d FROM instances WHERE src='flex' AND src_id IN (${ids}) AND (date<? OR status='done')`, t); const df = f.filter(x => x.deferred).length;
-    return { done: [P(r.d || 0, r.n), `门店完成 ${r.d || 0}/${r.n}`], cap: [100 - P(df, f.length), `派发 ${f.length} 条，因店长负荷满顺延 ${df} 条`] }; };
+    return { done: [P(r.d || 0, r.n), r.n ? `门店完成 ${r.d || 0}/${r.n}` : '本月派发的任务还没到期'], cap: [100 - P(df, f.length), `派发 ${f.length} 条，因店长负荷满顺延 ${df} 条`] }; };
   const it = (l, w, [v, note]) => ({ l, w, v, note });
   let items;
   if (u.level === 'coach') items = [it('负责门店画像均分', 40, [avg(), `${sids.length} 家门店`]), it('升级例外处理', 20, esc2()), it('整改按期闭环', 20, rect()), it('巡店计划完成', 20, patrol())];

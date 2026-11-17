@@ -1874,7 +1874,7 @@ VIEWS.tpllayer = async () => {
   for (const t of d.list) (groups[t.scene_name] ||= []).push(t);
   const src = t => t.layer && t.layer !== 'hq' ? `<span class="tag">${{ province: '省区', region: '区域', store: '门店' }[t.layer]}新增</span>` : '';
   const by = (k, t) => t.eff[k] && t.eff[k] !== layer ? `<span class="muted small">（${{ hq: '总部', province: '省区', region: '区域', store: '门店' }[t.eff[k]]}已调整）</span>` : '';
-  $('#main').innerHTML = `<div class="row between"><h1>任务模板分层</h1><button class="btn primary" id="nt" ${layer === 'hq' ? 'hidden' : ''}>本层新增任务</button></div>
+  $('#main').innerHTML = `<div class="row between"><h1>任务模板分层</h1>${layer === 'hq' ? '' : '<button class="btn primary" id="nt">本层新增任务</button>'}</div>
   <p class="muted small" style="margin-top:-6px">总部定统一标准，省区、区域、门店逐层增减：可以停用不适用的任务、调整完成时间，也可以加本层特有的任务。下层的调整优先；清零项只能由总部停用。修改明天起生效，每次改动都有记录。</p>
   ${opts.length > 1 ? `<div class="seg">${opts.map(([k, n]) => `<a class="${k === layer ? 'on' : ''}" href="#/tpllayer?layer=${k}">${n}</a>`).join('')}</div>` : ''}
   ${layer === 'store' ? storeSwitch('#/tpllayer', '&layer=store') : ''}
