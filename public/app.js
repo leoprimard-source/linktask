@@ -121,7 +121,7 @@ function storeSwitch(route, extra = '') {
 // ---------- nav ----------
 const NAV = {
   staff: [['sec', '我的工作'], ['my', '我的任务'], ['mycare', '员工美好'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['engage', '敬业度调研'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['value', '减负统计'], ['deleg', '任务授权'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['insight', '员工执行洞察'], ['value', '减负统计'], ['deleg', '任务授权'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['tpllayer', '任务模板分层'], ['handpack', '门店交接包'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
   coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
@@ -138,7 +138,7 @@ const NAV = {
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
 };
 const HOME = { coach: 'coach', hq: 'hq', train_manager: 'home', dev_manager: 'home', build_manager: 'home', hr_manager: 'home', staff: 'home', store_manager: 'home', ops_manager: 'home', sales_manager: 'home', region_manager: 'home' };
-const COMMON = ['dayrep', 'stage', 'rsv', 'home', 'work', 'me', 'notices', 'todo', 'appr', 'cal', 'dir', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
+const COMMON = ['dailypush', 'dayrep', 'stage', 'rsv', 'home', 'work', 'me', 'notices', 'todo', 'appr', 'cal', 'dir', 'my', 'my-rect', 'standards', 'feed', 'group', 'task', 'app', 'upper', 'must', 'crew', 'person', 'leader', 'hrp', 'sp', 'frs', 'sbiz', 'report', 'repair', 'proj', 'proc', 'train', 'pay', 'shift', 'yi', 'complaints', 'safety', 'labor', 'suppliers', 'diag', 'onboard', 'engage', 'wcal', 'coach', 'hq', 'hrm', 'care', 'mycare', 'help'];
 const rectRoute = () => (S.me.level === 'staff' ? 'my-rect' : 'rect');
 const CENTER = { coach: '教练中心', hq: '总部视角', train_manager: '培训中心', dev_manager: '发展中心', build_manager: '项目中心', hr_manager: '人事中心', staff: '我的', store_manager: '店长中心', ops_manager: '运营中心', sales_manager: '营销中心', region_manager: '区域中心' };
 const ICON = {
@@ -1474,6 +1474,11 @@ VIEWS.me = async () => {
   if ($('#savecard')) api('/save/sum').then(v => { $('#savecard').outerHTML = `<div class="card" style="margin:10px 0"><div class="row between"><b>宏图帮我减负</b><a class="small" href="#/value">明细 ›</a></div>
     <div class="row" style="gap:18px;margin-top:6px"><div><div class="muted small">累计节约</div><b style="font-size:20px">${hm2(v.all.min)}</b></div><div><div class="muted small">累计带教</div><b style="font-size:20px">${v.all.teach} 次</b></div><div><div class="muted small">近 7 天</div><b style="font-size:20px">${hm2(v.week.min)}</b></div></div>
     <div class="muted small" style="margin-top:4px">${v.by.map(x => `${esc(x.label)} ${x.n} 次`).join(' · ') || '完成跨系统任务、授权、查看运营简报后自动累计'}；每周一推送减负周报。</div></div>`; }).catch(() => {});
+  if (!staff && $('.pf-score')) api('/facility?store=' + sid).then(f => { const L2 = { ok: ['绿灯', '达标', 'var(--ok)'], warn: ['黄灯', '预警', 'var(--warn)'], bad: ['红灯', '不达标', 'var(--bad)'] }, lt = L2[f.light];
+    $('.pf-score').insertAdjacentHTML('afterend', `<div class="card" style="margin:10px 0"><div class="row between"><b>运维 · 设施体检</b><span class="tag">模拟数据</span></div>
+      <details style="margin-top:6px"><summary class="row between" style="cursor:pointer"><span>最近体检分数 <span class="muted small">${esc(f.date)}</span></span><span><b style="font-size:20px;color:${lt[2]}">${f.total}</b> <span class="tag" style="color:${lt[2]}">● ${lt[0]} ${lt[1]}</span></span></summary>
+      ${f.layers.map(x => `<div class="bsec-r"><span>${esc(x.name)}</span><b style="color:${L2[x.light][2]}">${x.score}</b></div>`).join('')}</details>
+      <p class="muted small">≥80 绿灯达标，60–79 黄灯预警，<60 红灯不达标。接入设施体检系统后自动同步。</p></div>`); }).catch(() => {});
   if ($('#ymsel')) $('#ymsel').onchange = e => { location.hash = link({ ym: e.target.value }); };
   $('#q').onclick = () => modal('综合分怎么算', `<p>综合分 = 健康度 × 60% + 任务完成率 × 40%。</p><p>健康度：${d.indicators.length} 项指标中，达标计 100 分，预警计 60 分，异常计 0 分，取平均。指标包括任务执行、抽查质量、品牌标准（清零项、M2 复查、F4 群拍等）、场景完成率${staff ? '' : '和经营数据'}。</p><p class="muted small">经营数据为模拟数据。</p>`);
   const hd = only => modal(staff ? '我的工作健康度' : '门店健康度详情', ['bad', 'warn', 'ok'].filter(k => !only || k === only).map(k => {
@@ -1964,6 +1969,24 @@ async function nightCard(sid) {
 const hm2 = m => (m >= 60 ? (m / 60).toFixed(1) + ' 小时' : m + ' 分钟');
 const saveToast = x => { if (x) toast(`本次${x.label}为你节约约 ${x.min} 分钟${x.teach ? `，带教 ${x.teach} 次` : ''}。累计节约 ${hm2(x.total_min)}`); };
 async function valueTip(kind, key) { if (S.me.level !== 'store_manager') return; const r = await api('/save', { kind, key }).catch(() => null); if (r) saveToast(r.saved); }
+VIEWS.insight = async () => {
+  const sid = pickStore(qs().get('store')), d = await api('/insight?store=' + sid);
+  $('#main').innerHTML = `<h1>员工执行洞察周报</h1><p class="muted small">${esc(d.from)} 至 ${esc(d.to)}（上一自然周）· 每周一自动推送 · 画像按规则生成</p>
+  <div class="card"><b>一、授权任务完成情况</b><p class="small">授权 ${d.deleg.total} 项，完成 ${d.deleg.done} 项${d.deleg.rate != null ? `，完成率 ${d.deleg.rate}%` : ''}</p>
+    ${d.people.map(p => `<div class="bsec-r"><span>${esc(p.name)}</span><b class="${p.rate < 90 || p.qual < 85 ? 'red' : ''}">完成 ${p.done}/${p.total} · ${p.rate}% · 抽查合格 ${p.qual}%</b></div>`).join('') || '<p class="muted small">上周没有员工任务数据</p>'}</div>
+  <div class="card" style="margin:10px 0"><b>二、员工执行表现洞察</b><div class="quad">${d.quads.map(x => `<div class="q-${x.k}"><b>${esc(x.name)} ${x.people.length} 人</b><p class="small">${esc(x.people.join('、') || '—')}</p><p class="muted small">${esc(x.tip)}</p></div>`).join('')}</div></div>
+  <div class="card" style="margin:10px 0"><b>三、本周管理建议</b>${d.advice.map((a, i) => `<p class="small">${i + 1}. ${esc(a)}</p>`).join('') || '<p class="muted small">本周员工执行良好，保持表扬即可</p>'}</div>
+  <div class="card" style="margin:10px 0"><b>沟通话术（可编辑后发送）</b>${d.people.map(p => `<label class="row small" style="margin-top:8px"><input type="checkbox" data-u="${p.uid}" ${p.quad !== 'star' ? 'checked' : ''}> ${esc(p.name)} · ${esc(d.quads.find(x => x.k === p.quad).name)}</label><textarea data-t="${p.uid}" rows="2" style="width:100%">${esc(p.msg)}</textarea>`).join('')}
+    ${d.people.length ? '<button class="btn primary" id="isend" style="margin-top:8px">一键发送给勾选员工</button>' : ''}</div>`;
+  if ($('#isend')) $('#isend').onclick = async () => { const items = [...document.querySelectorAll('[data-u]:checked')].map(c => ({ uid: c.dataset.u, text: $(`[data-t="${c.dataset.u}"]`).value })); const r = await act(() => api('/insight/send', { store: sid, items }), '已发送'); if (r) toast(`已发送给 ${r.n} 位员工`); };
+};
+VIEWS.dailypush = async () => {
+  const p = qs(), sid = pickStore(p.get('store')), d = await api(`/dailypush?store=${sid}&date=${p.get('date') || ''}`);
+  $('#main').innerHTML = `<h1>宏图日报</h1><p class="muted small">${esc(d.store)} · ${esc(d.date)} · 每天 06:30 按门店推送 <span class="tag">模拟数据</span></p>
+  ${d.sections.map(x => `<div class="card" style="margin:10px 0"><b>${esc(x.t)}</b>${x.rows ? x.rows.map(([l, v, red]) => `<div class="bsec-r"><span>${esc(l)}</span><b class="${red ? 'red' : ''}">${esc(String(v))}</b></div>`).join('') : x.tips.map(t => `<p class="small" style="margin:6px 0">· ${esc(t)}</p>`).join('')}</div>`).join('')}
+  <p class="muted small">接入 PMS、点评平台后替换为真实数据；建议按规则生成，不是 AI 预测。</p>`;
+  valueTip('day', 'push' + sid + d.date);
+};
 VIEWS.exempt = async () => {
   const d = await api('/exempt'), c = d.cfg;
   $('#main').innerHTML = `<h1>综合分豁免策略</h1>

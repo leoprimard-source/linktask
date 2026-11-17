@@ -798,8 +798,9 @@ function briefSections(sc, from, to, month, o, bz) {
     sec.push({ k: 'gop', t: 'GOP 体检', sim: true, rows: [
       { l: '数据不完整项', v: g.incomplete, red: g.incomplete > 0 },
       { l: '异常项', v: g.abnormal, red: g.abnormal > 0 },
-      { l: 'GOP 影响金额', v: g.impact ? '¥' + g.impact.toLocaleString() : '¥0', red: g.impact > 0 },
-      ...g.items.map(x => ({ l: x.name + '（已售单间夜成本）', v: x.incomplete ? '数据不完整' : `¥${x.cost} · 上月 ¥${x.last} · 同类 ¥${x.peer}`, red: x.incomplete || x.abnormal }))] });
+      ...g.items.filter(x => x.impact).map(x => ({ l: `${x.name}对 GOP 影响金额`, v: '¥' + x.impact.toLocaleString(), red: true })),
+      ...[...g.items].sort((a, b) => (b.incomplete - a.incomplete) || (b.abnormal - a.abnormal)).map(x => ({ l: x.name.slice(0, 2) + '体检结果', red: x.incomplete || x.abnormal,
+        v: x.incomplete ? (x.k === 'laundry' ? '未正确使用“洗涤平台”进行交接结算' : '财务数据录入不完整，无法判定') : `已售单间夜成本 ¥${x.cost}，${x.cost > x.last ? '高于' : '不高于'}上月 ¥${x.last}，${x.abnormal ? '较同类值偏高，建议核查领用与消耗' : '与同类值相当'}` }))] });
   }
   return sec;
 }
@@ -3653,6 +3654,72 @@ app.post('/api/night-audit/run', (req, res) => {
   const sid = Number(req.body.store); if (!sid || !canManage(req.u, sid)) return deny(res);
   res.json(runNightAudit(L.today(), [sid])[0]);
 });
+// ---------- BRD11 员工执行洞察周报（规则生成的四象限，非 AI 模型） ----------
+const QUAD = { star: ['优秀执行型', '任务完成率及提交质量均较好，建议持续表扬'], qual: ['质量提升型', '完成率较高但抽查不合格较多，建议加强操作标准培训'], eff: ['效率提升型', '完成质量较好但完成率有提升空间，建议加强任务跟进'], focus: ['重点辅导型', '完成率及提交质量均有提升空间，建议一对一辅导'] };
+const QUAD_MSG = { star: n => `${n}，本周你的任务完成又快又好，继续保持，谢谢！`, qual: n => `${n}，本周任务都按时做了，但有几项抽查没通过。我们一起再过一遍标准，下周争取一次通过。`, eff: n => `${n}，本周任务质量不错，还有几项没按时完成。上班先看一眼宏图待办，有困难随时找我。`, focus: n => `${n}，这周找个时间我们聊 15 分钟，一起把任务要求和完成标准再对一遍。` };
+function insightWeek(sid, ref) {
+  const t = ref || L.today(), ws = L.addDays(t, -(L.weekday(t) - 1) - 7), we = L.addDays(ws, 6);
+  const rows = q("SELECT i.assignee_id uid, u.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.check_result IS NOT NULL) ck, SUM(i.check_result='bad') bad, SUM(i.deleg_id IS NOT NULL) dg, SUM(i.deleg_id IS NOT NULL AND i.status='done') dgd FROM instances i JOIN users u ON u.id=i.assignee_id JOIN roles r ON r.id=u.role_id WHERE i.store_id=? AND i.date BETWEEN ? AND ? AND r.level='staff' GROUP BY i.assignee_id HAVING n>=3", sid, ws, we);
+  const people = rows.map(r => { const rate = Math.round(r.d * 100 / r.n), qual = r.ck ? Math.round((r.ck - r.bad) * 100 / r.ck) : 100, k = rate >= 90 ? (qual >= 85 ? 'star' : 'qual') : (qual >= 85 ? 'eff' : 'focus');
+    return { uid: r.uid, name: r.name, total: r.n, done: r.d, rate, checked: r.ck, bad: r.bad, qual, deleg: r.dg, deleg_done: r.dgd, quad: k, msg: QUAD_MSG[k](r.name) }; });
+  const quads = Object.entries(QUAD).map(([k, [name, tip]]) => ({ k, name, tip, people: people.filter(p => p.quad === k).map(p => p.name) }));
+  const dg = people.reduce((a, p) => a + p.deleg, 0), dgd = people.reduce((a, p) => a + p.deleg_done, 0);
+  const advice = [...people.filter(p => p.quad === 'qual').map(p => `对${p.name}加强任务标准培训，减少重复修改`), ...people.filter(p => p.quad === 'eff').map(p => `对${p.name}加强任务进度跟进，提升任务完成率`), ...people.filter(p => p.quad === 'focus').map(p => `对${p.name}开展一对一辅导，明确任务要求及完成标准`)].slice(0, 6);
+  return { from: ws, to: we, deleg: { total: dg, done: dgd, rate: dg ? Math.round(dgd * 100 / dg) : null }, people, quads, advice };
+}
+app.get('/api/insight', (req, res) => { const sid = Number(req.query.store); if (!canManage(req.u, sid)) return deny(res); res.json(insightWeek(sid)); });
+app.post('/api/insight/send', (req, res) => {
+  const sid = Number(req.body.store); if (!canManage(req.u, sid)) return deny(res);
+  const ok = new Set(q('SELECT id FROM users WHERE store_id=? AND active=1', sid).map(x => x.id)), xs = (req.body.items || []).filter(x => ok.has(Number(x.uid)) && String(x.text || '').trim());
+  if (!xs.length) return err(res, '请至少选择一位员工');
+  for (const x of xs) D.notify([Number(x.uid)], 'coach', `店长${req.u.name}的带教消息`, String(x.text).slice(0, 500), '#/my');
+  D.audit(req.u.id, sid, '员工洞察一键发消息', `${xs.length} 人`);
+  res.json({ ok: true, n: xs.length });
+});
+function insightPush(date) {
+  for (const st of q("SELECT id, name FROM stores WHERE COALESCE(lc_stage,'')!='退出'")) {
+    const ids = D.storeManagers(st.id); if (!ids.length) continue;
+    const r = insightWeek(st.id, date); if (!r.people.length) continue;
+    const c = k => r.quads.find(x => x.k === k).people.length;
+    D.notify(ids, 'report', `员工执行洞察周报 · ${st.name}`, `${r.from.slice(5)}~${r.to.slice(5)}：优秀执行 ${c('star')} 人、质量提升 ${c('qual')} 人、效率提升 ${c('eff')} 人、重点辅导 ${c('focus')} 人。已整理沟通话术，可预览编辑后一键发送。`, '#/insight?store=' + st.id);
+  }
+}
+// ---------- BRD11 设施体检（模拟，待接入设施体检系统）与 06:30 日报主动推送（模拟，待接入 PMS） ----------
+const FAC_LAYERS = ['安全管理', '差评管理', '设施完好', '保养执行', '设备完好', '制度执行'];
+const facLight = v => (v >= 80 ? 'ok' : v >= 60 ? 'warn' : 'bad');
+function facility(sid) {
+  const t = L.today(), m = t.slice(8) >= '05' ? t.slice(0, 8) : L.addDays(t.slice(0, 8) + '01', -1).slice(0, 8), date = m + '05';
+  const b = hash('fac' + sid), layers = FAC_LAYERS.map(n => { const v = Math.round(Math.min(100, 45 + b * 40 + hash('fl' + n + sid + m) * 25)); return { name: n, score: v, light: facLight(v) }; });
+  const total = Math.round(layers.reduce((a, x) => a + x.score, 0) / layers.length);
+  return { sim: true, date, total, light: facLight(total), layers };
+}
+app.get('/api/facility', (req, res) => { const sc = homeScope(req, res); if (!sc) return; res.json(facility(sc.sid)); });
+function dailyReport(sid, d) {
+  const b = bizDay(sid, d), h = k => hash('dp' + k + sid + d), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms || 120;
+  const mem = Math.round(48 + h('m') * 20), agt = Math.round(15 + h('a') * 15), corp = Math.round(8 + h('c') * 10), good = { ctrip: Math.round(h('g1') * 8), meituan: Math.round(h('g2') * 6), official: Math.round(h('g3') * 4) };
+  const appeal = b.bad ? Math.floor(h('ap') * (b.bad + 1)) : 0, occ = Math.round(b.occ * 1000) / 10;
+  const tips = [];
+  if (occ < 80) tips.push(`过夜率 ${occ}% 偏低，建议检查 OTA 价格和房态，晚间开放尾房促销`);
+  if (mem < 55) tips.push(`会员占比 ${mem}% 偏低，前台入住时主动推荐办卡`);
+  if (b.bad) tips.push(`昨日差评 ${b.bad} 条（${REVIEW_TOPICS[b.topic][0]}），今天班前会通报并安排复查`);
+  if (!tips.length) tips.push('各项指标正常，保持当前节奏');
+  return { sim: true, date: d, store: sname(sid), sections: [
+    { t: '经营核心指标', rows: [['过夜率', occ + '%', occ < 80], ['过夜均价', '¥' + Math.round(b.adr)], ['客房 RevPAR', '¥' + Math.round(b.revpar)], ['总房间数', rooms], ['时租数', Math.round(h('hr') * rooms * 0.08)], ['自用数', Math.round(h('su') * 3)]] },
+    { t: '客源结构', rows: [['会员占比', mem + '%', mem < 55], ['中介占比', agt + '%'], ['企业占比', corp + '%'], ['其他占比', Math.max(0, 100 - mem - agt - corp) + '%']] },
+    { t: '营销转化', rows: [['OTA 售卡转化率', (3 + h('ota') * 6).toFixed(1) + '%'], ['百间夜会员卡', (2 + h('mc') * 5).toFixed(1)], ['百间夜移动端', (10 + h('mb') * 20).toFixed(1)]] },
+    { t: '服务与品质', rows: [['携程好评数', good.ctrip], ['美团好评数', good.meituan], ['官渠好评数', good.official], ['昨日差评数', b.bad + (appeal ? `（宏图已帮您自动申诉 ${appeal} 条）` : ''), b.bad > 0], ['体验官入住感受', '未接入']] },
+    { t: '建议（规则生成）', tips }] };
+}
+app.get('/api/dailypush', (req, res) => { const sc = homeScope(req, res); if (!sc) return; res.json(dailyReport(sc.sid, req.query.date || L.addDays(L.today(), -1))); });
+function pushDaily(date) {
+  const y = L.addDays(date, -1); let n = 0;
+  for (const st of q("SELECT id, name FROM stores WHERE COALESCE(lc_stage,'')!='退出'")) {
+    const ids = D.storeManagers(st.id); if (!ids.length) continue;
+    const r = dailyReport(st.id, y), k = r.sections[0].rows, bad = r.sections[3].rows[3][1];
+    D.notify(ids, 'report', `【宏图日报】${st.name} ${Number(y.slice(5, 7))}月${Number(y.slice(8))}日`, `过夜率 ${k[0][1]} · 均价 ${k[1][1]} · RevPAR ${k[2][1]} · 差评 ${bad}。${r.sections[4].tips[0]}。（模拟数据）`, `#/dailypush?store=${st.id}&date=${y}`); n++;
+  }
+  return n;
+}
 // ---------- BRD11 综合分豁免：每月 1 日用上上月综合分（上月分 1 日 9:00 才产出），2 日起用上月；清零项永不豁免 ----------
 const exemptCfg = () => ({ on: true, min: 80, tags: ['关注项'], ...D.getSetting('exempt_cfg', {}) });
 const exemptRefYm = date => L.addDays(L.addDays(date.slice(0, 8) + '01', -1).slice(0, 8) + '01', date.endsWith('-01') ? -1 : 0).slice(0, 7);
@@ -3725,7 +3792,8 @@ function tick() {
     }
     D.ensureInstances(date);
     if (D.getSetting('exempt_done', '') !== date) { D.setSetting('exempt_done', date); const r = applyExempt(date); if (r.n) console.log('exempt', date, r); }
-    if (L.weekday(date) === 1 && time >= '09:00' && D.getSetting('save_week_sent', '') !== date) { D.setSetting('save_week_sent', date); saveWeekly(date); }
+    if (time >= '06:30' && D.getSetting('push_done', '') !== date) { D.setSetting('push_done', date); console.log('daily push', pushDaily(date)); }
+    if (L.weekday(date) === 1 && time >= '09:00' && D.getSetting('save_week_sent', '') !== date) { D.setSetting('save_week_sent', date); saveWeekly(date); insightPush(date); }
     if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
     const esc = D.getSetting('escalate_minutes', 30), esc2 = D.getSetting('escalate2_minutes', 120), esc3 = D.getSetting('escalate3_count', 5), escBy = {}, esc2By = {}, at0 = L.nowStr();
     const zt = new Set(q("SELECT id FROM templates WHERE tag='清零项'").map(r => r.id)), ev = D.db.prepare('INSERT INTO esc_events(date,store_id,inst_id,level,title,who,at) VALUES(?,?,?,?,?,?,?)');
