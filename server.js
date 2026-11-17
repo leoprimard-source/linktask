@@ -148,7 +148,7 @@ function pillarOf(r) {
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
   return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.due_date ? r.due_date < t : (r.date < t || (r.date === t && r.due_time < hm))),
-    covered: !r.deleg_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
+    covered: !r.deleg_id && r.assignee_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
 }
 
 // ---------- me / meta ----------
@@ -1396,6 +1396,8 @@ function buildInbox(u, query) {
     if (ids.length) { const n = q1(`SELECT COUNT(*) n FROM instances WHERE date=? AND status='done' AND check_result IS NULL AND assignee_id IN (${ids.map(() => '?').join(',')})`, t, ...ids).n; if (n) add('待点评', 'warn', `下级今日已完成 ${n} 项待点评`, '', '#/must'); }
   }
   if (u.level === 'store_manager' && sid) {
+    const ua = q("SELECT title, due_time FROM instances WHERE store_id=? AND date=? AND status='pending' AND assignee_id IS NULL ORDER BY due_time", sid, t);
+    if (ua.length) add('待指派', 'bad', `${ua.length} 项任务没有在班人员，待你指派`, ua.slice(0, 2).map(x => `${x.due_time} ${x.title}`).join('；'), `#/tasks?store=${sid}&st=unasg`);
     const fx = q("SELECT i.id, i.title FROM instances i WHERE i.store_id=? AND i.date=? AND i.origin='focus' AND i.status='pending'", sid, t);
     if (fx.length) add('上级安排', 'bad', `重点跟踪今日待落实 ${fx.length} 项`, fx[0].title, '#/upper');
     const ck = q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND status='done' AND check_result IS NULL", sid, t).n;
@@ -3346,7 +3348,7 @@ function runReminders(date, time, onlyStores) {
 const markMissed = () => run("UPDATE instances SET status='missed' WHERE status='pending' AND COALESCE(due_date, date)<?", L.today()).changes;
 function runNightAudit(date, sids) {
   const r = D.nightAudit(date, sids);
-  for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
+  for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `今天有 ${x.need} 项任务待指派`, '这些任务到点时没有合适的在班人员，请指派执行人', `#/tasks?store=${x.sid}&st=unasg`);
   return r;
 }
 // ---------- 事件日历：只提醒，不打卡、不计完成率、不计考核、不占条线负荷 ----------

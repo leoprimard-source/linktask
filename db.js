@@ -333,21 +333,24 @@ function refreshPending(storeId, d1, d2) {
   for (const d of new Set(rows.map(r => r.date))) applyDeleg(d);
 }
 
-// 夜审：每天凌晨按当天排班、请假、顶岗、授权重新派发当天未开始的任务；店长手动改派的不动
+// 按班派单（后台自动）：每天凌晨按当天排班、请假、顶岗、授权重新派发当天未开始的模板、定制、条线任务；店长手动改派的不动；找不到在班人员的先不派人，等店长指派
+const NEED_SM = '无合适在班人员，待店长指派';
 function nightAudit(date, storeIds) {
   const stores = storeIds && storeIds.length ? storeIds : q('SELECT id FROM stores').map(s => s.id), at = L.nowStr(), out = [];
   shiftReset(); ensureInstances0(date, stores);
-  const tpls = new Map(q('SELECT * FROM templates').map(t => [t.id, t]));
+  const tpls = new Map(q('SELECT * FROM templates').map(t => [t.id, t])), flex = new Map(q('SELECT id, assignee_id FROM flex_tasks').map(f => [f.id, f]));
   for (const sid of stores) {
     const sm = new Set(storeManagers(sid)); let moved = 0, need = 0;
-    const rows = q("SELECT * FROM instances WHERE store_id=? AND date=? AND status='pending' AND src='tpl' AND COALESCE(manual,0)=0 AND deleg_id IS NULL", sid, date);
+    const rows = q("SELECT * FROM instances WHERE store_id=? AND date=? AND status='pending' AND src IN ('tpl','flex') AND COALESCE(manual,0)=0 AND deleg_id IS NULL", sid, date);
     tx(() => {
       for (const r of rows) {
-        const tpl = tpls.get(r.src_id); if (!tpl) continue;
-        const own = baseAssignee(sid, tpl), base = shiftPick(sid, own, date, r.due_time), fin = coverFor(base, date, sid);
-        const why = fin === own ? null : sm.has(fin) && !sm.has(own) ? '无合适在班人员，待店长安排' : fin !== base ? '原负责人请假，由顶岗人执行' : '原负责人不在班，由在班同组人员执行';
-        if (why === '无合适在班人员，待店长安排') need++;
-        if (fin !== r.assignee_id || why !== r.why) { moved += fin !== r.assignee_id; run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, why=? WHERE id=?', fin, own, why, r.id); }
+        const src = r.src === 'tpl' ? tpls.get(r.src_id) : flex.get(r.src_id); if (!src) continue;
+        const own = r.src === 'tpl' ? baseAssignee(sid, src) : src.assignee_id; if (!own) continue;
+        const base = shiftPick(sid, own, date, r.due_time), c = coverFor(base, date, sid), none = sm.has(c) && !sm.has(own);
+        const fin = none ? null : c;
+        const why = fin === own ? null : none ? NEED_SM : fin !== base ? '原负责人请假，由顶岗人执行' : '原负责人不在班，由在班同组人员执行';
+        if (none) need++;
+        if (fin !== r.assignee_id || why !== r.why) { moved += fin !== r.assignee_id && !none; run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, why=? WHERE id=?', fin, own, why, r.id); }
       }
       run('INSERT OR REPLACE INTO night_audit VALUES(?,?,?,?,?,?)', date, sid, rows.length, moved, need, at);
     });
