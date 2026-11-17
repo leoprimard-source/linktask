@@ -72,6 +72,34 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     const results = {}; for (const c of codes) if (rnd() < (1 - storeQ(p.store_id)) * 0.3) results[c] = { result: 'fail', comment: '模拟巡店：现场未达标' };
     if (await call(p.created_by, `/patrols/${p.id}/complete`, { mode: 'full', results })) act.patrol++;
   }
+  // 4.5 BRD11：店长看运营日报（减负计时）、周一发员工洞察消息、经营月会按时召开或改期
+  const act2 = { view: 0, insight: 0, meetDone: 0, meetBad: 0, meetMove: 0 };
+  const smStores = q("SELECT us.user_id uid, us.store_id sid FROM user_stores us JOIN users u ON u.id=us.user_id JOIN stores s ON s.id=us.store_id WHERE u.active=1 AND (u.temp_until IS NULL) AND (s.lc_stage IS NULL OR s.lc_stage!='虚拟')");
+  await pool(smStores, 8, async x => { if (rnd() < storeQ(x.sid) && await call(x.uid, '/save', { kind: 'day', key: 'brief_day' + x.sid })) act2.view++; });
+  const wd = new Date(today + 'T00:00:00Z').getUTCDay(), insF = path.join(OUT, `insight-${today}.done`);
+  if (wd === 1 && !fs.existsSync(insF)) {
+    await pool(smStores, 6, async x => {
+      if (rnd() > storeQ(x.sid)) return;
+      const r = await call(x.uid, `/insight?store=${x.sid}`); const items = (r?.people || []).filter(p => p.quad !== 'star' || rnd() < 0.3).map(p => ({ uid: p.uid, text: p.msg }));
+      if (items.length && await call(x.uid, '/insight/send', { store: x.sid, items })) act2.insight++;
+    });
+    fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(insF, '1');
+  }
+  if (process.env.FINAL) {
+    const hq = q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE r.level='hq' AND u.active=1 ORDER BY u.id LIMIT 1")?.id;
+    const meets = (() => { try { return q("SELECT m.id, m.store_id, m.ym, m.sm_id, m.invite_rm, m.start_at FROM meetings m JOIN instances i ON i.id=m.inst_id WHERE m.status='pending' AND i.status='pending' AND substr(m.start_at,1,10)<=?", today); } catch { return []; } })();
+    for (const mt of meets) {
+      const g = storeQ(mt.store_id), r = rnd();
+      if (r < g * 0.45) { if ((await call(hq, '/huatong/meeting-callback', { hotel_id: mt.store_id, ym: mt.ym, minutes_url: `https://huatong.example/minutes/sim-${mt.id}`, valid: true, fr_joined: true, rm_joined: mt.invite_rm ? rnd() < 0.7 : false }))?.done) act2.meetDone++; }
+      else if (r < g * 0.5) { if (await call(hq, '/huatong/meeting-callback', { hotel_id: mt.store_id, ym: mt.ym, minutes_url: `https://huatong.example/minutes/sim-${mt.id}`, valid: rnd() < 0.5, fr_joined: false })) act2.meetBad++; }
+      else if (await call(mt.sm_id, `/meet/${mt.id}/time`, { start_at: addDays(today, 1 + Math.floor(rnd() * 3)) + ' ' + ['10:00', '14:00', '15:00', '16:30'][Math.floor(rnd() * 4)] })) act2.meetMove++;
+    }
+  }
+  const tryQ = (sql, ...a) => { try { return q1(sql, ...a); } catch { return {}; } };
+  const brd = { ...act2, meet: tryQ("SELECT COUNT(*) n, SUM(status='done') d, SUM(invite_rm) inv, SUM(rm_joined) rmj FROM meetings WHERE ym=?", today.slice(0, 7)),
+    save: tryQ('SELECT COUNT(DISTINCT user_id) u, COALESCE(SUM(min),0) min, COALESCE(SUM(teach),0) teach FROM saves WHERE date=?', today),
+    exempt: tryQ('SELECT COUNT(*) n, COUNT(DISTINCT store_id) st FROM exempts WHERE date=?', today),
+    push: tryQ("SELECT COUNT(*) n FROM notifications WHERE kind='report' AND substr(created_at,1,10)=? AND title LIKE '【宏图日报】%'", today) };
   // 5. 日报
   const m = d => {
     const r = q1("SELECT COUNT(*) n, SUM(status='done') d, SUM(escalated>=1) e, SUM(escalated=2) e2, SUM(check_result IS NOT NULL) c, SUM(check_result='bad') b FROM instances WHERE date=?", d);
@@ -82,7 +110,7 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   const worst = q("SELECT s.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.escalated>=1) e FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.date=? GROUP BY s.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*) LIMIT 10", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1), escalated: r.e }));
   const ln = (() => { try { return q1("SELECT COUNT(*) n, COALESCE(SUM(deferred),0) df, COUNT(DISTINCT store_id) st FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=?", today); } catch { return { n: 0, df: 0, st: 0 }; } })();
   const ld = (() => { try { return q1("SELECT ROUND(AVG(m)) avg, MAX(m) mx, SUM(m>60) ovr FROM (SELECT SUM(minutes) m FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? GROUP BY store_id)", today); } catch { return {}; } })();
-  const rep = { date: today, lines: { ...ln, ...ld }, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
+  const rep = { date: today, brd, lines: { ...ln, ...ld }, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
   const prevF = path.join(OUT, `sim-${addDays(today, -1)}.json`); if (fs.existsSync(prevF)) rep.prev = JSON.parse(fs.readFileSync(prevF)).today;
   fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, `sim-${today}.json`), JSON.stringify(rep, null, 1));
   const dv = (k, u = '') => rep.prev ? `（昨天 ${rep.prev[k]}${u}）` : '';
@@ -90,6 +118,8 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}（其中升到教练 ${rep.today.esc2} 条${dv('esc2')}，进城市总例外清单门店 ${rep.today.esc3} 家）；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
     `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.ovr ?? 0} 家`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,
+    `- BRD11：06:30 日报推送 ${brd.push.n || 0} 家；店长查看运营日报 ${brd.save.u || 0} 人，宏图减负合计 ${brd.save.min || 0} 分钟、带教 ${brd.save.teach || 0} 次；综合分豁免 ${brd.exempt.st || 0} 家店 ${brd.exempt.n || 0} 项`,
+    `- 经营月会（本月）：${brd.meet.d || 0}/${brd.meet.n || 0} 家已开完${brd.meet.inv ? `，区域经理受邀 ${brd.meet.inv} 家、已督导 ${brd.meet.rmj || 0} 家` : ''}；今天开完 ${act2.meetDone} 家，纪要无效或加盟商未参会 ${act2.meetBad} 家，改期 ${act2.meetMove} 家${act2.insight ? `；员工洞察消息 ${act2.insight} 位店长已发送` : ''}`,
     `- 接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${rep.secs} 秒`].join('\n');
   fs.writeFileSync(path.join(OUT, `sim-${today}.md`), md); console.log(md); console.log(JSON.stringify(stat.err));
 })();
