@@ -709,3 +709,15 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 .bsec-h::-webkit-details-marker{display:none}
 .bsec-c:not([open]) .bsec-h{margin-bottom:0}
 .tag.bad{background:var(--bad-soft,#FDECEC);color:var(--bad)}
+
+#hx-top>.sf-sum{margin-top:4px}
+#hx-more{margin-top:14px}
+.fold{padding:0;margin:0 0 8px;overflow:hidden}
+.fold>summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:13px 14px;cursor:pointer}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary .fb{color:var(--muted);font-size:12px;text-align:right;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.fold>summary::after{content:'›';color:var(--muted);font-size:18px;transition:transform .2s}
+.fold[open]>summary::after{transform:rotate(90deg)}
+.fold>.fbody{padding:0 10px 10px}
+.fold>.fbody>.card,.fold>.fbody>section{box-shadow:none;margin:0 0 8px;border:1px solid #F2F3F5}
+.fold>.fbody>.sec-t2:first-child{display:none}

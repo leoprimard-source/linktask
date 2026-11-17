@@ -3477,7 +3477,7 @@ const STRESS_MIN = { staff_task: 6, sm_task: 8, check: 3, rect: 5, esc1: 3, esc2
 const STRESS_CAP = { staff: 240, store_manager: 300, coach: 420, region_manager: 420 };
 app.get('/api/stress', (req, res) => {
   const u = req.u; if (!['hq', 'region_manager', 'coach'].includes(u.level)) return deny(res);
-  const sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL', N = sids.length || 1;
+  const sids = u.level === 'hq' ? q("SELECT id FROM stores WHERE COALESCE(lc_stage,'')!='虚拟'").map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL', N = sids.length || 1;
   const t = L.today(), d7 = L.addDays(t, -6), y = t, x = req.query;
   const absent = Math.min(50, Math.max(0, Number(x.absent ?? 10))), smStores = Math.min(10, Math.max(1, Number(x.sm_stores ?? 1))), coachStores = Math.min(120, Math.max(5, Number(x.coach_stores ?? 40))), lineX = Math.min(5, Math.max(0, Number(x.line_x ?? 1)));
   const cnt = (sql, ...p) => q1(sql, ...p).n || 0;
@@ -3544,7 +3544,7 @@ app.get('/api/ext-data', (req, res) => {
 });
 const KPI_ROLES = ['coach', 'region_manager', 'ops_manager', 'hr_manager', 'train_manager', 'sales_manager', 'dev_manager', 'build_manager', 'hq'];
 function kpiOf(u) {
-  const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';
+  const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q("SELECT id FROM stores WHERE COALESCE(lc_stage,'')!='虚拟'").map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';
   const P = (a, b) => (b ? Math.round(a * 100 / b) : 100);
   const avg = () => Math.round(sids.reduce((a, s) => a + storeScore(s).total, 0) / (sids.length || 1));
   const done = () => { const r = q1(`SELECT COUNT(*) n, SUM(status='done') d FROM instances WHERE date BETWEEN ? AND ? AND (date<? OR status='done') AND store_id IN (${IN})`, m0, t, t); return [P(r.d || 0, r.n), `完成 ${r.d || 0}/${r.n}`]; };
@@ -4724,7 +4724,7 @@ function backfillValue(n = 60) { const t = L.today(); let i = 1; const step = ()
 backfillValue();
 setInterval(() => { try { fillValue(L.addDays(L.today(), -1)); } catch (e) { console.error('value', e.message); } }, 10 * 60000);
 function valScope(u, qy) {
-  const all = q('SELECT id, name, region_id FROM stores');
+  const all = q("SELECT id, name, region_id FROM stores WHERE COALESCE(lc_stage,'')!='虚拟'");
   let ids, lvl;
   if (u.level === 'hq') { lvl = 'hq'; ids = all.map(s => s.id); }
   else if (['region_manager', 'coach'].includes(u.level)) { lvl = 'region'; ids = visibleStores(u); }

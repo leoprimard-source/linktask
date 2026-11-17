@@ -2034,7 +2034,7 @@ VIEWS.exempt = async () => {
 };
 async function exemptCard(sid) {
   const d = await api('/exempt?store=' + sid).catch(() => null); if (!d || !d.today.length || !$('#topw')) return;
-  $('#topw').insertAdjacentHTML('afterend', `<div class="card" style="margin:10px 0"><div class="row between"><b>综合分豁免 · 今日免做 ${d.today.length} 项</b><span class="tag">${esc(d.ref_ym.slice(5))} 月 ${d.score} 分</span></div><p class="muted small">${esc(d.rule)}，达到 ${d.cfg.min} 分，以下任务今天免做：${d.today.slice(0, 4).map(x => esc(x.title || '')).join('、')}${d.today.length > 4 ? ' 等' : ''}。清零项照常执行。</p></div>`);
+  $('#topw').insertAdjacentHTML('afterend', `<div class="card" id="exc" style="margin:10px 0"><div class="row between"><b>综合分豁免 · 今日免做 ${d.today.length} 项</b><span class="tag">${esc(d.ref_ym.slice(5))} 月 ${d.score} 分</span></div><p class="muted small">${esc(d.rule)}，达到 ${d.cfg.min} 分，以下任务今天免做：${d.today.slice(0, 4).map(x => esc(x.title || '')).join('、')}${d.today.length > 4 ? ' 等' : ''}。清零项照常执行。</p></div>`);
 }
 async function opsBriefCard(sid, mode = 'day') {
   const b = await api(`/brief?store=${sid}&mode=${mode}`).catch(() => null); if (!b || !b.sections) return;
@@ -2046,6 +2046,37 @@ async function opsBriefCard(sid, mode = 'day') {
     const el = document.createElement('div'); el.className = 'ai'; el.style.marginTop = '8px'; el.innerHTML = `<div class="ai-h"><span class="aiav">AI</span><div><b>早餐解读</b><div class="muted small">${esc(r.from.slice(5))} 至 ${esc(r.to.slice(5))} · 规则生成演示，数据为模拟</div></div></div>${r.parts.map(x => `<div style="margin-top:6px"><b>${esc(x.t)}</b>${x.rows.map(t => `<div class="small">· ${esc(t)}</div>`).join('')}</div>`).join('')}`; a.replaceWith(el); });
   $('#obrief').querySelectorAll('[data-bm]').forEach(a => a.onclick = () => { opsBriefCard(sid, a.dataset.bm); valueTip(a.dataset.bm, 'brief_' + a.dataset.bm + sid); });
   if (mode === 'day' && !old) valueTip('day', 'brief_day' + sid);
+}
+// 店长首页按飞书工作台思路排版：首屏只放概览、待我处理、常用应用、今日三件事；其余看板折叠到「更多看板」，展开状态按人记住
+function smArrange() {
+  const main = $('#main'); if (!main || $('#hx-top')) return;
+  const top = document.createElement('div'), more = document.createElement('div'); top.id = 'hx-top'; more.id = 'hx-more';
+  more.innerHTML = '<div class="sec-t2">更多看板</div>';
+  const pl = main.querySelector('.pltabs') || main.querySelector('.storebar'); pl.after(top); top.after(more);
+  const st = JSON.parse(localStorage.lt_fold || '{}'), byText = t => [...main.querySelectorAll('.sec-t2')].find(x => x.textContent.trim().startsWith(t));
+  const fold = (key, title, nodes, badge) => {
+    nodes = nodes.filter(Boolean); if (!nodes.length) return; let d = more.querySelector(`[data-fold="${key}"]`);
+    if (!d) { d = document.createElement('details'); d.className = 'fold card'; d.dataset.fold = key; d.open = !!st[key]; d.innerHTML = `<summary><b>${title}</b><span class="fb"></span></summary><div class="fbody"></div>`; more.append(d);
+      d.addEventListener('toggle', () => { const o = JSON.parse(localStorage.lt_fold || '{}'); o[key] = d.open; localStorage.lt_fold = JSON.stringify(o); }); }
+    const body = d.querySelector('.fbody'); nodes.forEach(n => { if (n.parentNode !== body) body.append(n); }); d.querySelector('.fb').textContent = badge || '';
+  };
+  const run = () => {
+    if (!document.body.contains(top)) return obs.disconnect();
+    obs.disconnect();
+    const three = [...main.querySelectorAll('section.yic')].find(x => (x.querySelector('b')?.textContent || '').startsWith('今日三件事'));
+    [$('#myshift'), $('.sf-sum'), three, $('#inbox'), byText('我的工作'), $('.mtiles')].filter(Boolean).forEach(n => top.append(n));
+    const ob = $('#obrief'), bad = ob ? ob.querySelectorAll('.tag.bad').length : 0;
+    fold('brief', '运营简报', [ob], ob ? (bad ? `${bad} 个模块有异常` : '各模块正常') : '');
+    const nac = $('#nac'), ldc = $('#ldc'); fold('disp', '今日派发（夜审 · 条线）', [nac, ldc], [nac && nac.querySelector('.muted.small')?.textContent.replace(/按班次改派 \d+ 项 · /, ''), ldc && '条线 ' + (ldc.querySelector('.row span')?.textContent || '')].filter(Boolean).join(' · '));
+    const tb = $('#tbud'); fold('budget', '今日预计用时', [tb], tb ? (tb.querySelector('b')?.textContent.replace('今日预计用时 ', '') || '') : '');
+    fold('exempt', '综合分豁免', [$('#exc')], $('#exc') ? ($('#exc b')?.textContent.split('·')[1] || '').trim() : '');
+    const rh = byText('门店一天节奏'); fold('rhythm', '门店一天节奏', [rh, $('.rhythm'), $('#rhl')], ($('.rhythm .on')?.textContent || '').replace(/\s+/g, ' ').trim());
+    fold('scene', '场景运营', [$('#scops')], (() => { const xs = [...document.querySelectorAll('#scops .scb')]; return xs.length ? `${xs.filter(x => x.classList.contains('od')).length} 个场景有超时` : ''; })());
+    const mt = byText('今日必做推荐'), ml = mt && mt.nextElementSibling; fold('must', '今日必做推荐', [mt, ml], mt ? (mt.querySelector('a')?.textContent || '') : '');
+    ['brief', 'disp', 'budget', 'exempt', 'rhythm', 'scene', 'must'].forEach(k => { const d = more.querySelector(`[data-fold="${k}"]`); if (d) more.append(d); });
+    obs.observe(main, { childList: true, subtree: true });
+  };
+  let tm; const obs = new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(run, 120); }); run();
 }
 async function managerHome() {
   const p = qs();
@@ -2072,7 +2103,7 @@ async function managerHome() {
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
   { const sg = $('.scgrid'), t = $('#topw'); if (sg && t) { const w = document.createElement('div'); w.id = 'scops'; w.append(sg.previousElementSibling, sg); t.after(w); } }
   nightCard(sid).then(() => loadCard(sid));
-  opsBriefCard(sid); exemptCard(sid);
+  opsBriefCard(sid); exemptCard(sid); smArrange();
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
