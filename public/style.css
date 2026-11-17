@@ -735,3 +735,4 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 .conv .last{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4}
 .estores a{width:92px}.estores a span:last-child{white-space:normal;word-break:break-all;line-height:1.3}
 .prw .nw{white-space:normal;overflow:visible}
+.quad .q a{white-space:normal;overflow:visible;align-items:flex-start;line-height:1.35;word-break:break-all}.quad .q a .sgd,.quad .q a em{flex:none}
