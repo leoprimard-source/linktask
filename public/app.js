@@ -125,14 +125,14 @@ const NAV = {
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['tpllayer', '任务模板分层'], ['handpack', '门店交接包'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
   coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['datasrc', '数据源接入'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['datasrc', '数据源接入'], ['exempt', '综合分豁免策略'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   hr_manager: [['sec', '人事'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['hrm', '人事指标'], ['care', '员工美好'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['dataauth', '数据授权'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   ops_manager: [['sec', '区域运营'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['dash', '区域运营看板'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['hrm', '人事指标'], ['care', '员工美好'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
-  region_manager: [['sec', '全局'], ['datasrc', '数据源接入'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['handpack', '门店交接包'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
+  region_manager: [['sec', '全局'], ['datasrc', '数据源接入'], ['exempt', '综合分豁免策略'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['handpack', '门店交接包'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
@@ -1140,8 +1140,9 @@ VIEWS.home = async () => {
   </div>
   <section class="brief">
     <div class="btabs">${b.biz ? `<a href="${link({ bt: 'biz' })}" class="${bt === 'biz' ? 'on' : ''}">经营简报</a>` : ''}<a href="${link({ bt: 'ops' })}" class="${bt !== 'biz' || !b.biz ? 'on' : ''}">${mine ? '我的简报' : '运营简报'}</a>
-      <span class="sp"></span><div class="seg"><a href="${link({ m: 'day' })}" class="${mode === 'day' ? 'on' : ''}">日</a><a href="${link({ m: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a></div></div>
+      <span class="sp"></span><div class="seg"><a href="${link({ m: 'day' })}" class="${mode === 'day' ? 'on' : ''}">日</a><a href="${link({ m: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a><a href="${link({ m: 'month' })}" class="${mode === 'month' ? 'on' : ''}">月</a></div></div>
     <p class="headline">${md(br.headline)}</p>
+    ${bt !== 'biz' && b.sections ? `<div class="bsec">${b.sections.map(x => `<div class="bsec-c"><div class="bsec-h"><b>${esc(x.t)}</b>${x.sim ? '<span class="tag">模拟数据</span>' : ''}</div>${x.rows.map(r => `<div class="bsec-r"><span>${esc(r.l)}</span><b class="${r.red ? 'red' : ''}">${esc(String(r.v))}</b></div>`).join('')}</div>`).join('')}</div>` : ''}
     <div class="bcards">${br.items.map(it => `<a class="bcard ${it.level}" ${it.link ? `href="${esc(it.link)}"` : ''}><b>${it.level === 'bad' ? redNum(it.title) : esc(it.title)}</b><p>${esc(it.body)}</p></a>`).join('')}</div>
     <button class="aibtn" id="bd"><svg viewBox="0 0 20 20" class="ico"><path d="M10 2.5l1.6 4.6 4.9 1.4-4.9 1.4L10 14.5l-1.6-4.6-4.9-1.4 4.9-1.4zM15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>简报详情</button>
   </section>
@@ -1415,7 +1416,7 @@ VIEWS.task = async id => {
   };
   $('#f').onsubmit = async e => {
     e.preventDefault(); const d = formData(e.target);
-    if (await act(() => api(`/instances/${t.id}/complete`, { note: d.note, reading: d.reading || '', photo, photos }), '已完成')) history.length > 1 ? history.back() : (location.hash = '#/home');
+    if (await act(() => api(`/instances/${t.id}/complete`, { note: d.note, reading: d.reading || '', photo, photos }), '已完成')) { if (apps.length) setTimeout(() => valueTip('xsys', 'x' + t.id), 1200); history.length > 1 ? history.back() : (location.hash = '#/home'); }
   };
 };
 
@@ -1457,6 +1458,7 @@ VIEWS.me = async () => {
   <div class="pf-store"><div class="row between"><button class="storename sm" id="sp">${esc(st.name)}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button><span class="mono muted">${esc(st.code)}</span></div>
     <div class="row" style="gap:6px;margin:4px 0 8px"><span class="tag acc">${esc(st.brand || '')}</span><span class="tag acc">${esc(st.stype || '')}</span></div>
     <div class="pf-kv"><span>首次开业 ${ymd(st.open_date)}</span><span>房量 ${st.rooms || '-'}</span><span>品牌审计 ${st.patrol_score != null ? `<a href="#/standards?store=${sid}">${st.patrol_score} 分</a>` : '未检查'}</span><span>品牌一致性 未检查</span></div></div>
+  ${S.me.level === 'store_manager' ? '<div id="savecard"></div>' : ''}
   <div class="pf-score"><div class="pf-st row between"><span>${staff ? '个人综合分' : '宏图综合分'} <button class="q" id="q">?</button></span>${mode === 'month' ? `<select id="ymsel" class="sm">${d.months.map((m, i) => `<option value="${i ? m : 'cur'}" ${d.ym === m && (i || p.get('ym') === 'cur') ? 'selected' : ''}>${i ? Number(m.slice(5)) + '月' : '本月至今'}</option>`).join('')}</select>` : ''}</div>
     <div class="pf-big"><b>${d.score ?? '--'}</b><span>分</span><div>取数：${d.from.slice(5).replace('-', '.')}-${d.to.slice(5).replace('-', '.')}<br>由健康度 ${d.health ?? '-'}、任务完成率 ${d.completion_rate ?? '-'}% 综合得出</div></div>
     <div class="pf-in"><div class="row between"><h3>${staff ? '我的工作健康度' : '门店健康度'} ${d.health ?? '-'}</h3><div class="seg"><a href="${link({ mode: 'week' })}" class="${mode === 'week' ? 'on' : ''}">周</a><a href="${link({ mode: 'month' })}" class="${mode === 'month' ? 'on' : ''}">月</a></div></div>
@@ -1469,6 +1471,9 @@ VIEWS.me = async () => {
   <div class="panel menu">${[...(staff || S.me.level === 'store_manager' ? [['#/my', '我的任务']] : []), ['#/' + rectRoute(), `我的整改${open ? ` <span class="tag warn">${open}</span>` : ''}`], ['#/standards', '品牌标准库'], ['#/feed', '门店群拍墙'], ['#/notices', '消息提醒'], ['#/work', '工作台']].map(([h, l]) => `<a href="${h}">${l}<i>›</i></a>`).join('')}
     <a href="#/login">切换身份<i>›</i></a><a href="${SESSION_URL}" target="_blank" rel="noopener">提交修改需求<i>›</i></a></div>`;
   if (S.meta.stores.length > 1) $('#sp').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name) + (s.id === sid ? ' ✓' : ''), () => { location.hash = link({ store: s.id }); }]), '切换门店');
+  if ($('#savecard')) api('/save/sum').then(v => { $('#savecard').outerHTML = `<div class="card" style="margin:10px 0"><div class="row between"><b>宏图帮我减负</b><a class="small" href="#/value">明细 ›</a></div>
+    <div class="row" style="gap:18px;margin-top:6px"><div><div class="muted small">累计节约</div><b style="font-size:20px">${hm2(v.all.min)}</b></div><div><div class="muted small">累计带教</div><b style="font-size:20px">${v.all.teach} 次</b></div><div><div class="muted small">近 7 天</div><b style="font-size:20px">${hm2(v.week.min)}</b></div></div>
+    <div class="muted small" style="margin-top:4px">${v.by.map(x => `${esc(x.label)} ${x.n} 次`).join(' · ') || '完成跨系统任务、授权、查看运营简报后自动累计'}；每周一推送减负周报。</div></div>`; }).catch(() => {});
   if ($('#ymsel')) $('#ymsel').onchange = e => { location.hash = link({ ym: e.target.value }); };
   $('#q').onclick = () => modal('综合分怎么算', `<p>综合分 = 健康度 × 60% + 任务完成率 × 40%。</p><p>健康度：${d.indicators.length} 项指标中，达标计 100 分，预警计 60 分，异常计 0 分，取平均。指标包括任务执行、抽查质量、品牌标准（清零项、M2 复查、F4 群拍等）、场景完成率${staff ? '' : '和经营数据'}。</p><p class="muted small">经营数据为模拟数据。</p>`);
   const hd = only => modal(staff ? '我的工作健康度' : '门店健康度详情', ['bad', 'warn', 'ok'].filter(k => !only || k === only).map(k => {
@@ -1956,6 +1961,33 @@ async function nightCard(sid) {
     <button class="btn sm" id="narun">重新夜审</button></div>`);
   $('#narun').onclick = async () => { const r = await api('/night-audit/run', { store: sid }); toast(`已重新派发：改派 ${r.moved} 项，待安排 ${r.need} 项`); managerHome(); };
 }
+const hm2 = m => (m >= 60 ? (m / 60).toFixed(1) + ' 小时' : m + ' 分钟');
+const saveToast = x => { if (x) toast(`本次${x.label}为你节约约 ${x.min} 分钟${x.teach ? `，带教 ${x.teach} 次` : ''}。累计节约 ${hm2(x.total_min)}`); };
+async function valueTip(kind, key) { if (S.me.level !== 'store_manager') return; const r = await api('/save', { kind, key }).catch(() => null); if (r) saveToast(r.saved); }
+VIEWS.exempt = async () => {
+  const d = await api('/exempt'), c = d.cfg;
+  $('#main').innerHTML = `<h1>综合分豁免策略</h1>
+  <div class="card"><b>今天的判断依据：${esc(d.ref_ym.replace('-', ' 年 '))} 月综合分</b><p class="muted small">${esc(d.rule)}。每月 1 日用上上月，2 日起用上月，每天 0 点自动执行，不需要每月人工开关。清零项永不豁免。</p>
+    <div class="row" style="gap:18px;margin-top:6px"><div><div class="muted small">今日豁免门店</div><b style="font-size:20px">${d.sum.s}</b></div><div><div class="muted small">今日豁免任务</div><b style="font-size:20px">${d.sum.n}</b></div></div></div>
+  <form class="card" id="exf"><label class="row small"><input type="checkbox" name="on" ${c.on ? 'checked' : ''} ${d.can ? '' : 'disabled'}> 开启豁免</label>
+    <label class="f"><span>综合分达到（分）</span><input name="min" type="number" min="60" max="100" value="${c.min}" ${d.can ? '' : 'disabled'}></label>
+    <div class="f"><span>豁免的任务类型</span>${d.tags.map(t => `<label class="row small"><input type="checkbox" name="tag" value="${esc(t)}" ${c.tags.includes(t) ? 'checked' : ''} ${d.can ? '' : 'disabled'}> ${esc(t)}</label>`).join('')}<p class="muted small">清零项不可选。</p></div>
+    ${d.can ? '<button class="btn primary">保存，明天起生效</button>' : '<p class="muted small">只有总部可以修改。</p>'}</form>`;
+  if (d.can) $('#exf').onsubmit = async e => { e.preventDefault(); const f = e.target; if (await act(() => api('/exempt/cfg', { on: f.on.checked, min: Number(f.min.value), tags: [...f.querySelectorAll('[name=tag]:checked')].map(x => x.value) }), '已保存')) route(); };
+};
+async function exemptCard(sid) {
+  const d = await api('/exempt?store=' + sid).catch(() => null); if (!d || !d.today.length || !$('#topw')) return;
+  $('#topw').insertAdjacentHTML('afterend', `<div class="card" style="margin:10px 0"><div class="row between"><b>综合分豁免 · 今日免做 ${d.today.length} 项</b><span class="tag">${esc(d.ref_ym.slice(5))} 月 ${d.score} 分</span></div><p class="muted small">${esc(d.rule)}，达到 ${d.cfg.min} 分，以下任务今天免做：${d.today.slice(0, 4).map(x => esc(x.title || '')).join('、')}${d.today.length > 4 ? ' 等' : ''}。清零项照常执行。</p></div>`);
+}
+async function opsBriefCard(sid, mode = 'day') {
+  const b = await api(`/brief?store=${sid}&mode=${mode}`).catch(() => null); if (!b || !b.sections) return;
+  const html = `<div id="obrief"><div class="sec-t2 row between"><span>运营简报 <small class="muted">${esc(b.from.slice(5))}${b.to !== b.from ? ' 至 ' + esc(b.to.slice(5)) : ''}</small></span><span class="seg">${[['day', '日报'], ['week', '周报'], ['month', '月报']].map(([k, l]) => `<a data-bm="${k}" class="${mode === k ? 'on' : ''}">${l}</a>`).join('')}</span></div>
+    <div class="bsec">${b.sections.map(x => `<div class="bsec-c"><div class="bsec-h"><b>${esc(x.t)}</b>${x.sim ? '<span class="tag">模拟数据</span>' : ''}</div>${x.rows.map(r => `<div class="bsec-r"><span>${esc(r.l)}</span><b class="${r.red ? 'red' : ''}">${esc(String(r.v))}</b></div>`).join('')}</div>`).join('')}</div>
+    <p class="muted small" style="margin:-4px 0 6px">异常指标标红。早餐、客房、点评、GOP 为模拟数据，接入 PMS、早餐核销、点评和财务系统后自动更新。</p></div>`;
+  const old = $('#obrief'); if (old) old.outerHTML = html; else { const t = $('#topw'); if (!t) return; t.insertAdjacentHTML('afterend', html); }
+  $('#obrief').querySelectorAll('[data-bm]').forEach(a => a.onclick = () => { opsBriefCard(sid, a.dataset.bm); valueTip(a.dataset.bm, 'brief_' + a.dataset.bm + sid); });
+  if (mode === 'day' && !old) valueTip('day', 'brief_day' + sid);
+}
 async function managerHome() {
   const p = qs();
   const sid = pickStore(p.get('store'));
@@ -1981,6 +2013,7 @@ async function managerHome() {
     return `<a class="scb ${o2 ? 'od' : ''}" data-go="${esc(g)}"><div class="row between"><b>${esc(g)}</b>${gauge(rr, 38, 4, rateColor(rr))}</div><div class="big">${d2}<small>/${ts.length}</small></div><div class="muted small">${esc(top(ts))}</div>${o2 ? `<span class="tag bad">超时 ${o2}</span>` : ''}</a>`; }).join('')}</div>`;
   { const sg = $('.scgrid'), t = $('#topw'); if (sg && t) { const w = document.createElement('div'); w.id = 'scops'; w.append(sg.previousElementSibling, sg); t.after(w); } }
   nightCard(sid).then(() => loadCard(sid));
+  opsBriefCard(sid); exemptCard(sid);
   $('#more').onclick = e => moreMenu(e.currentTarget);
   $('#cal').onclick = () => calSheet(sid, date, d => { location.hash = '#/home?' + new URLSearchParams({ view: 'store', store: sid, date: d }); });
   if (S.meta.stores.length > 1) $('#sw').onclick = () => sheet(S.meta.stores.map(s => [esc(s.name), () => { S.store = s.id; localStorage.lt_store = s.id; location.hash = '#/home?store=' + s.id; }]), '切换门店');
@@ -3143,7 +3176,7 @@ async function delegModal(t) {
     m.querySelector('#f').onsubmit = async e => { e.preventDefault(); const f = e.target;
       const body = { scope: sc.value, to_id: Number(f.to_id.value), review: f.review.checked, notify_done: f.notify_done.checked, store_id: t.store_id, inst_id: t.id, src: t.src, src_id: t.src_id, start: S.me.today, end: f.end.value };
       if (sc.value === 'one') { delete body.start; delete body.end; }
-      const r = await act(() => api('/deleg', body), '已授权'); if (r) { closeModal(); route(); } };
+      const r = await act(() => api('/deleg', body), '已授权'); if (r) { closeModal(); route(); setTimeout(() => saveToast(r.saved), 1200); } };
   });
 }
 VIEWS.deleg = async () => {
@@ -3169,7 +3202,7 @@ VIEWS.deleg = async () => {
       <label class="row small"><input type="checkbox" name="review" checked> 完成后需要我复核</label><label class="row small"><input type="checkbox" name="notify_done" checked> 任务完成实时反馈（员工完成后通知我）</label><button class="btn primary sm">授权这项任务</button></form>
     <p class="muted small">单次授权：在任务详情里点「授权下转」。</p>
     <div class="sec-t2">我的授权 ${d.mine.length}</div><div class="list">${d.mine.map(x => row(x, true)).join('') || '<div class="empty">还没有授权</div>'}</div>`;
-    const go = body => act(() => api('/deleg', { ...body, store_id: d.store_id }), '已授权').then(r => r && route());
+    const go = body => act(() => api('/deleg', { ...body, store_id: d.store_id }), '已授权').then(r => { if (r) { route(); setTimeout(() => saveToast(r.saved), 1200); } });
     if ($('#fp')) $('#fp').onsubmit = e => { e.preventDefault(); const f = e.target; go({ scope: 'appr', to_id: Number(f.to_id.value), start: S.me.today, end: f.end.value }); };
     $('#fa').onsubmit = e => { e.preventDefault(); const f = e.target; go({ scope: 'all', to_id: Number(f.to_id.value), start: f.start.value, end: f.end.value, review: f.review.checked, notify_done: f.notify_done.checked }); };
     $('#ft').onsubmit = e => { e.preventDefault(); const f = e.target, [src, sid] = f.task.value.split(':'); go({ scope: 'task', src, src_id: Number(sid), to_id: Number(f.to_id.value), start: S.me.today, end: f.end.value, review: f.review.checked, notify_done: f.notify_done.checked }); };

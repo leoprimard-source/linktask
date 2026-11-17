@@ -682,10 +682,10 @@ const sgn = v => (v > 0 ? '+' : '') + v + '%';
 app.get('/api/brief', (req, res) => {
   const sc = homeScope(req, res); if (!sc) return;
   const t = L.today(), y = L.addDays(t, -1);
-  const week = req.query.mode === 'week';
-  const from = week ? L.addDays(y, -6) : y, to = y;
+  const month = req.query.mode === 'month', week = req.query.mode === 'week';
+  const from = month ? y.slice(0, 8) + '01' : week ? L.addDays(y, -6) : y, to = y;
   const pf = L.addDays(from, -7), pt = L.addDays(to, -7);
-  const label = week ? '近 7 日' : '昨日';
+  const label = month ? '本月' : week ? '近 7 日' : '昨日';
   for (let d = pf; d <= t; d = L.addDays(d, 1)) D.ensureInstances(d, [sc.sid]);
   const st = (a, b) => q1(`SELECT COUNT(*) total, SUM(i.status='done') done, SUM(i.check_result IS NOT NULL) checked, SUM(i.check_result='good') good, SUM(i.check_result='bad') bad,
     SUM(i.status='done' AND substr(i.done_at,12,5)>i.due_time) late FROM instances i WHERE i.date BETWEEN ? AND ?${sc.w}`, a, b, ...sc.p);
@@ -743,8 +743,66 @@ app.get('/api/brief', (req, res) => {
       sim: true,
     };
   }
-  res.json({ mode: week ? 'week' : 'day', from, to, ops, biz });
+  const sections = sc.mine ? null : briefSections(sc, from, to, month, { r1, pass, overdue, cur }, bizRange(sc.sid, from, to));
+  res.json({ mode: month ? 'month' : week ? 'week' : 'day', from, to, ops, biz, sections });
 });
+// BRD11 运营简报统一模块顺序：早餐 → 客房 → 任务 → 点评 →（月报）巡店反馈、GOP 体检。red=true 的指标标红。
+function breakfastDay(sid, d) {
+  const h = hash('bf' + sid + d), rooms = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms || 120;
+  const incl = Math.round(rooms * (0.25 + h * 0.2)), used = Math.round(incl * (0.18 + hash('bu' + sid + d) * 0.55)), abn = hash('ba' + sid + d) > 0.86 ? 1 + Math.floor(hash('bn' + sid + d) * 3) : 0;
+  return { incl, used, abn };
+}
+function breakfastRange(sid, from, to) {
+  let n = 0, incl = 0, used = 0, abn = 0;
+  for (let d = from; d <= to; d = L.addDays(d, 1)) { const b = breakfastDay(sid, d); n++; incl += b.incl; used += b.used; abn += b.abn; }
+  return { used: Math.round(used / n), incl: Math.round(incl / n), rate: incl ? Math.round(used * 100 / incl) : null, abn };
+}
+const GOP_ITEMS = [['food', '餐饮成本', 18], ['room', '客房费用', 26], ['laundry', '洗涤费用', 9]];
+function gopCheck(sid, ym) {
+  const h = k => hash('gop' + k + sid + ym), prev = L.addDays(ym + '-01', -1).slice(0, 7);
+  const items = GOP_ITEMS.map(([k, name, base]) => {
+    const incomplete = h(k + 'i') > 0.85;
+    const cost = +(base * (0.8 + h(k) * 0.5)).toFixed(2), last = +(base * (0.8 + hash('gop' + k + sid + prev) * 0.5)).toFixed(2), peer = +(base * 1.02).toFixed(2);
+    const abnormal = !incomplete && cost > peer * 1.12;
+    const sold = q1('SELECT rooms FROM stores WHERE id=?', sid)?.rooms * 22 || 2500;
+    return { k, name, incomplete, abnormal, cost: incomplete ? null : cost, last, peer, impact: abnormal ? Math.round((cost - peer) * sold) : 0 };
+  });
+  return { items, incomplete: items.filter(x => x.incomplete).length, abnormal: items.filter(x => x.abnormal).length, impact: items.reduce((a, x) => a + x.impact, 0) };
+}
+function briefSections(sc, from, to, month, o, bz) {
+  const sid = sc.sid, bf = breakfastRange(sid, from, to), mfrom = to.slice(0, 8) + '01';
+  const roomRate = k => { const r = hash(k + sid + to.slice(0, 7)); return r > 0.7 ? 100 : Math.round(80 + r * 25); };
+  const deep = Math.min(100, roomRate('deep')), maint = Math.min(100, roomRate('mt'));
+  const pt = q('SELECT score, summary, done_at FROM patrols WHERE store_id=? AND status=\'done\' AND substr(done_at,1,10) BETWEEN ? AND ? ORDER BY done_at DESC', sid, mfrom, to);
+  const topics = Object.keys(bz.topics);
+  const sec = [
+    { k: 'breakfast', t: '早餐会员权益管控', sim: true, rows: [
+      { l: '日均用早 / 含早', v: `${bf.used} / ${bf.incl}` },
+      { l: '核销率', v: bf.rate == null ? '-' : bf.rate + '%', red: bf.rate != null && bf.rate < 30, hint: '低于 30% 标红' },
+      { l: '异常核销次数', v: bf.abn, red: bf.abn > 0 }] },
+    { k: 'room', t: '客房情况', sim: true, rows: [
+      { l: '大清房月度完成率', v: deep + '%', red: deep < 100 },
+      { l: '维保房月度完成率', v: maint + '%', red: maint < 100 },
+      { l: 'AI 图片诊断异常', v: '未接入', hint: '接入图像识别后显示' }] },
+    { k: 'task', t: '任务完成情况', rows: [
+      { l: '任务完成率', v: o.r1 + '%', red: o.r1 < 85 },
+      { l: '抽查合格率', v: o.pass == null ? '-' : o.pass + '%', red: o.pass != null && o.pass < 80 },
+      { l: '今日超时未完成', v: o.overdue, red: o.overdue > 0 }] },
+    { k: 'review', t: '点评反馈', sim: true, rows: [
+      { l: '新增差评', v: bz.bad, red: bz.bad > 0 },
+      ...topics.slice(0, 3).map(k => ({ l: '差评片段', v: `${REVIEW_TOPICS[k][0]} ${bz.topics[k]} 条`, red: true }))] },
+  ];
+  if (month) {
+    sec.push({ k: 'patrol', t: '巡店反馈', rows: pt.length ? [{ l: '本月巡店', v: pt.length + ' 次' }, { l: '最近得分', v: pt[0].score ?? '-', red: pt[0].score != null && pt[0].score < 80 }, { l: '最近反馈', v: (pt[0].summary || '-').slice(0, 40) }] : [{ l: '本月巡店', v: '暂无' }] });
+    const g = gopCheck(sid, to.slice(0, 7));
+    sec.push({ k: 'gop', t: 'GOP 体检', sim: true, rows: [
+      { l: '数据不完整项', v: g.incomplete, red: g.incomplete > 0 },
+      { l: '异常项', v: g.abnormal, red: g.abnormal > 0 },
+      { l: 'GOP 影响金额', v: g.impact ? '¥' + g.impact.toLocaleString() : '¥0', red: g.impact > 0 },
+      ...g.items.map(x => ({ l: x.name + '（已售单间夜成本）', v: x.incomplete ? '数据不完整' : `¥${x.cost} · 上月 ¥${x.last} · 同类 ¥${x.peer}`, red: x.incomplete || x.abnormal }))] });
+  }
+  return sec;
+}
 const S_FOCUS = u => (['region_manager', 'ops_manager', 'store_manager'].includes(u.level) ? '#/focus' : '#/home');
 
 // ---------- brand standards (品牌审计 M-L-F) ----------
@@ -1618,7 +1676,7 @@ app.post('/api/deleg', (req, res) => {
   const n = q1('SELECT COUNT(*) n FROM instances WHERE deleg_id=?', id).n;
   D.notify([to.id], 'assign', '店长授权任务', `${u.name} 将「${title}」授权给你（${start}${end !== start ? ' 至 ' + end : ''}）`, '#/my');
   D.audit(u.id, sid, '任务授权下转', `${title} → ${to.name} ${start}~${end}`);
-  res.json({ ok: true, id, n });
+  res.json({ ok: true, id, n, saved: recordSave(u, 'deleg', 'deleg' + id) });
 });
 app.post('/api/deleg/:id/revoke', (req, res) => {
   const d = q1('SELECT * FROM delegations WHERE id=?', req.params.id);
@@ -3595,6 +3653,67 @@ app.post('/api/night-audit/run', (req, res) => {
   const sid = Number(req.body.store); if (!sid || !canManage(req.u, sid)) return deny(res);
   res.json(runNightAudit(L.today(), [sid])[0]);
 });
+// ---------- BRD11 综合分豁免：每月 1 日用上上月综合分（上月分 1 日 9:00 才产出），2 日起用上月；清零项永不豁免 ----------
+const exemptCfg = () => ({ on: true, min: 80, tags: ['关注项'], ...D.getSetting('exempt_cfg', {}) });
+const exemptRefYm = date => L.addDays(L.addDays(date.slice(0, 8) + '01', -1).slice(0, 8) + '01', date.endsWith('-01') ? -1 : 0).slice(0, 7);
+function monthScoreOf(sid, ym) {
+  const c = q1('SELECT score FROM month_scores WHERE store_id=? AND ym=?', sid, ym); if (c) return c.score;
+  const h = app._router.stack.find(l => l.route?.path === '/api/profile' && l.route.methods.get)?.route.stack[0].handle; if (!h) return null;
+  let out = null; const hq = q1(USER_SQL + " WHERE r.level='hq' AND u.active=1 LIMIT 1");
+  h({ u: hq, query: { store: String(sid), ym } }, { json: x => { out = x; }, status() { return this; } });
+  const sc = out?.score ?? null;
+  if (ym < L.today().slice(0, 7)) run('INSERT OR REPLACE INTO month_scores VALUES(?,?,?,?)', sid, ym, sc, L.nowStr());
+  return sc;
+}
+function applyExempt(date) {
+  const c = exemptCfg(); if (!c.on || !c.tags.length) return { n: 0, stores: 0 };
+  const ym = exemptRefYm(date), tpls = q(`SELECT id FROM templates WHERE active=1 AND COALESCE(tag,'')!='清零项' AND tag IN (${c.tags.map(() => '?').join(',')})`, ...c.tags).map(x => x.id);
+  if (!tpls.length) return { n: 0, stores: 0 };
+  let n = 0, stores = 0; const ins = D.db.prepare('INSERT OR IGNORE INTO exempts VALUES(?,?,?,?,?)');
+  for (const st of q("SELECT id FROM stores WHERE COALESCE(lc_stage,'')!='退出'")) {
+    const sc = monthScoreOf(st.id, ym); if (sc == null || sc < c.min) continue;
+    const xs = q(`SELECT id, src_id FROM instances WHERE store_id=? AND date=? AND src='tpl' AND status='pending' AND src_id IN (${tpls.join(',')})`, st.id, date);
+    if (!xs.length) continue; stores++;
+    D.tx(() => { for (const x of xs) { ins.run(date, st.id, x.src_id, ym, sc); run('DELETE FROM instances WHERE id=?', x.id); n++; } });
+  }
+  return { n, stores, ym };
+}
+app.get('/api/exempt', (req, res) => {
+  const t = L.today(), c = exemptCfg(), ym = exemptRefYm(t), sid = Number(req.query.store) || null;
+  if (sid && !visibleStores(req.u).includes(sid)) return deny(res);
+  const today = sid ? q('SELECT e.*, tp.title FROM exempts e LEFT JOIN templates tp ON tp.id=e.tpl_id WHERE e.date=? AND e.store_id=?', t, sid) : [];
+  const sum = q1('SELECT COUNT(*) n, COUNT(DISTINCT store_id) s FROM exempts WHERE date=?', t);
+  res.json({ cfg: c, ref_ym: ym, rule: t.endsWith('-01') ? '今天是 1 日，上月综合分 9:00 才产出，使用上上月综合分' : '使用上月综合分', score: sid ? monthScoreOf(sid, ym) : null, today, sum, can: req.u.level === 'hq', tags: q("SELECT DISTINCT tag FROM templates WHERE tag IS NOT NULL AND tag!='清零项'").map(x => x.tag) });
+});
+app.post('/api/exempt/cfg', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res);
+  const tags = (req.body.tags || []).filter(x => x && x !== '清零项'), min = Number(req.body.min);
+  if (!(min >= 60 && min <= 100)) return err(res, '豁免分数线需在 60–100 之间');
+  D.setSetting('exempt_cfg', { on: !!req.body.on, min, tags }); D.audit(req.u.id, null, '综合分豁免策略', `${req.body.on ? '开启' : '关闭'} ≥${min} 分 ${tags.join('、')}`);
+  res.json({ ok: true });
+});
+// ---------- BRD11 减负可视化：同一用户同一操作同一天只计一次 ----------
+const SAVE_KIND = { xsys: [1, 0, '跨系统任务一键完成'], deleg: [20, 1, '任务授权'], day: [10, 0, '查看运营日报'], week: [15, 0, '查看运营周报'], month: [20, 0, '查看运营月报'] };
+const saveSum = (uid, from, to) => q1('SELECT COALESCE(SUM(min),0) min, COALESCE(SUM(teach),0) teach, COUNT(*) n FROM saves WHERE user_id=? AND date BETWEEN ? AND ?', uid, from || '0000', to || '9999');
+function recordSave(u, kind, key) {
+  const k = SAVE_KIND[kind]; if (!k || u.level !== 'store_manager') return null;
+  const ch = run('INSERT OR IGNORE INTO saves(user_id,kind,key,date,min,teach) VALUES(?,?,?,?,?,?)', u.id, kind, String(key).slice(0, 60), L.today(), k[0], k[1]).changes;
+  if (!ch) return null;
+  const t = saveSum(u.id); return { min: k[0], teach: k[1], label: k[2], total_min: t.min, total_teach: t.teach };
+}
+app.post('/api/save', (req, res) => res.json({ saved: recordSave(req.u, req.body.kind, req.body.key || req.body.kind) }));
+app.get('/api/save/sum', (req, res) => {
+  const t = L.today(), w0 = L.addDays(t, -6), all = saveSum(req.u.id), wk = saveSum(req.u.id, w0, t);
+  const by = q('SELECT kind, SUM(min) min, COUNT(*) n FROM saves WHERE user_id=? GROUP BY kind', req.u.id).map(x => ({ ...x, label: SAVE_KIND[x.kind]?.[2] || x.kind }));
+  res.json({ all, week: wk, by });
+});
+function saveWeekly(date) {
+  const w0 = L.addDays(date, -7), w1 = L.addDays(date, -1);
+  for (const r of q('SELECT user_id, SUM(min) min, SUM(teach) teach, COUNT(*) n FROM saves WHERE date BETWEEN ? AND ? GROUP BY user_id', w0, w1)) {
+    const all = saveSum(r.user_id), h = m => (m >= 60 ? (m / 60).toFixed(1) + ' 小时' : m + ' 分钟');
+    D.notify([r.user_id], 'report', '减负周报', `上周宏图帮你节约 ${h(r.min)}${r.teach ? `，授权带教 ${r.teach} 次` : ''}（${r.n} 次操作）。累计节约 ${h(all.min)}，累计带教 ${all.teach} 次。`, '#/me');
+  }
+}
 function tick() {
   try {
     const date = L.today(), time = L.nowHM();
@@ -3605,6 +3724,8 @@ function tick() {
       runReminders(date, time);
     }
     D.ensureInstances(date);
+    if (D.getSetting('exempt_done', '') !== date) { D.setSetting('exempt_done', date); const r = applyExempt(date); if (r.n) console.log('exempt', date, r); }
+    if (L.weekday(date) === 1 && time >= '09:00' && D.getSetting('save_week_sent', '') !== date) { D.setSetting('save_week_sent', date); saveWeekly(date); }
     if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
     const esc = D.getSetting('escalate_minutes', 30), esc2 = D.getSetting('escalate2_minutes', 120), esc3 = D.getSetting('escalate3_count', 5), escBy = {}, esc2By = {}, at0 = L.nowStr();
     const zt = new Set(q("SELECT id FROM templates WHERE tag='清零项'").map(r => r.id)), ev = D.db.prepare('INSERT INTO esc_events(date,store_id,inst_id,level,title,who,at) VALUES(?,?,?,?,?,?,?)');

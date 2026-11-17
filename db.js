@@ -59,6 +59,9 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS exempts(date TEXT, store_id INTEGER, tpl_id INTEGER, ym TEXT, score INTEGER, PRIMARY KEY(date, store_id, tpl_id))');
+db.exec('CREATE TABLE IF NOT EXISTS month_scores(store_id INTEGER, ym TEXT, score INTEGER, at TEXT, PRIMARY KEY(store_id, ym))');
+db.exec('CREATE TABLE IF NOT EXISTS saves(user_id INTEGER, kind TEXT, key TEXT, date TEXT, min INTEGER, teach INTEGER, PRIMARY KEY(user_id, key, date))');
 db.exec("CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, title TEXT, kind TEXT, dept TEXT, start TEXT, end TEXT, stores TEXT, note TEXT, src TEXT DEFAULT 'manual', by INTEGER, at TEXT)");
 db.exec(`CREATE TABLE IF NOT EXISTS data_sources(id INTEGER PRIMARY KEY, kind TEXT UNIQUE, name TEXT, sys TEXT, metrics TEXT, owner TEXT, status TEXT DEFAULT 'demo', note TEXT, last_at TEXT, rows INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ext_data(source TEXT, store_id INTEGER, date TEXT, k TEXT, v REAL, txt TEXT, batch INTEGER, PRIMARY KEY(source, store_id, date, k));
@@ -290,7 +293,7 @@ function ensureInstances0(date, storeIds) {
       for (const t of tpls) {
         if (!tplDue(t, date)) continue;
         const ef = tplEff(t, sc); if (!ef || ef.off) continue;
-        const exists = q1("SELECT 1 FROM instances WHERE src='tpl' AND src_id=? AND store_id=? AND date=?", t.id, sid, date);
+        const exists = q1("SELECT 1 FROM instances WHERE src='tpl' AND src_id=? AND store_id=? AND date=?", t.id, sid, date) || q1('SELECT 1 FROM exempts WHERE date=? AND store_id=? AND tpl_id=?', date, sid, t.id);
         if (exists) continue;
         const base = shiftPick(sid, baseAssignee(sid, t), date, ef.due);
         const ir = st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, ef.due, t.need_photo);
