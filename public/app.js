@@ -125,7 +125,7 @@ const NAV = {
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['tpllayer', '任务模板分层'], ['handpack', '门店交接包'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
   coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['datasrc', '数据源接入'], ['meet', '经营月会'], ['exempt', '综合分豁免策略'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['datasrc', '数据源接入'], ['meet', '经营月会'], ['vhotel', '虚拟酒店'], ['exempt', '综合分豁免策略'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
@@ -194,6 +194,7 @@ async function route() {
   try {
     S.me = await api('/me');
     if (!S.meta || S.meta.uid !== S.me.id) await loadMeta();
+    verGuide();
   } catch (e) { return renderLogin(); }
   const allowed = VIEWS[name] && (COMMON.includes(name) || NAV[S.me.level].some(([k]) => k === name) || (name === 'patrol' && S.me.level !== 'staff'));
   if (!allowed) { location.hash = '#/' + HOME[S.me.level]; return; }
@@ -567,6 +568,7 @@ VIEWS.tasks = async () => {
 };
 async function taskDetail(id) {
   const t = await api('/instances/' + id);
+  if (t.src === 'meet') { location.hash = '#/meet?store=' + t.store_id; return; }
   const manage = S.me.can.manage;
   modal(t.title, `<div class="kv">
     <div>门店 / 场景</div><div>${esc(t.store_name)} · ${esc(t.scene_name)}</div>
@@ -1969,6 +1971,20 @@ async function nightCard(sid) {
 const hm2 = m => (m >= 60 ? (m / 60).toFixed(1) + ' 小时' : m + ' 分钟');
 const saveToast = x => { if (x) toast(`本次${x.label}为你节约约 ${x.min} 分钟${x.teach ? `，带教 ${x.teach} 次` : ''}。累计节约 ${hm2(x.total_min)}`); };
 async function valueTip(kind, key) { if (S.me.level !== 'store_manager') return; const r = await api('/save', { kind, key }).catch(() => null); if (r) saveToast(r.saved); }
+const VER = '11', VER_NOTES = { store_manager: ['授权任务可勾选「完成提醒」，员工完成后通知你', '个人中心可查看过往月份综合分、减负成果、设施体检红黄绿灯', '首页运营简报：早餐、客房、任务、点评，月报含巡店和 GOP', '每天 06:30 按门店推送宏图日报；每周一推送员工执行洞察', '每月 3 日自动生成经营月会，开完会自动完成', '综合分达标的门店自动免做部分关注项'], hq: ['事件日历：总部和职能条线可配置节假日、运维等事件', '综合分豁免策略、经营月会督导统计', '虚拟酒店：可开临时店长账号做培训演练'] };
+function verGuide() {
+  const notes = VER_NOTES[S.me.level] || (S.me.level === 'region_manager' ? VER_NOTES.hq : null); if (!notes || localStorage.lt_ver === VER || document.getElementById('verg')) return;
+  document.body.insertAdjacentHTML('beforeend', `<div id="verg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;display:flex;align-items:flex-end"><div style="background:#fff;width:100%;border-radius:16px 16px 0 0;padding:18px 18px 24px;max-height:80vh;overflow:auto"><b style="font-size:17px">宏图第 ${VER} 期更新</b>${notes.map((t, i) => `<div class="bsec-r" style="padding:8px 0"><span>${i + 1}. ${esc(t)}</span></div>`).join('')}<button class="btn primary" id="vergok" style="width:100%;margin-top:12px">知道了</button></div></div>`);
+  $('#vergok').onclick = () => { localStorage.lt_ver = VER; $('#verg').remove(); };
+}
+VIEWS.vhotel = async () => {
+  const d = await api('/vhotel');
+  $('#main').innerHTML = `<h1>虚拟酒店</h1><p class="muted small">用于新店长培训演练：保留临时区域，临时店长账号可以在虚拟酒店里正常领取和提交任务，到期自动失效。</p>
+  <div class="card"><b>${d.store ? esc(d.store.name) : '尚未创建（新增第一个临时账号时自动创建）'}</b>
+  <form id="vhf" class="row" style="gap:8px;margin-top:8px"><input name="name" placeholder="姓名" style="flex:1"><select name="days"><option value="7">7 天</option><option value="30" selected>30 天</option><option value="90">90 天</option></select><button class="btn primary">新增临时店长</button></form></div>
+  <div class="list" style="margin-top:10px">${d.accounts.map(a => `<div class="task"><div class="b"><div class="ttl">${esc(a.name)}</div><div class="muted small">账号 ID ${a.id} · 有效期至 ${esc(a.temp_until)}</div></div>${a.temp_until < S.me.today ? '<span class="tag bad">已过期</span>' : '<span class="tag ok">有效</span>'}</div>`).join('') || '<div class="empty">还没有临时账号</div>'}</div>`;
+  $('#vhf').onsubmit = async e => { e.preventDefault(); const f = e.target; const r = await act(() => api('/vhotel/temp', { name: f.name.value, days: Number(f.days.value) }), '已创建'); if (r) { toast(`已创建，账号 ID ${r.id}，有效期至 ${r.until}`); route(); } };
+};
 VIEWS.meet = async () => {
   const p = qs(), sid = p.get('store') || (S.me.level === 'store_manager' ? pickStore() : ''), d = await api(`/meet?store=${sid}&ym=${p.get('ym') || ''}`);
   const st = m => m.status === 'done' ? '<span class="tag ok">已完成</span>' : m.task_status === 'missed' ? '<span class="tag bad">已过期</span>' : '<span class="tag warn">待召开</span>';
@@ -2023,9 +2039,11 @@ async function exemptCard(sid) {
 async function opsBriefCard(sid, mode = 'day') {
   const b = await api(`/brief?store=${sid}&mode=${mode}`).catch(() => null); if (!b || !b.sections) return;
   const html = `<div id="obrief"><div class="sec-t2 row between"><span>运营简报 <small class="muted">${esc(b.from.slice(5))}${b.to !== b.from ? ' 至 ' + esc(b.to.slice(5)) : ''}</small></span><span class="seg">${[['day', '日报'], ['week', '周报'], ['month', '月报']].map(([k, l]) => `<a data-bm="${k}" class="${mode === k ? 'on' : ''}">${l}</a>`).join('')}</span></div>
-    <div class="bsec">${b.sections.map(x => `<div class="bsec-c"><div class="bsec-h"><b>${esc(x.t)}</b>${x.sim ? '<span class="tag">模拟数据</span>' : ''}</div>${x.rows.map(r => `<div class="bsec-r"><span>${esc(r.l)}</span><b class="${r.red ? 'red' : ''}">${esc(String(r.v))}</b></div>`).join('')}</div>`).join('')}</div>
+    <div class="bsec">${b.sections.map((x, i) => { const red = x.rows.filter(r => r.red).length; return `<details class="bsec-c" ${i === 0 || red ? 'open' : ''}><summary class="bsec-h"><b>${esc(x.t)}</b><span>${red ? `<span class="tag bad">${red} 项异常</span>` : ''}${x.sim ? '<span class="tag">模拟数据</span>' : ''}</span></summary>${x.rows.map(r => `<div class="bsec-r"><span>${esc(r.l)}</span><b class="${r.red ? 'red' : ''}">${esc(String(r.v))}</b></div>`).join('')}${x.k === 'breakfast' ? `<button class="btn small" data-bfai="${mode}" style="margin-top:6px">AI 解读早餐</button>` : ''}</details>`; }).join('')}</div>
     <p class="muted small" style="margin:-4px 0 6px">异常指标标红。早餐、客房、点评、GOP 为模拟数据，接入 PMS、早餐核销、点评和财务系统后自动更新。</p></div>`;
   const old = $('#obrief'); if (old) old.outerHTML = html; else { const t = $('#topw'); if (!t) return; t.insertAdjacentHTML('afterend', html); }
+  $('#obrief').querySelectorAll('[data-bfai]').forEach(a => a.onclick = async e => { e.preventDefault(); const r = await api(`/brief/bfai?store=${sid}&mode=${a.dataset.bfai}`);
+    const el = document.createElement('div'); el.className = 'ai'; el.style.marginTop = '8px'; el.innerHTML = `<div class="ai-h"><span class="aiav">AI</span><div><b>早餐解读</b><div class="muted small">${esc(r.from.slice(5))} 至 ${esc(r.to.slice(5))} · 规则生成演示，数据为模拟</div></div></div>${r.parts.map(x => `<div style="margin-top:6px"><b>${esc(x.t)}</b>${x.rows.map(t => `<div class="small">· ${esc(t)}</div>`).join('')}</div>`).join('')}`; a.replaceWith(el); });
   $('#obrief').querySelectorAll('[data-bm]').forEach(a => a.onclick = () => { opsBriefCard(sid, a.dataset.bm); valueTip(a.dataset.bm, 'brief_' + a.dataset.bm + sid); });
   if (mode === 'day' && !old) valueTip('day', 'brief_day' + sid);
 }

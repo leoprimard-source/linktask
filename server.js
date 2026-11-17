@@ -41,6 +41,7 @@ app.use('/api', (req, res, next) => {
   const id = Number(req.get('x-user-id'));
   const u = id && q1(USER_SQL + ' WHERE u.id=? AND u.active=1', id);
   if (!u) return res.status(401).json({ error: '请选择身份' });
+  if (u.temp_until && u.temp_until < L.today()) return res.status(401).json({ error: '临时账号已过期，请联系总部' });
   if (u.level === 'hq' && u.view_region) { u.home_region = u.region_id; u.region_id = u.view_region; }
   req.u = u;
   if (req.path === '/me') markUsed(u.id);
@@ -3713,6 +3714,43 @@ app.post('/api/huatong/meeting-callback', (req, res) => {
   res.json({ ok: true, done: meetDone(mt, req.body), mock: true });
 });
 app.post('/api/meet/demo', (req, res) => { if (req.u.level !== 'hq') return deny(res); res.json({ n: genMeetings(L.today().slice(0, 7), true) }); });
+// ---------- BRD11 AI 早餐解读：固定四段结构（规则生成，非生产级 AI） ----------
+app.get('/api/brief/bfai', (req, res) => {
+  const sc = homeScope(req, res); if (!sc) return;
+  const y = L.addDays(L.today(), -1), days = req.query.mode === 'month' ? Number(y.slice(8)) : req.query.mode === 'week' ? 7 : 1;
+  const from = L.addDays(y, 1 - days), pto = L.addDays(from, -1), pfrom = L.addDays(pto, 1 - days);
+  const c = breakfastRange(sc.sid, from, y), p = breakfastRange(sc.sid, pfrom, pto), ar = x => x.used ? +(x.abn * 100 / (x.used * days)).toFixed(2) : 0;
+  const ca = ar(c), pa = ar(p), dr = (c.rate ?? 0) - (p.rate ?? 0), da = +(ca - pa).toFixed(2), rateOk = (c.rate ?? 0) >= 60, abnOk = ca <= 5;
+  const trend = (v, unit) => Math.abs(v) < 1 ? '较上一期基本持平' : `较上一期${v > 0 ? '上升' : '下降'} ${Math.abs(v)}${unit}`;
+  res.json({ sim: true, from, to: y, parts: [
+    { t: '一、核心指标', rows: [`核销率：${c.rate ?? '—'}%（上一期 ${p.rate ?? '—'}%）`, `异常核销率：${ca}%（上一期 ${pa}%）`, `日均含早 ${c.incl} 份，日均用早 ${c.used} 份`] },
+    { t: '二、早餐使用情况', rows: [`本期异常核销 ${c.abn} 份，上一期 ${p.abn} 份，${c.abn >= p.abn ? '增加' : '减少'} ${Math.abs(c.abn - p.abn)} 份`, `未用早 ${Math.max(0, c.incl - c.used)} 份/日，可在入住时提醒会员早餐权益`] },
+    { t: '三、情况总结', rows: [`核销率：${c.rate ?? '—'}%，${trend(dr, ' 个百分点')}`, `异常核销：异常核销率 ${ca}%，${trend(da, ' 个百分点')}`, `整体情况：核销率${rateOk ? '处于正常区间' : '偏低'}，异常核销率${abnOk ? '处于正常区间' : '偏高'}`] },
+    { t: '四、建议', rows: [!abnOk || da >= 1 ? '持续关注异常核销率上升趋势，加强异常核销监控，核对房号与人数' : !rateOk ? '核销率偏低，前台办理入住时主动告知早餐时间和位置' : '各项正常，保持当前节奏'] }] });
+});
+// ---------- BRD11 虚拟酒店：保留临时区域、临时店长账号可提交任务 ----------
+app.get('/api/vhotel', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res);
+  const st = q1("SELECT * FROM stores WHERE lc_stage='虚拟'");
+  res.json({ store: st || null, accounts: st ? q('SELECT u.id, u.name, u.temp_until, u.active FROM users u JOIN user_stores us ON us.user_id=u.id WHERE us.store_id=? AND u.temp_until IS NOT NULL ORDER BY u.id DESC', st.id) : [] });
+});
+app.post('/api/vhotel/temp', (req, res) => {
+  if (req.u.level !== 'hq') return deny(res);
+  const name = (req.body.name || '').trim(), days = Math.min(90, Math.max(1, Number(req.body.days) || 30)); if (!name) return err(res, '请填写姓名');
+  let st = q1("SELECT * FROM stores WHERE lc_stage='虚拟'");
+  if (!st) {
+    const pr = q1('SELECT province_id FROM regions WHERE id=?', req.u.home_region || req.u.region_id)?.province_id ?? null;
+    const rid = run('INSERT INTO regions(name, province_id) VALUES(?,?)', '临时区域（虚拟酒店）', pr).lastInsertRowid;
+    const sid = run("INSERT INTO stores(region_id,name,code,brand,stype,rooms,tags,lc_stage) VALUES(?,?,?,?,?,?,?,'虚拟')", rid, '宏图虚拟酒店（培训演练）', 'VH-001', '汉庭', '经济型', 80, '虚拟酒店').lastInsertRowid;
+    st = q1('SELECT * FROM stores WHERE id=?', sid); D.audit(req.u.id, sid, '创建虚拟酒店', st.name);
+  }
+  const role = q1("SELECT id FROM roles WHERE level='store_manager'"), until = L.addDays(L.today(), days - 1);
+  const uid = run('INSERT INTO users(name,role_id,region_id,store_id,phone,temp_until) VALUES(?,?,?,?,?,?)', name + '（临时）', role.id, st.region_id, st.id, '', until).lastInsertRowid;
+  run('INSERT INTO user_stores(user_id,store_id) VALUES(?,?)', uid, st.id);
+  try { D.ensureInstances?.(L.today(), [st.id]); } catch (e) { console.log('vhotel inst', e.message); }
+  D.audit(req.u.id, st.id, '新增临时店长', `${name}，有效期至 ${until}`);
+  res.json({ ok: true, id: uid, until });
+});
 // ---------- BRD11 员工执行洞察周报（规则生成的四象限，非 AI 模型） ----------
 const QUAD = { star: ['优秀执行型', '任务完成率及提交质量均较好，建议持续表扬'], qual: ['质量提升型', '完成率较高但抽查不合格较多，建议加强操作标准培训'], eff: ['效率提升型', '完成质量较好但完成率有提升空间，建议加强任务跟进'], focus: ['重点辅导型', '完成率及提交质量均有提升空间，建议一对一辅导'] };
 const QUAD_MSG = { star: n => `${n}，本周你的任务完成又快又好，继续保持，谢谢！`, qual: n => `${n}，本周任务都按时做了，但有几项抽查没通过。我们一起再过一遍标准，下周争取一次通过。`, eff: n => `${n}，本周任务质量不错，还有几项没按时完成。上班先看一眼宏图待办，有困难随时找我。`, focus: n => `${n}，这周找个时间我们聊 15 分钟，一起把任务要求和完成标准再对一遍。` };
