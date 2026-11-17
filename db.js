@@ -59,6 +59,9 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS coach_stores(coach_id INTEGER, store_id INTEGER, by INTEGER, at TEXT, PRIMARY KEY(coach_id, store_id))');
+db.exec('CREATE TABLE IF NOT EXISTS esc_events(id INTEGER PRIMARY KEY, date TEXT, store_id INTEGER, inst_id INTEGER, level INTEGER, title TEXT, who TEXT, at TEXT)');
+db.exec('CREATE INDEX IF NOT EXISTS esc_ev_ds ON esc_events(date, store_id)');
 db.exec('CREATE TABLE IF NOT EXISTS night_audit(date TEXT, store_id INTEGER, total INTEGER, moved INTEGER, need_sm INTEGER, at TEXT, PRIMARY KEY(date, store_id))');
 db.exec(`CREATE TABLE IF NOT EXISTS sm_stage(user_id INTEGER PRIMARY KEY, stage TEXT, start TEXT, set_by INTEGER, note TEXT);
 CREATE TABLE IF NOT EXISTS stage_steps(user_id INTEGER, stage TEXT, step TEXT, done_at TEXT, note TEXT, ok_by INTEGER, ok_at TEXT, PRIMARY KEY(user_id, stage, step));

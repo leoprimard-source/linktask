@@ -60,18 +60,18 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   }
   // 5. 日报
   const m = d => {
-    const r = q1("SELECT COUNT(*) n, SUM(status='done') d, SUM(escalated=1) e, SUM(check_result IS NOT NULL) c, SUM(check_result='bad') b FROM instances WHERE date=?", d);
-    return { tasks: r.n, done: r.d || 0, rate: r.n ? +(100 * (r.d || 0) / r.n).toFixed(1) : 0, escalated: r.e || 0, checked: r.c || 0, bad: r.b || 0 };
+    const r = q1("SELECT COUNT(*) n, SUM(status='done') d, SUM(escalated>=1) e, SUM(escalated=2) e2, SUM(check_result IS NOT NULL) c, SUM(check_result='bad') b FROM instances WHERE date=?", d);
+    return { tasks: r.n, done: r.d || 0, rate: r.n ? +(100 * (r.d || 0) / r.n).toFixed(1) : 0, escalated: r.e || 0, esc2: r.e2 || 0, esc3: (() => { try { return q1('SELECT COUNT(*) n FROM esc_events WHERE date=? AND level=3', d).n; } catch { return 0; } })(), checked: r.c || 0, bad: r.b || 0 };
   };
   const rect = q1("SELECT SUM(status!='closed') open, SUM(status!='closed' AND deadline<?) late, SUM(status='closed' AND substr(verified_at,1,10)=?) closed FROM rectifications", today, today);
   const regions = q("SELECT g.name, COUNT(*) n, SUM(i.status='done') d FROM instances i JOIN stores s ON s.id=i.store_id JOIN regions g ON g.id=s.region_id WHERE i.date=? GROUP BY g.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*)", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1) }));
-  const worst = q("SELECT s.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.escalated=1) e FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.date=? GROUP BY s.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*) LIMIT 10", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1), escalated: r.e }));
+  const worst = q("SELECT s.name, COUNT(*) n, SUM(i.status='done') d, SUM(i.escalated>=1) e FROM instances i JOIN stores s ON s.id=i.store_id WHERE i.date=? GROUP BY s.id ORDER BY 1.0*SUM(i.status='done')/COUNT(*) LIMIT 10", today).map(r => ({ name: r.name, rate: +(100 * r.d / r.n).toFixed(1), escalated: r.e }));
   const rep = { date: today, at: new Date().toISOString(), secs: Math.round((Date.now() - t0) / 1000), today: m(today), actions: act, rect, regions, worst, api: stat };
   const prevF = path.join(OUT, `sim-${addDays(today, -1)}.json`); if (fs.existsSync(prevF)) rep.prev = JSON.parse(fs.readFileSync(prevF)).today;
   fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, `sim-${today}.json`), JSON.stringify(rep, null, 1));
   const dv = (k, u = '') => rep.prev ? `（昨天 ${rep.prev[k]}${u}）` : '';
   const md = [`# 宏图每日模拟日报 ${today}（截至 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}）`, '', `- 今日任务 ${rep.today.tasks} 条，完成 ${rep.today.done} 条，完成率 ${rep.today.rate}%${dv('rate', '%')}`,
-    `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
+    `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}（其中升到教练 ${rep.today.esc2} 条${dv('esc2')}，进城市总例外清单门店 ${rep.today.esc3} 家）；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
     `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,
     `- 接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${rep.secs} 秒`].join('\n');

@@ -1002,6 +1002,8 @@ VIEWS.settings = async () => {
     <div class="card"><h3>提醒规则</h3><form id="fm">
       <label class="f"><span>每日定点提醒时间（逗号分隔）</span><input name="times" value="${esc(st.reminder_times.join(','))}"></label>
       <label class="f"><span>超时多少分钟后升级提醒店长</span><input type="number" name="esc" value="${st.escalate_minutes}"></label>
+      <label class="f"><span>超时多少分钟后升级到教练（清零项立即升级）</span><input type="number" name="esc2" value="${st.escalate2_minutes}"></label>
+      <label class="f"><span>一家门店当天超时多少项进城市总例外清单</span><input type="number" name="esc3" value="${st.escalate3_count}"></label>
       <button class="btn">保存</button></form></div>
     <div class="card"><h3>品牌标准 / 巡店评分表</h3><p class="small">已融合《品牌审计线下检查标准 2026Q3（全季）》${st.audit_count} 条及 M-L-F 分解：自动生成门店固定工作，巡店按同一套条款打分。</p><a class="btn" href="#/standards">打开品牌标准库</a></div>
   </div>
@@ -1014,7 +1016,7 @@ VIEWS.settings = async () => {
   $('#fr').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/roles', formData(e.target)), '岗位已新增')) reload(); };
   $('#fs').onsubmit = async e => { e.preventDefault(); if (await act(() => api('/scenes', formData(e.target)), '场景已新增')) reload(); };
   document.querySelectorAll('[data-sc]').forEach(a => a.onclick = () => confirm('停用该场景？其下固定工作将不再生成') && act(async () => { await api('/scenes', { id: Number(a.dataset.sc), active: 0 }); reload(); }, '已停用'));
-  $('#fm').onsubmit = async e => { e.preventDefault(); const d = formData(e.target); if (await act(() => api('/settings', { reminder_times: d.times.split(/[,，\s]+/).filter(Boolean), escalate_minutes: d.esc }), '已保存')) reload(); };
+  $('#fm').onsubmit = async e => { e.preventDefault(); const d = formData(e.target); if (await act(() => api('/settings', { reminder_times: d.times.split(/[,，\s]+/).filter(Boolean), escalate_minutes: d.esc, escalate2_minutes: d.esc2, escalate3_count: d.esc3 }), '已保存')) reload(); };
   const edit = tplEdit;
   $('#nt').onclick = () => edit({});
   document.querySelectorAll('[data-et]').forEach(b => b.onclick = () => edit(tpls.find(t => t.id === Number(b.dataset.et))));
@@ -2919,6 +2921,11 @@ function mgrTop() {
 for (const [v, lv] of [['coach', 'coach'], ['hq', 'hq']]) { const f0 = VIEWS[v]; VIEWS[v] = async () => { await f0(); if (S.me.level === lv) mgrTop(); }; }
 
 // ---------- 任务授权下转 ----------
+async function excCard() {
+  const d = await api('/exceptions').catch(() => null), m = $('#main'); if (!d || !m || !m.firstElementChild) return;
+  m.firstElementChild.insertAdjacentHTML('afterend', `<div class="card" id="exc"><div class="row between"><b>例外事项（升级上来的）</b><span class="muted small">${d.stores.length} 家门店</span></div>
+    ${d.stores.slice(0, 6).map(g => `<a class="task" href="#/home?view=store&store=${g.sid}"><div class="b"><div class="ttl">${esc(g.name)} ${g.l3 ? `<span class="tag bad">三级 · ${esc(g.l3)}</span>` : ''}</div><div class="muted small">${g.items.length ? `店长未处理 ${g.items.length} 项：` + g.items.slice(0, 3).map(x => esc(x.title)).join('、') : ''}</div></div></a>`).join('') || '<div class="empty">今天没有升级上来的例外</div>'}</div>`);
+}
 async function delegModal(t) {
   const d = await api('/deleg?store=' + t.store_id);
   if (!d.cands.length) return alert('本店没有在职的店助或主管可以接手');
@@ -3030,6 +3037,7 @@ VIEWS.cdesk = async () => {
   if ($('#goall')) $('#goall').onclick = async () => { if (await act(async () => { for (const g of d.go) await plan(g.sid); }, `已加入 ${d.go.length} 家`)) VIEWS.cdesk(); };
   if ($('#autocal')) $('#autocal').onclick = async () => { let r; if (await act(async () => { r = await api('/cdesk/autocal', {}); }, '已排进工作日历')) { toast(r.made.map(x => `${x.date.slice(5)} ${x.name}`).join('，') || '没有需要排的'); VIEWS.cdesk(); } };
 };
+{ const v0 = VIEWS.cdesk; VIEWS.cdesk = async (...a) => { await v0(...a); excCard(); }; }
 async function loadTimeBudget() {
   if (S.me.level !== 'store_manager' || $('#tbud')) return;
   const b = await api('/timebudget'); if ($('#tbud')) return;

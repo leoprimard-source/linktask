@@ -81,7 +81,13 @@ app.use('/api', (req, res, next) => {
 });
 
 const isRegion = u => ['region_manager', 'ops_manager', 'sales_manager', 'hr_manager', 'dev_manager', 'build_manager', 'train_manager', 'coach', 'hq'].includes(u.level);
+function coachesOf(sid) {
+  const c = q('SELECT cs.coach_id id FROM coach_stores cs JOIN users u ON u.id=cs.coach_id WHERE cs.store_id=? AND u.active=1', sid).map(r => r.id);
+  if (c.length) return c;
+  const st = q1('SELECT region_id FROM stores WHERE id=?', sid); return st ? D.regionUsers(st.region_id, 'coach') : [];
+}
 function visibleStores(u) {
+  if (u.level === 'coach') { const cs = q('SELECT store_id FROM coach_stores WHERE coach_id=?', u.id).map(r => r.store_id); if (cs.length) return cs; }
   if (isRegion(u)) return q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(s => s.id);
   if (u.level === 'store_manager') return q('SELECT store_id FROM user_stores WHERE user_id=?', u.id).map(s => s.store_id);
   if (u.reserve === 'sm_off') return q("SELECT DISTINCT store_id FROM rsv_tasks WHERE user_id=? AND store_id IS NOT NULL AND status='open'", u.id).map(s => s.store_id);
@@ -182,7 +188,7 @@ app.get('/api/meta', (req, res) => {
     stores: q(`SELECT * FROM stores WHERE id IN (${ph}) ORDER BY id`, ...sids),
     users: q(USER_SQL + ` WHERE u.active=1 AND (u.store_id IN (${ph}) OR u.id IN (SELECT user_id FROM user_stores WHERE store_id IN (${ph}))) ORDER BY r.sort, u.id`, ...sids, ...sids),
     ms: q(`SELECT user_id, store_id FROM user_stores WHERE store_id IN (${ph}) ORDER BY store_id`, ...sids).reduce((a, x) => ((a[x.user_id] ||= []).push(x.store_id), a), {}),
-    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
+    settings: { reminder_times: D.getSetting('reminder_times', []), escalate_minutes: D.getSetting('escalate_minutes', 30), escalate2_minutes: D.getSetting('escalate2_minutes', 120), escalate3_count: D.getSetting('escalate3_count', 5), audit_count: q1("SELECT COUNT(*) n FROM templates WHERE src='audit' AND active=1").n },
   });
 });
 
@@ -3196,6 +3202,8 @@ app.post('/api/scenes', onlyRM, (req, res) => {
 app.post('/api/settings', onlyRM, (req, res) => {
   if (Array.isArray(req.body.reminder_times)) D.setSetting('reminder_times', req.body.reminder_times.filter(t => /^\d{2}:\d{2}$/.test(t)).sort());
   if (req.body.escalate_minutes !== undefined) D.setSetting('escalate_minutes', Math.max(0, Number(req.body.escalate_minutes) || 0));
+  if (req.body.escalate2_minutes !== undefined) D.setSetting('escalate2_minutes', Math.max(0, Number(req.body.escalate2_minutes) || 120));
+  if (req.body.escalate3_count !== undefined) D.setSetting('escalate3_count', Math.max(1, Number(req.body.escalate3_count) || 5));
   if (Array.isArray(req.body.patrol_checklist)) D.setSetting('patrol_checklist', req.body.patrol_checklist);
   D.audit(req.u.id, null, '修改设置', JSON.stringify(req.body).slice(0, 200));
   res.json({ ok: true });
@@ -3255,6 +3263,13 @@ function runNightAudit(date, sids) {
   for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
   return r;
 }
+app.get('/api/exceptions', (req, res) => {
+  const u = req.u; if (u.level === 'staff' || u.level === 'store_manager') return deny(res);
+  const sids = visibleStores(u); if (!sids.length) return res.json({ stores: [] });
+  const t = L.today(), rows = q(`SELECT e.*, st.name store_name FROM esc_events e JOIN stores st ON st.id=e.store_id LEFT JOIN instances i ON i.id=e.inst_id WHERE e.date=? AND e.level>=2 AND (e.inst_id IS NULL OR i.status='pending') AND e.store_id IN (${sids.map(Number).join(',')}) ORDER BY e.level DESC, e.id`, t);
+  const by = {}; for (const r of rows) { const g = by[r.store_id] ||= { sid: r.store_id, name: r.store_name, l3: null, items: [] }; if (r.level === 3) g.l3 = r.title; else g.items.push({ id: r.inst_id, title: r.title, who: r.who }); }
+  res.json({ stores: Object.values(by).sort((a, b) => !!b.l3 - !!a.l3 || b.items.length - a.items.length) });
+});
 app.get('/api/night-audit', (req, res) => {
   const sid = Number(req.query.store) || req.u.store_id; if (!sid || !visibleStores(req.u).includes(sid)) return deny(res);
   const t = L.today(), row = q1('SELECT * FROM night_audit WHERE date=? AND store_id=?', t, sid);
@@ -3276,15 +3291,21 @@ function tick() {
     }
     D.ensureInstances(date);
     if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
-    const esc = D.getSetting('escalate_minutes', 30), escBy = {};
-    for (const it of q("SELECT i.*, st.name store_name, u.name uname FROM instances i JOIN stores st ON st.id=i.store_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.date=? AND i.status='pending' AND i.escalated=0", date)) {
-      if (L.addMinutes(it.due_time, esc) < time) {
-        run('UPDATE instances SET escalated=1 WHERE id=?', it.id);
-        (escBy[it.store_id] ||= []).push(it);
-      }
+    const esc = D.getSetting('escalate_minutes', 30), esc2 = D.getSetting('escalate2_minutes', 120), esc3 = D.getSetting('escalate3_count', 5), escBy = {}, esc2By = {}, at0 = L.nowStr();
+    const zt = new Set(q("SELECT id FROM templates WHERE tag='清零项'").map(r => r.id)), ev = D.db.prepare('INSERT INTO esc_events(date,store_id,inst_id,level,title,who,at) VALUES(?,?,?,?,?,?,?)');
+    for (const it of q("SELECT i.*, st.name store_name, u.name uname FROM instances i JOIN stores st ON st.id=i.store_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.date=? AND i.status='pending' AND i.escalated<2", date)) {
+      if (!(L.addMinutes(it.due_time, esc) < time)) continue;
+      if (it.escalated === 0) { run('UPDATE instances SET escalated=1 WHERE id=?', it.id); ev.run(date, it.store_id, it.id, 1, it.title, it.uname || '', at0); (escBy[it.store_id] ||= []).push(it); }
+      if ((it.src === 'tpl' && zt.has(it.src_id)) || L.addMinutes(it.due_time, esc2) < time) { run('UPDATE instances SET escalated=2 WHERE id=?', it.id); ev.run(date, it.store_id, it.id, 2, it.title, it.uname || '', at0); (esc2By[it.store_id] ||= []).push(it); }
     }
+    const brief = list => list.slice(0, 4).map(x => `${x.due_time} ${x.title}（${x.uname || '未分配'}）`).join('；') + (list.length > 4 ? ` 等 ${list.length} 项` : '');
     for (const [sid, list] of Object.entries(escBy)) D.notify(D.storeManagers(Number(sid)), 'escalate', list.length > 1 ? `超时升级：${list[0].store_name} ${list.length} 项任务超时` : `超时升级：${list[0].title}`,
-      list.slice(0, 4).map(x => `${x.due_time} ${x.title}（${x.uname || '未分配'}）`).join('；') + (list.length > 4 ? ` 等 ${list.length} 项` : '') + `，已超时 ${esc} 分钟以上。`, '#/tasks?store=' + sid);
+      brief(list) + `，已超时 ${esc} 分钟以上。`, '#/tasks?store=' + sid);
+    for (const [sid, list] of Object.entries(esc2By)) D.notify(coachesOf(Number(sid)), 'escalate', `二级升级：${list[0].store_name} ${list.length} 项任务店长未处理`, brief(list) + `，超时 ${esc2} 分钟或属清零项。`, '#/cdesk');
+    for (const r of q("SELECT i.store_id, st.name, st.region_id, COUNT(*) n FROM instances i JOIN stores st ON st.id=i.store_id WHERE i.date=? AND i.escalated>=1 GROUP BY i.store_id HAVING n>=? AND NOT EXISTS (SELECT 1 FROM esc_events x WHERE x.date=i.date AND x.store_id=i.store_id AND x.level=3)", date, esc3)) {
+      ev.run(date, r.store_id, null, 3, `当天 ${r.n} 项任务超时`, '', at0);
+      D.notify(D.regionUsers(r.region_id, 'region_manager'), 'escalate', `三级升级：${r.name} 当天 ${r.n} 项任务超时`, '已进入例外清单，请联系教练和店长跟进', '#/cdesk');
+    }
     for (const r of q("SELECT r.*, st.name store_name, st.region_id FROM rectifications r JOIN stores st ON st.id=r.store_id WHERE r.status='open' AND r.deadline<? AND r.escalated=0", date)) {
       run('UPDATE rectifications SET escalated=1 WHERE id=?', r.id);
       D.notify([...D.storeManagers(r.store_id), ...D.regionUsers(r.region_id, 'region_manager'), ...D.regionUsers(r.region_id, 'ops_manager')], 'escalate', `整改逾期：${r.store_name}`, `${r.task}（截止 ${r.deadline}）`, '#/rect');
