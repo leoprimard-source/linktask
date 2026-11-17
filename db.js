@@ -53,12 +53,13 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT, user_id INTEGE
 for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEXT'],
   ['users', 'view_region INTEGER'], ['templates', "src TEXT DEFAULT 'std'"], ['templates', 'code TEXT'], ['templates', 'area TEXT'], ['templates', 'sub TEXT'], ['templates', 'score TEXT'],
   ['templates', 'tag TEXT'], ['templates', 'm TEXT'], ['templates', 'l TEXT'], ['templates', 'f TEXT'], ['templates', 'need_value INTEGER DEFAULT 0'],
-  ['instances', 'reading TEXT'], ['instances', 'manual INTEGER DEFAULT 0'], ['instances', 'why TEXT'], ['flex_tasks', 'line TEXT'], ['flex_tasks', 'minutes INTEGER'], ['flex_tasks', 'deferred INTEGER DEFAULT 0'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
+  ['instances', 'reading TEXT'], ['instances', 'manual INTEGER DEFAULT 0'], ['instances', 'why TEXT'], ['flex_tasks', 'line TEXT'], ['templates', "layer TEXT DEFAULT 'hq'"], ['templates', 'scope_id INTEGER'], ['flex_tasks', 'minutes INTEGER'], ['flex_tasks', 'deferred INTEGER DEFAULT 0'], ['templates', 'pillar TEXT'], ['flex_tasks', 'pillar TEXT'], ['stores', 'brand TEXT'], ['stores', 'stype TEXT'], ['stores', 'open_date TEXT'], ['stores', 'rooms INTEGER'], ['patrol_items', 'code TEXT'], ['patrol_items', 'tag TEXT'], ['patrol_items', 'result TEXT'],
   ['patrols', "kind TEXT DEFAULT 'patrol'"], ['patrols', 'mode TEXT'], ['patrols', 'parent_id INTEGER'], ['patrols', 'codes TEXT'], ['patrols', 'recheck_result TEXT'], ['patrols', 'owner_sent TEXT'],
   ['patrol_items', 'photo TEXT'], ['patrol_items', 'rect_id INTEGER'], ['patrol_items', 'recheck TEXT'], ['patrol_items', 'recheck_comment TEXT'], ['rectifications', 'title TEXT'], ['rectifications', 'ref TEXT'], ['instances', 'deleg_id INTEGER'], ['instances', 'deleg_review INTEGER'], ['patrols', 'focus TEXT']]) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS tpl_layers(tpl_id INTEGER, layer TEXT, scope_id INTEGER, off INTEGER, due_time TEXT, reason TEXT, by INTEGER, at TEXT, PRIMARY KEY(tpl_id, layer, scope_id))');
 db.exec('CREATE TABLE IF NOT EXISTS coach_stores(coach_id INTEGER, store_id INTEGER, by INTEGER, at TEXT, PRIMARY KEY(coach_id, store_id))');
 db.exec('CREATE TABLE IF NOT EXISTS esc_events(id INTEGER PRIMARY KEY, date TEXT, store_id INTEGER, inst_id INTEGER, level INTEGER, title TEXT, who TEXT, at TEXT)');
 db.exec('CREATE INDEX IF NOT EXISTS esc_ev_ds ON esc_events(date, store_id)');
@@ -172,6 +173,22 @@ function coverFor(userId, date, storeId) {
   return lv.cover_user_id || storeManagers(storeId)[0] || userId;
 }
 const monthDay = (date, v) => L.dom(date) === Math.min(Number(v), new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7), 0)).getUTCDate());
+let layerCache = null;
+const layerReset = () => { layerCache = null; };
+function layerMap() {
+  if (layerCache) return layerCache;
+  const m = new Map(); for (const r of q('SELECT * FROM tpl_layers')) { if (!m.has(r.tpl_id)) m.set(r.tpl_id, {}); m.get(r.tpl_id)[r.layer + ':' + (r.scope_id || 0)] = r; }
+  return layerCache = m;
+}
+const storeScope = sid => q1('SELECT s.id sid, s.region_id rid, COALESCE(g.province_id, 0) pid FROM stores s LEFT JOIN regions g ON g.id=s.region_id WHERE s.id=?', sid) || { sid, rid: 0, pid: 0 };
+const LAYER_KEYS = sc => ['hq:0', 'province:' + sc.pid, 'region:' + sc.rid, 'store:' + sc.sid];
+function tplEff(t, sc) {
+  const L0 = t.layer || 'hq';
+  if ((L0 === 'province' && t.scope_id !== sc.pid) || (L0 === 'region' && t.scope_id !== sc.rid) || (L0 === 'store' && t.scope_id !== sc.sid)) return null;
+  const o = layerMap().get(t.id) || {}; let off = 0, due = t.due_time, offBy = null, dueBy = null;
+  for (const k of LAYER_KEYS(sc)) { const r = o[k]; if (!r) continue; if (r.off != null) { off = r.off; offBy = k.split(':')[0]; } if (r.due_time) { due = r.due_time; dueBy = k.split(':')[0]; } }
+  return { off: !!off, due, offBy, dueBy };
+}
 function tplDue(t, date) {
   if (t.freq === 'weekly') return L.weekday(date) === Number(t.freq_val);
   if (t.freq === 'monthly') return monthDay(date, t.freq_val);
@@ -257,12 +274,14 @@ function ensureInstances0(date, storeIds) {
   const st = insInst();
   tx(() => {
     for (const sid of stores) {
+      const sc = storeScope(sid);
       for (const t of tpls) {
         if (!tplDue(t, date)) continue;
+        const ef = tplEff(t, sc); if (!ef || ef.off) continue;
         const exists = q1("SELECT 1 FROM instances WHERE src='tpl' AND src_id=? AND store_id=? AND date=?", t.id, sid, date);
         if (exists) continue;
-        const base = shiftPick(sid, baseAssignee(sid, t), date, t.due_time);
-        st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, t.due_time, t.need_photo);
+        const base = shiftPick(sid, baseAssignee(sid, t), date, ef.due);
+        st.run(sid, date, 'tpl', t.id, t.scene_id, t.title, t.standard || '', t.category, 'fixed', coverFor(base, date, sid), base, ef.due, t.need_photo);
       }
     }
     for (const f of flex) {
@@ -329,5 +348,5 @@ function audit(userId, storeId, action, detail) {
   run('INSERT INTO audit(at,user_id,store_id,action,detail) VALUES(?,?,?,?,?)', L.nowStr(), userId, storeId || null, action, detail || '');
 }
 
-module.exports = { db, q, q1, run, tx, DATA_DIR, getSetting, setSetting, storeManagers, regionUsers, baseAssignee, coverFor,
+module.exports = { layerReset, storeScope, tplEff, db, q, q1, run, tx, DATA_DIR, getSetting, setSetting, storeManagers, regionUsers, baseAssignee, coverFor,
   ensureInstances, refreshPending, nightAudit, applyDeleg, notify, audit, SHIFT_DEF, shiftGroup, roleShifts, restCode, shiftMap, onShift, shiftPick, shiftReset };

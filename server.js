@@ -3305,6 +3305,47 @@ app.get('/api/dispatch/stats', (req, res) => {
   const mine = q("SELECT title, COUNT(*) n, SUM(deferred) deferred, created_at FROM flex_tasks WHERE source='line' AND created_by=? GROUP BY title, created_at ORDER BY created_at DESC LIMIT 10", u.id);
   res.json({ cap, lines, top, over, stores: sids.length, mine, line });
 });
+const LAYER_N = { hq: '总部', province: '省区', region: '区域', store: '门店' };
+function layerScope(u, layer, sid) {
+  if (layer === 'hq') return u.level === 'hq' ? 0 : null;
+  if (layer === 'province') return u.level === 'hq' ? (q1('SELECT province_id FROM regions WHERE id=?', u.region_id)?.province_id || 0) : null;
+  if (layer === 'region') return ['region_manager', 'hq'].includes(u.level) ? u.region_id : null;
+  if (layer === 'store') return canManage(u, sid) ? Number(sid) : null;
+  return null;
+}
+const layerStores = (layer, id) => layer === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : layer === 'province' ? q('SELECT s.id FROM stores s JOIN regions g ON g.id=s.region_id WHERE g.province_id=?', id).map(r => r.id)
+  : layer === 'region' ? q('SELECT id FROM stores WHERE region_id=?', id).map(r => r.id) : [id];
+app.get('/api/tpl-layers', (req, res) => {
+  const layer = req.query.layer || 'store', id = layerScope(req.u, layer, req.query.store);
+  if (id === null) return deny(res);
+  const sc = layer === 'store' ? D.storeScope(id) : layer === 'region' ? { sid: -1, rid: id, pid: q1('SELECT province_id FROM regions WHERE id=?', id)?.province_id || 0 } : layer === 'province' ? { sid: -1, rid: -1, pid: id } : { sid: -1, rid: -1, pid: -1 };
+  const own = q('SELECT * FROM tpl_layers WHERE layer=? AND scope_id=?', layer, id), byT = new Map(own.map(r => [r.tpl_id, r]));
+  const list = q("SELECT t.id, t.title, t.due_time, t.tag, t.layer, t.scope_id, s.name scene_name, r.name role_name FROM templates t JOIN scenes s ON s.id=t.scene_id LEFT JOIN roles r ON r.id=t.role_id WHERE t.active=1 AND s.active=1 AND t.src='std' ORDER BY s.sort, s.id, t.due_time")
+    .map(t => ({ ...t, eff: D.tplEff(t, sc), mine: byT.get(t.id) || null, locked: t.tag === '清零项' && layer !== 'hq' })).filter(t => t.eff);
+  const log = q("SELECT a.*, u.name uname FROM audit a LEFT JOIN users u ON u.id=a.user_id WHERE a.action LIKE '模板分层%' AND a.detail LIKE ? ORDER BY a.id DESC LIMIT 20", `%[${LAYER_N[layer]}%`);
+  res.json({ layer, id, name: LAYER_N[layer], list, log });
+});
+app.post('/api/tpl-layers', (req, res) => {
+  const b = req.body || {}, layer = b.layer, id = layerScope(req.u, layer, b.store), t = q1('SELECT * FROM templates WHERE id=?', b.tpl_id);
+  if (id === null || !t) return deny(res);
+  if (b.off && t.tag === '清零项' && layer !== 'hq') return err(res, '清零项只能由总部停用');
+  if (b.due_time && !/^\d{2}:\d{2}$/.test(b.due_time)) return err(res, '时间格式不对');
+  if (b.clear) run('DELETE FROM tpl_layers WHERE tpl_id=? AND layer=? AND scope_id=?', t.id, layer, id);
+  else run('INSERT OR REPLACE INTO tpl_layers VALUES(?,?,?,?,?,?,?,?)', t.id, layer, id, b.off == null ? null : (b.off ? 1 : 0), b.due_time || null, b.reason || '', req.u.id, L.nowStr());
+  D.layerReset();
+  const sids = layerStores(layer, id);
+  if (sids.length) run(`DELETE FROM instances WHERE src='tpl' AND src_id=? AND date>? AND status='pending' AND store_id IN (${sids.map(Number).join(',')})`, t.id, L.today());
+  D.audit(req.u.id, layer === 'store' ? id : null, '模板分层' + (b.clear ? '恢复' : b.off ? '停用' : '调整'), `[${LAYER_N[layer]}${layer === 'store' ? sname(id) : ''}] ${t.title}${b.due_time ? ' → ' + b.due_time : ''}${b.reason ? '（' + b.reason + '）' : ''}`);
+  res.json({ ok: true, stores: sids.length });
+});
+app.post('/api/tpl-layers/new', (req, res) => {
+  const b = req.body || {}, layer = b.layer, id = layerScope(req.u, layer, b.store);
+  if (id === null || layer === 'hq') return deny(res);
+  if (!(b.title || '').trim() || !b.scene_id || !b.role_id || !/^\d{2}:\d{2}$/.test(b.due_time || '')) return err(res, '请填写任务名称、场景、岗位和时间');
+  run("INSERT INTO templates(scene_id,role_id,title,standard,due_time,freq,category,need_photo,active,layer,scope_id) VALUES(?,?,?,?,?,'daily','ops',?,1,?,?)", b.scene_id, b.role_id, b.title.trim(), b.standard || '', b.due_time, b.need_photo ? 1 : 0, layer, id);
+  D.audit(req.u.id, layer === 'store' ? id : null, '模板分层新增', `[${LAYER_N[layer]}${layer === 'store' ? sname(id) : ''}] ${b.title.trim()} ${b.due_time}`);
+  res.json({ ok: true });
+});
 app.get('/api/exceptions', (req, res) => {
   const u = req.u; if (u.level === 'staff' || u.level === 'store_manager') return deny(res);
   const sids = visibleStores(u); if (!sids.length) return res.json({ stores: [] });
