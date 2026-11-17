@@ -59,6 +59,7 @@ for (const [t, c] of [['regions', 'province_id INTEGER'], ['users', 'reserve TEX
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch { /* exists */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS provinces(id INTEGER PRIMARY KEY, name TEXT)');
+db.exec("CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, title TEXT, kind TEXT, dept TEXT, start TEXT, end TEXT, stores TEXT, note TEXT, src TEXT DEFAULT 'manual', by INTEGER, at TEXT)");
 db.exec(`CREATE TABLE IF NOT EXISTS data_sources(id INTEGER PRIMARY KEY, kind TEXT UNIQUE, name TEXT, sys TEXT, metrics TEXT, owner TEXT, status TEXT DEFAULT 'demo', note TEXT, last_at TEXT, rows INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ext_data(source TEXT, store_id INTEGER, date TEXT, k TEXT, v REAL, txt TEXT, batch INTEGER, PRIMARY KEY(source, store_id, date, k));
 CREATE TABLE IF NOT EXISTS import_log(id INTEGER PRIMARY KEY, source TEXT, at TEXT, by TEXT, total INTEGER, ok INTEGER, bad INTEGER, err TEXT)`);

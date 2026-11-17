@@ -402,6 +402,7 @@ VIEWS.appr = async () => {
 };
 VIEWS.cal = async () => {
   const lv = S.me.level, P = qs(), day = /^\d{4}-\d{2}-\d{2}$/.test(P.get('d') || '') ? P.get('d') : S.me.today, mode = P.get('m') === 'w' ? 'w' : 'd';
+  if (P.get('t') === 'ev') return calEvents(day);
   const mon = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)), week = [...Array(7)].map((_, i) => addDays(mon, i));
   const rh = ['staff', 'store_manager'].includes(lv) ? (day === S.me.today ? myRhythm() : RHYTHM) : [];
   const [wc, tasks] = await Promise.all([lv !== 'staff' && lv !== 'store_manager' ? api('/wcal?from=' + mon).catch(() => null) : null, Promise.all((mode === 'w' ? week : [day]).map(d => api('/my/tasks?date=' + d).catch(() => [])))]);
@@ -422,8 +423,37 @@ VIEWS.cal = async () => {
         ${t.length ? `<span class="muted small">我的任务 ${t.filter(x => x.status === 'done').length}/${t.length}${od ? ` · <em style="color:var(--bad);font-style:normal">逾期 ${od}</em>` : ''}</span>` : ''}${!e.length && !t.length ? '<span class="muted small">无安排</span>' : ''}</span><span class="chev">›</span></a>`; }).join('')}</div>`;
   }
   $('#main').innerHTML = `<div class="row between" style="margin-bottom:8px"><b style="font-size:17px">${esc(day.slice(0, 7).replace('-', ' 年 '))} 月</b><span class="row" style="gap:8px">${day !== S.me.today ? `<a class="btn sm" href="${base(mode)}${S.me.today}">今天</a>` : ''}<span class="fseg" style="margin:0;width:112px"><a href="${base('d')}${day}" class="${mode === 'd' ? 'on' : ''}">日</a><a href="${base('w')}${day}" class="${mode === 'w' ? 'on' : ''}">周</a></span></span></div>
-    ${strip}${body}${lv !== 'staff' && lv !== 'store_manager' ? '<p class="small" style="margin-top:12px"><a href="#/wcal">新增巡店、辅导等事项，去工作日历 ›</a></p>' : ''}`;
+    ${calType('task', day)}${strip}${body}${lv !== 'staff' && lv !== 'store_manager' ? '<p class="small" style="margin-top:12px"><a href="#/wcal">新增巡店、辅导等事项，去工作日历 ›</a></p>' : ''}`;
 };
+const calType = (t, day) => `<div class="fseg" style="margin:0 0 8px"><a href="#/cal?d=${day}" class="${t === 'task' ? 'on' : ''}">任务</a><a href="#/cal?t=ev&d=${day}" class="${t === 'ev' ? 'on' : ''}">事件</a></div>`;
+async function calEvents(day) {
+  const ms = day.slice(0, 8) + '01', me = addDays(addDays(ms, 32).slice(0, 8) + '01', -1);
+  const d = await api(`/events?from=${ms}&to=${me}`);
+  const first = (new Date(ms + 'T00:00:00').getDay() + 6) % 7, n = Number(me.slice(8));
+  const on = x => d.items.filter(e => e.start <= x && e.end >= x);
+  const cells = [...Array(first).fill(null), ...[...Array(n)].map((_, i) => addDays(ms, i))];
+  const sel = on(day);
+  const prev = addDays(ms, -1).slice(0, 8) + '01', next = addDays(me, 1);
+  const evCard = e => `<div class="task"><div class="b"><div class="ttl"><span class="tag acc">${esc(e.kind)}</span> ${esc(e.title)}${e.src === 'demo' ? ' <span class="tag">模拟</span>' : ''}</div>
+    <div class="muted small">${esc(e.start.slice(5))}${e.end !== e.start ? ' 至 ' + esc(e.end.slice(5)) : ''} · ${esc(e.dept || '')}${e.by_name ? ' · ' + esc(e.by_name) : ''} · ${e.n_stores ? e.n_stores + ' 家门店' : '全部门店'}</div>${e.note ? `<div class="small">${esc(e.note)}</div>` : ''}</div>${e.mine && e.src !== 'demo' ? `<button class="btn sm" data-del="${e.id}">删除</button>` : ''}</div>`;
+  $('#main').innerHTML = `<div class="row between" style="margin-bottom:8px"><b style="font-size:17px">${esc(ms.slice(0, 7).replace('-', ' 年 '))} 月</b><span class="row" style="gap:6px"><a class="btn sm" href="#/cal?t=ev&d=${prev}">‹</a><a class="btn sm" href="#/cal?t=ev&d=${S.me.today}">今天</a><a class="btn sm" href="#/cal?t=ev&d=${next}">›</a></span></div>
+    ${calType('ev', day)}
+    <p class="muted small" style="margin:0 0 8px">事件只做提醒：不打卡、不计入任务完成率和考核，也不占店长条线负荷。</p>
+    <div class="evm">${['一', '二', '三', '四', '五', '六', '日'].map(w => `<b>${w}</b>`).join('')}${cells.map(x => x ? `<a href="#/cal?t=ev&d=${x}" class="${x === day ? 'on' : ''} ${x === S.me.today ? 'td' : ''}"><span>${Number(x.slice(8))}</span>${on(x).slice(0, 2).map(e => `<i title="${esc(e.title)}">${esc(e.title.slice(0, 4))}</i>`).join('')}${on(x).length > 2 ? `<small>+${on(x).length - 2}</small>` : ''}</a>` : '<span></span>').join('')}</div>
+    <div class="row between"><div class="sec-t2">${esc(day.slice(5))} 事件 ${sel.length}</div>${d.can ? '<button class="btn primary sm" id="evadd">新增事件</button>' : ''}</div>
+    <div class="list">${sel.map(evCard).join('') || '<div class="empty">这天没有事件</div>'}</div>`;
+  $('#main').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (confirm('删除这个事件？') && await act(() => api(`/events/${b.dataset.del}/del`, {}), '已删除')) route(); });
+  if ($('#evadd')) $('#evadd').onclick = () => modal('新增事件', `<form id="ef"><label class="f"><span>事件名称</span><input name="title" required placeholder="例如：元旦前消防检查"></label>
+    <label class="f"><span>类型</span><select name="kind">${d.kinds.map(k => `<option>${k}</option>`).join('')}</select></label>
+    <div class="row" style="gap:6px"><label class="f grow"><span>开始</span><input type="date" name="start" value="${day}" required></label><label class="f grow"><span>结束</span><input type="date" name="end" value="${day}" required></label></div>
+    <label class="f"><span>适用门店</span><select name="stores"><option value="all">我负责的全部门店</option>${(S.meta.stores || []).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>说明</span><textarea name="note" placeholder="门店需要提前准备什么"></textarea></label>
+    <p class="muted small">来源部门：${esc(d.dept)}。事件不生成任务，不计入完成率和考核。</p>
+    <div class="row"><span class="sp"></span><button class="btn primary">保存</button></div></form>`, m => {
+    m.querySelector('#ef').onsubmit = async e => { e.preventDefault(); const x = formData(e.target);
+      if (await act(() => api('/events', { ...x, stores: x.stores === 'all' ? 'all' : [Number(x.stores)] }), '已新增，适用门店的日历里都能看到')) { closeModal(); route(); } };
+  });
+}
 VIEWS.dir = async () => {
   const us = await api('/users'), k = (qs().get('q') || '').trim(), mgr = S.me.level !== 'staff';
   const gs = {}; us.forEach(u => { const g = ['staff', 'store_manager'].includes(u.level) ? (u.stores || []).join('、') || '门店' : '区域管理'; (gs[g] ||= []).push(u); });

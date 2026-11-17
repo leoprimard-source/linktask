@@ -3288,6 +3288,51 @@ function runNightAudit(date, sids) {
   for (const x of r) if (x.need) D.notify(D.storeManagers(x.sid), 'assign', `夜审：${x.need} 项任务待你安排`, '这些任务当天没有合适的在班人员，请在首页「今日夜审」里改派', '#/home');
   return r;
 }
+// ---------- 事件日历：只提醒，不打卡、不计完成率、不计考核、不占条线负荷 ----------
+const EV_KINDS = ['节假日', '营销活动', '运维巡检', '客房维保', '公区维修', '设备巡检', '库房管理', '节前检查', '突发事件检查'];
+const evStores = u => u.level === 'hq' ? null : u.level === 'staff' ? (u.store_id ? [u.store_id] : []) : visibleStores(u);
+function seedEvents() {
+  if (q1('SELECT 1 x FROM events LIMIT 1')) return;
+  const t = L.today(), y = t.slice(0, 4), ny = String(Number(y) + 1), ms = t.slice(0, 8);
+  const reg = q('SELECT id FROM stores ORDER BY id LIMIT 40').map(x => x.id);
+  [['元旦', '节假日', '总部', `${ny}-01-01`, `${ny}-01-03`, null, '法定假日，提前确认排班和房态'],
+   ['春节', '节假日', '总部', `${ny}-02-16`, `${ny}-02-22`, null, '法定假日'],
+   ['双十二会员日', '营销活动', '营销', `${y}-12-12`, `${y}-12-12`, null, '会员权益加码，前台主动推荐办卡'],
+   ['节前安全检查', '节前检查', '运营', `${y}-12-28`, `${y}-12-31`, null, '元旦前消防、燃气、电梯安全自查'],
+   ['月度运维巡检', '运维巡检', '工程项目', `${ms}20`, `${ms}22`, reg, '数据来自易巡检（未接通，模拟）'],
+   ['客房深度维保', '客房维保', '工程项目', `${ms}18`, `${ms}19`, reg.slice(0, 20), '数据来自易客房（未接通，模拟）'],
+   ['电梯年检', '设备巡检', '工程项目', `${ms}25`, `${ms}25`, null, '配合特检院上门'],
+   ['库房盘点周', '库房管理', '运营', `${ms}26`, `${ms}28`, null, ''],
+  ].forEach(([title, kind, dept, start, end, ss, note]) => run("INSERT INTO events(title,kind,dept,start,end,stores,note,src,at) VALUES(?,?,?,?,?,?,?,'demo',?)", title, kind, dept, start, end, ss && JSON.stringify(ss), note, L.nowStr()));
+}
+seedEvents();
+app.get('/api/events', (req, res) => {
+  const t = L.today(), from = req.query.from || t.slice(0, 8) + '01', to = req.query.to || L.addDays(from, 41), vis = evStores(req.u);
+  const sid = Number(req.query.store) || null;
+  const rows = q('SELECT e.*, u.name by_name FROM events e LEFT JOIN users u ON u.id=e.by WHERE e.start<=? AND e.end>=? ORDER BY e.start, e.id', to, from)
+    .map(e => ({ ...e, stores: e.stores ? JSON.parse(e.stores) : null }))
+    .filter(e => !e.stores || (sid ? e.stores.includes(sid) : !vis || e.stores.some(x => vis.includes(x))))
+    .map(e => ({ ...e, n_stores: e.stores ? e.stores.length : null, stores: undefined, mine: e.by === req.u.id || req.u.level === 'hq' }));
+  res.json({ items: rows, kinds: EV_KINDS, can: !!LINES[req.u.level], dept: LINES[req.u.level] || null });
+});
+app.post('/api/events', (req, res) => {
+  const u = req.u, b = req.body || {}, dept = LINES[u.level]; if (!dept) return deny(res, '只有总部和职能条线可以配置事件');
+  const title = (b.title || '').trim(), start = b.start, end = b.end || b.start;
+  if (!title) return err(res, '请填写事件名称');
+  if (!EV_KINDS.includes(b.kind)) return err(res, '请选择事件类型');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || end < start) return err(res, '请填写正确的起止日期');
+  const vis = evStores(u), ss = b.stores === 'all' || !b.stores ? (vis ? vis : null) : b.stores.map(Number).filter(x => !vis || vis.includes(x));
+  if (ss && !ss.length) return err(res, '请选择适用门店');
+  const id = Number(run('INSERT INTO events(title,kind,dept,start,end,stores,note,src,by,at) VALUES(?,?,?,?,?,?,?,?,?,?)', title, b.kind, dept, start, end, ss && JSON.stringify(ss), (b.note || '').trim(), 'manual', u.id, L.nowStr()).lastInsertRowid);
+  D.audit(u.id, null, '新增事件', `${title} ${start}~${end}`);
+  res.json({ ok: true, id });
+});
+app.post('/api/events/:id/del', (req, res) => {
+  const e = q1('SELECT * FROM events WHERE id=?', req.params.id); if (!e) return err(res, '事件不存在');
+  if (e.by !== req.u.id && req.u.level !== 'hq') return deny(res, '只能删除自己配置的事件');
+  run('DELETE FROM events WHERE id=?', e.id); D.audit(req.u.id, null, '删除事件', e.title); res.json({ ok: true });
+});
+
 const LINES = { hr_manager: '人事', train_manager: '培训', sales_manager: '营销', dev_manager: '开发', build_manager: '工程项目', ops_manager: '运营', region_manager: '运营', coach: '教练', hq: '总部' };
 const lineLoad = (sid, d) => q1("SELECT COALESCE(SUM(minutes),0) m FROM flex_tasks WHERE store_id=? AND source='line' AND active=1 AND start_date=?", sid, d).m;
 app.post('/api/dispatch', (req, res) => {
