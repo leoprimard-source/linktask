@@ -2592,7 +2592,7 @@ app.post('/api/pay/appeal', (req, res) => {
 });
 app.post('/api/pay/appeal/:id', (req, res) => {
   const a = q1('SELECT a.*, u.store_id FROM pay_appeals a JOIN users u ON u.id=a.user_id WHERE a.id=?', req.params.id), b = req.body || {};
-  if (!a || a.status !== 'open' || !(canManage(req.u, a.store_id) || canHR(req.u)) || !['accepted', 'rejected'].includes(b.status) || a.user_id === req.u.id) return deny(res);
+  if (!a || a.status !== 'open' || !(canManage(req.u, a.store_id) || canHR(req.u) || (String(a.item).startsWith('考核·') && ['hq', 'region_manager'].includes(req.u.level))) || !['accepted', 'rejected'].includes(b.status) || a.user_id === req.u.id) return deny(res);
   run('UPDATE pay_appeals SET status=?, reply=?, by=?, replied_at=? WHERE id=?', b.status, b.reply || '', req.u.id, L.nowStr(), a.id);
   D.notify([a.user_id], 'pay', `绩效申诉${b.status === 'accepted' ? '已采纳' : '未采纳'}`, b.reply || '', '#/pay');
   res.json({ ok: true });
@@ -3304,6 +3304,41 @@ app.get('/api/dispatch/stats', (req, res) => {
   const over = q1(`SELECT COUNT(*) n FROM (SELECT store_id FROM flex_tasks WHERE source='line' AND active=1 AND start_date=? AND store_id IN (${IN}) GROUP BY store_id HAVING SUM(minutes)>?)`, t, cap).n;
   const mine = q("SELECT title, COUNT(*) n, SUM(deferred) deferred, created_at FROM flex_tasks WHERE source='line' AND created_by=? GROUP BY title, created_at ORDER BY created_at DESC LIMIT 10", u.id);
   res.json({ cap, lines, top, over, stores: sids.length, mine, line });
+});
+const KPI_ROLES = ['coach', 'region_manager', 'ops_manager', 'hr_manager', 'train_manager', 'sales_manager', 'dev_manager', 'build_manager', 'hq'];
+function kpiOf(u) {
+  const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';
+  const P = (a, b) => (b ? Math.round(a * 100 / b) : 100);
+  const avg = () => Math.round(sids.reduce((a, s) => a + storeScore(s).total, 0) / (sids.length || 1));
+  const done = () => { const r = q1(`SELECT COUNT(*) n, SUM(status='done') d FROM instances WHERE date BETWEEN ? AND ? AND (date<? OR status='done') AND store_id IN (${IN})`, m0, t, t); return [P(r.d || 0, r.n), `完成 ${r.d || 0}/${r.n}`]; };
+  const rect = () => { const r = q1(`SELECT COUNT(*) n, SUM(status='closed' AND substr(verified_at,1,10)<=deadline) d FROM rectifications WHERE created_at>=? AND store_id IN (${IN}) AND deadline<=?`, m0, t); return [P(r.d || 0, r.n), `按期闭环 ${r.d || 0}/${r.n}`]; };
+  const patrol = () => { const r = q1("SELECT COUNT(*) n, SUM(status='done') d FROM patrols WHERE created_by=? AND planned_date BETWEEN ? AND ?", u.id, m0, t), need = Math.max(r.n, Math.ceil(sids.length / 4)); return [Math.min(100, P(r.d || 0, need)), `完成 ${r.d || 0} 次，本月至少 ${need} 次`]; };
+  const esc2 = () => { const r = q1(`SELECT COUNT(*) n, SUM(i.status='done') d FROM esc_events e LEFT JOIN instances i ON i.id=e.inst_id WHERE e.level=2 AND e.date>=? AND e.store_id IN (${IN})`, m0); return [P(r.d || 0, r.n), `升级 ${r.n} 项，已处理 ${r.d || 0}`]; };
+  const l3 = () => { const days = Number(t.slice(8, 10)), n = q1(`SELECT COUNT(*) n FROM esc_events WHERE level=3 AND date>=? AND store_id IN (${IN})`, m0).n; return [Math.max(0, 100 - P(n, sids.length * days)), `进例外清单 ${n} 店次`]; };
+  const line = () => { const f = q("SELECT id, deferred FROM flex_tasks WHERE source='line' AND created_by=? AND start_date BETWEEN ? AND ?", u.id, m0, t); const ids = f.map(x => x.id).join(',') || 'NULL';
+    const r = q1(`SELECT COUNT(*) n, SUM(status='done') d FROM instances WHERE src='flex' AND src_id IN (${ids}) AND (date<? OR status='done')`, t); const df = f.filter(x => x.deferred).length;
+    return { done: [P(r.d || 0, r.n), `门店完成 ${r.d || 0}/${r.n}`], cap: [100 - P(df, f.length), `派发 ${f.length} 条，因店长负荷满顺延 ${df} 条`] }; };
+  const it = (l, w, [v, note]) => ({ l, w, v, note });
+  let items;
+  if (u.level === 'coach') items = [it('负责门店画像均分', 40, [avg(), `${sids.length} 家门店`]), it('升级例外处理', 20, esc2()), it('整改按期闭环', 20, rect()), it('巡店计划完成', 20, patrol())];
+  else if (u.level === 'region_manager' || u.level === 'ops_manager') items = [it('区域门店画像均分', 40, [avg(), `${sids.length} 家门店`]), it('门店任务完成率', 20, done()), it('门店少进例外清单', 20, l3()), it('巡店计划完成', 20, patrol())];
+  else if (u.level === 'hq') items = [it('全部门店画像均分', 50, [avg(), `${sids.length} 家门店`]), it('门店任务完成率', 50, done())];
+  else { const ln = line(); items = u.level === 'hr_manager' ? [it('区域人员稳定', 40, [stabOf(sids), '在职稳定、流失率']), it('条线任务门店完成', 30, ln.done), it('不超店长负荷', 30, ln.cap)]
+    : [it('条线任务门店完成', 50, ln.done), it('不超店长负荷', 25, ln.cap), it('区域门店画像均分', 25, [avg(), `${sids.length} 家门店`])]; }
+  const score = Math.round(items.reduce((a, x) => a + x.v * x.w, 0) / items.reduce((a, x) => a + x.w, 0));
+  return { ym, score, grade: score >= 90 ? 'S' : score >= 85 ? 'A' : score >= 78 ? 'B' : score >= 70 ? 'C' : 'D', items };
+}
+const canKpi = (me, x) => x.id === me.id || me.level === 'hq' || (['region_manager', 'hr_manager'].includes(me.level) && x.region_id === me.region_id);
+app.get('/api/kpi/:uid', (req, res) => {
+  const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || !canKpi(req.u, x)) return deny(res);
+  if (!KPI_ROLES.includes(x.level)) return res.json({ name: x.name, role_name: x.role_name, pay: true });
+  res.json({ name: x.name, role_name: x.role_name, ...kpiOf(x), appeals: q("SELECT * FROM pay_appeals WHERE user_id=? AND item LIKE '考核·%' ORDER BY id DESC", x.id), simulated: true });
+});
+app.get('/api/kpi-board', (req, res) => {
+  const u = req.u; if (!['hq', 'region_manager', 'hr_manager'].includes(u.level)) return deny(res);
+  const us = q(USER_SQL + ` WHERE u.active=1 AND r.level IN (${KPI_ROLES.map(x => `'${x}'`).join(',')})${u.level === 'hq' ? '' : ' AND u.region_id=' + Number(u.region_id)}`).filter(x => x.id !== u.id);
+  res.json({ list: us.map(x => { const k = kpiOf(x); return { id: x.id, name: x.name, role_name: x.role_name, score: k.score, grade: k.grade }; }).sort((a, b) => b.score - a.score),
+    appeals: q(`SELECT a.*, u.name FROM pay_appeals a JOIN users u ON u.id=a.user_id WHERE a.status='open' AND a.item LIKE '考核·%' AND u.id IN (${us.map(x => x.id).join(',') || 'NULL'})`) });
 });
 app.get('/api/coach-stores', (req, res) => {
   if (!['hq', 'region_manager'].includes(req.u.level)) return deny(res);
