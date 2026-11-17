@@ -3343,6 +3343,37 @@ app.post('/api/handpack/:sid/ack', (req, res) => {
   D.notify([...coachesOf(sid), ...D.regionUsers(st.region_id, 'region_manager')], 'assign', `${req.u.name} 已确认接收 ${sname(sid)}`, (req.body || {}).note || '交接包已确认', '#/handpack?store=' + sid);
   D.audit(req.u.id, sid, '确认门店交接包', (req.body || {}).note || ''); res.json({ ok: true });
 });
+const STRESS_MIN = { staff_task: 6, sm_task: 8, check: 3, rect: 5, esc1: 3, esc2: 10, esc3: 20, patrol: 120, coach_store: 4 };
+const STRESS_CAP = { staff: 240, store_manager: 300, coach: 420, region_manager: 420 };
+app.get('/api/stress', (req, res) => {
+  const u = req.u; if (!['hq', 'region_manager', 'coach'].includes(u.level)) return deny(res);
+  const sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL', N = sids.length || 1;
+  const t = L.today(), d7 = L.addDays(t, -6), y = t, x = req.query;
+  const absent = Math.min(50, Math.max(0, Number(x.absent ?? 10))), smStores = Math.min(10, Math.max(1, Number(x.sm_stores ?? 1))), coachStores = Math.min(120, Math.max(5, Number(x.coach_stores ?? 40))), lineX = Math.min(5, Math.max(0, Number(x.line_x ?? 1)));
+  const cnt = (sql, ...p) => q1(sql, ...p).n || 0;
+  const staffN = cnt(`SELECT COUNT(*) n FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level='staff' AND u.store_id IN (${IN})`) || 1;
+  const inst = q1(`SELECT SUM(r.level='staff') st, SUM(r.level='store_manager') sm, SUM(i.check_result IS NOT NULL) ck FROM instances i JOIN users u ON u.id=i.assignee_id JOIN roles r ON r.id=u.role_id WHERE i.date BETWEEN ? AND ? AND i.store_id IN (${IN})`, d7, y);
+  const rect = cnt(`SELECT COUNT(*) n FROM rectifications WHERE substr(verified_at,1,10) BETWEEN ? AND ? AND store_id IN (${IN})`, d7, y);
+  const esc = q1(`SELECT SUM(level=1) e1, SUM(level=2) e2, SUM(level=3) e3 FROM esc_events WHERE date BETWEEN ? AND ? AND store_id IN (${IN})`, d7, y);
+  const line = q1(`SELECT COALESCE(SUM(minutes),0) m FROM flex_tasks WHERE source='line' AND start_date BETWEEN ? AND ? AND store_id IN (${IN})`, d7, y).m;
+  const pat = cnt(`SELECT COUNT(*) n FROM patrols WHERE status='done' AND substr(done_at,1,10)>=? AND store_id IN (${IN})`, L.addDays(t, -30));
+  const per = v => (v || 0) / N / 7, R = v => Math.round(v), keep = 1 / (1 - absent / 100);
+  const staffDay = (inst.st || 0) / staffN / 7 * STRESS_MIN.staff_task * keep;
+  const smStore = { 任务: per(inst.sm) * STRESS_MIN.sm_task, 抽查: per(inst.ck) * STRESS_MIN.check, 整改复查: per(rect) * STRESS_MIN.rect, 超时处理: per(esc.e1) * STRESS_MIN.esc1, 条线任务: per(line) * lineX };
+  const smOne = Object.values(smStore).reduce((a, v) => a + v, 0) * keep ** 0.5;
+  const coStore = { 升级例外: per(esc.e2) * STRESS_MIN.esc2, 巡店: pat / N / 22 * STRESS_MIN.patrol, 辅导店长: STRESS_MIN.coach_store };
+  const coOne = Object.values(coStore).reduce((a, v) => a + v, 0);
+  const rmDay = per(esc.e3) * STRESS_MIN.esc3 * N + 60;
+  const row = (role, label, day, cap, parts, note) => ({ role, label, day: R(day), cap, pct: R(day * 100 / cap), level: day <= cap * 0.8 ? 'ok' : day <= cap ? 'warn' : 'bad', parts: parts && Object.entries(parts).map(([l, v]) => ({ l, v: R(v) })), note });
+  const rows = [
+    row('staff', '一线员工（人均）', staffDay, STRESS_CAP.staff, null, `人均每天 ${R((inst.st || 0) / staffN / 7)} 项标准任务，缺勤 ${absent}% 时由在班的人分担`),
+    row('store_manager', `店长（带 ${smStores} 家店）`, smOne * smStores, STRESS_CAP.store_manager, Object.fromEntries(Object.entries(smStore).map(([k, v]) => [k, v * smStores])), `每家店每天约 ${R(smOne)} 分钟管理工作`),
+    row('coach', `教练（带 ${coachStores} 家店）`, coOne * coachStores, STRESS_CAP.coach, Object.fromEntries(Object.entries(coStore).map(([k, v]) => [k, v * coachStores])), `每家店每天约 ${Math.round(coOne * 10) / 10} 分钟`),
+    row('region_manager', '城市总', rmDay, STRESS_CAP.region_manager, null, `只处理进例外清单的门店，加每天 60 分钟例会和汇报`),
+  ];
+  res.json({ stores: sids.length, days: `${d7} 至 ${y}`, input: { absent, sm_stores: smStores, coach_stores: coachStores, line_x: lineX }, rows,
+    max: { sm: Math.max(1, Math.floor(STRESS_CAP.store_manager * 0.8 / (smOne || 1))), coach: Math.floor(STRESS_CAP.coach * 0.8 / (coOne || 1)) }, minutes: STRESS_MIN, simulated: true });
+});
 const KPI_ROLES = ['coach', 'region_manager', 'ops_manager', 'hr_manager', 'train_manager', 'sales_manager', 'dev_manager', 'build_manager', 'hq'];
 function kpiOf(u) {
   const t = L.today(), ym = t.slice(0, 7), m0 = ym + '-01', sids = u.level === 'hq' ? q('SELECT id FROM stores').map(r => r.id) : visibleStores(u), IN = sids.map(Number).join(',') || 'NULL';

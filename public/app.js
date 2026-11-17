@@ -124,15 +124,15 @@ const NAV = {
   store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['value', '减负统计'], ['deleg', '任务授权'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['my', '我的任务'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '分配'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['flex', '灵活任务'], ['tpllayer', '任务模板分层'], ['handpack', '门店交接包'], ['sec', '监督'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['labor', '排班与人效'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['team', '门店人员'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['audit', '操作日志'], ['notices', '消息提醒']],
-  coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
-  hq: [['sec', '总部'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
+  hq: [['sec', '总部'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['hq', '总部视角'], ['value', '减负与价值'], ['dataauth', '数据授权'], ['hrm', '人事指标'], ['care', '员工美好'], ['brands', '品牌标准'], ['wcal', '工作日历'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
   train_manager: [['sec', '培训'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['train', '培训与认证'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   dev_manager: [['sec', '门店发展'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   build_manager: [['sec', '项目管理'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['standards', '品牌标准库'], ['notices', '消息提醒']],
   hr_manager: [['sec', '人事'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['hrm', '人事指标'], ['care', '员工美好'], ['people', '人员档案与梯队'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['dataauth', '数据授权'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   ops_manager: [['sec', '区域运营'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['dash', '区域运营看板'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['hrm', '人事指标'], ['care', '员工美好'], ['issues', '问题门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['focus', '重点跟踪'], ['patrol', '巡店与复查'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   sales_manager: [['sec', '区域销售'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['dash', '区域销售看板'], ['complaints', '客诉闭环'], ['issues', '问题门店'], ['tasks', '门店销售任务'], ['rect', '整改闭环'], ['notices', '消息提醒']],
-  region_manager: [['sec', '全局'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['handpack', '门店交接包'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
+  region_manager: [['sec', '全局'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['tpllayer', '任务模板分层'], ['coachmap', '教练门店分配'], ['handpack', '门店交接包'], ['dash', '区域看板'], ['value', '减负与价值'], ['pfind', '巡店筛选'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['coach', '教练辅导'], ['wcal', '工作日历'], ['hq', '总部视角'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['issues', '问题门店筛选'], ['patrol', '巡店计划'], ['focus', '重点跟踪'],
     ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙'], 
     ['sec', '门店'], ['tasks', '门店任务明细'], ['rect', '整改闭环'], ['repair', '工程报修'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['train', '培训与认证'], ['assign', '场景分配'], ['leave', '休息与顶岗'], ['team', '门店人员'],
     ['pay', '绩效与薪酬'], ['sec', '配置'], ['brands', '品牌标准'], ['scorecfg', '评价口径与预警'], ['dataauth', '数据授权'], ['settings', '岗位 / 场景 / 工作清单'], ['audit', '操作日志'], ['notices', '消息提醒']],
@@ -1752,6 +1752,38 @@ async function loadCard(sid) {
     <div class="muted small">${d.lines.map(l => `${esc(l.line)} ${l.n} 项 ${l.m} 分钟`).join(' · ') || '今天各条线没有派任务'}${d.next ? ` · 已顺延到后面 ${d.next} 项` : ''}</div>
     ${d.items.filter(x => x.status !== 'done').slice(0, 3).map(x => `<a class="task" href="${x.iid ? '#/task/' + x.iid : '#/home'}"><div class="b"><div class="ttl">${esc(x.due_time)} ${esc(x.title)}</div><div class="muted small">${esc(x.creator || '')} · 约 ${x.minutes} 分钟</div></div></a>`).join('')}</div>`);
 }
+const AI_DUTY = [
+  ['凌晨派发', '按排班、请假、顶岗把当天任务派给在班的人', '规则引擎，已上线', '店长处理“待安排”'],
+  ['超时升级', '超时先提醒店长，再升教练，再进城市总例外清单', '规则引擎，已上线', '教练、城市总只处理例外'],
+  ['条线负荷', '各条线任务统一进门店，超出店长每天上限自动顺延', '规则引擎，已上线', '条线负责人定任务和优先级'],
+  ['巡店筛选', '按门店画像、漏做、整改逾期排出该先去哪家店', '规则引擎，已上线', '教练定巡店计划'],
+  ['负荷压力测试', '用近 7 天真实发生的工作量，推算不同带店数、缺勤率下各角色每天要花多少时间', '规则模拟，已上线', '总部定编制和带店数'],
+  ['照片和完成说明', '任务页里生成现场照片、完成说明', '演示功能，不是生产级 AI', '员工确认后提交'],
+  ['照片质检', '自动判断照片是否合规，不合格直接退回', '规划中，需接入图像识别', '店长抽查复核'],
+  ['点评分析', '自动归类差评原因，生成整改任务', '规划中，需接入点评数据', '店长确认整改'],
+  ['店长辅导建议', '按门店短板生成每周辅导要点', '规划中', '教练面对面辅导'],
+];
+VIEWS.stress = async () => {
+  const p = qs(), d = await api('/stress?' + p.toString()), I = d.input;
+  const col = l => ({ ok: '#34c759', warn: '#ff9f0a', bad: '#f54a45' }[l]);
+  $('#main').innerHTML = `<h1>负荷压力测试</h1>
+  <p class="muted small" style="margin-top:-6px">用 ${d.stores} 家门店近 7 天（${esc(d.days)}）实际发生的工作量，推算各角色每天要花多少分钟，看减少层级、多店带管后会不会压垮某个角色。这是按规则估算，不是 AI 预测；当前为演示数据。</p>
+  <form id="sf" class="card"><div class="row" style="flex-wrap:wrap;gap:10px">
+    <label class="f" style="flex:1;min-width:140px"><span>员工缺勤率 %</span><input name="absent" type="number" min="0" max="50" value="${I.absent}"></label>
+    <label class="f" style="flex:1;min-width:140px"><span>一个店长带几家店</span><input name="sm_stores" type="number" min="1" max="10" value="${I.sm_stores}"></label>
+    <label class="f" style="flex:1;min-width:140px"><span>一个教练带几家店</span><input name="coach_stores" type="number" min="5" max="120" value="${I.coach_stores}"></label>
+    <label class="f" style="flex:1;min-width:140px"><span>条线任务量倍数</span><input name="line_x" type="number" step="0.5" min="0" max="5" value="${I.line_x}"></label>
+  </div><button class="btn primary">重新测算</button></form>
+  <div class="card"><b>结论</b><div class="small" style="margin-top:4px">按当前数据，留 20% 余量，一个店长最多可带 <b>${d.max.sm}</b> 家店，一个教练最多可带 <b>${d.max.coach}</b> 家店。</div></div>
+  <div class="list">${d.rows.map(r => `<div class="task"><div class="b"><div class="row between"><b>${esc(r.label)}</b><span style="color:${col(r.level)}">${r.day} / ${r.cap} 分钟</span></div>
+    <div style="height:6px;background:#eef0f3;border-radius:3px;margin:6px 0"><div style="height:6px;width:${Math.min(100, r.pct)}%;background:${col(r.level)};border-radius:3px"></div></div>
+    ${r.parts ? `<div class="row" style="flex-wrap:wrap;gap:6px">${r.parts.map(x => `<span class="tag">${esc(x.l)} ${x.v} 分钟</span>`).join('')}</div>` : ''}
+    <div class="muted small" style="margin-top:4px">${esc(r.note)}${r.level === 'bad' ? ' · <span class="warn">超出可用时间</span>' : r.level === 'warn' ? ' · 接近上限' : ''}</div></div></div>`).join('')}</div>
+  <div class="muted small" style="margin:6px 0">估算口径：员工每项任务 ${d.minutes.staff_task} 分钟，店长每项任务 ${d.minutes.sm_task} 分钟、抽查 ${d.minutes.check} 分钟、整改复查 ${d.minutes.rect} 分钟，教练处理每项升级 ${d.minutes.esc2} 分钟、每次巡店 ${d.minutes.patrol} 分钟。可用时间：员工 240、店长 300、教练和城市总 420 分钟/天。</div>
+  <div class="sec-t2">AI 和人怎么分工</div>
+  <div class="list">${AI_DUTY.map(([a, b, c, h]) => `<div class="task"><div class="b"><div class="row between"><b>${a}</b><span class="tag ${/已上线/.test(c) ? 'ok' : ''}">${c}</span></div><div class="small">${b}</div><div class="muted small">人负责：${h}</div></div></div>`).join('')}</div>`;
+  $('#sf').onsubmit = e => { e.preventDefault(); location.hash = '#/stress?' + new URLSearchParams(formData(e.target)).toString(); };
+};
 VIEWS.handpack = async () => {
   const sid = pickStore(qs().get('store')), d = await api('/handpack/' + sid), st = d.store;
   const sec = (title, n, body) => `<div class="sec-t2">${title}${n != null ? ` <span class="muted small">${n}</span>` : ''}</div>${body}`;
