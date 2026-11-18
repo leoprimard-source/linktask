@@ -22,6 +22,7 @@ async function call(uid, p, body) {
   } catch (e) { stat.fail++; return null; }
 }
 async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ length: n }, async () => { while (i < items.length) await fn(items[i++]); })); }
+const tryQ2 = (s, ...x) => { try { return q(s, ...x); } catch { return []; } };
 const storeQ = sid => 0.78 + 0.2 * hash(sid);           // 门店执行力基线：0.78–0.98
 const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u.id=us.user_id WHERE us.store_id=? AND u.active=1", sid).map(r => r.id);
 
@@ -51,6 +52,21 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   await pool(inst.filter(i => rnd() < storeQ(i.store_id)), 16, async i => {
     if (await call(i.assignee_id, `/instances/${i.id}/complete`, { note: '模拟执行：已按标准完成', photo: i.need_photo ? PNG : undefined, reading: nv[i.id] ? String(20 + Math.round(rnd() * 10)) : undefined })) act.done++;
   });
+  // 1b. 带教：员工学推来的微课；店长对学完的人复查一次；问题集中的店安排晨会微课，区域负责人安排支持
+  const ck = { learn: 0, ver: 0, verBad: 0, brief: 0, acc: 0, sdone: 0 };
+  await pool(tryQ2("SELECT id, user_id, store_id FROM learns WHERE status='todo'").filter(l => rnd() < storeQ(l.store_id) * 0.6), 8, async l => { if (await call(l.user_id, `/learn/${l.id}/done`, { note: '' })) ck.learn++; });
+  await pool(tryQ2("SELECT l.store_id, (SELECT i.id FROM instances i WHERE i.assignee_id=l.user_id AND i.src=l.src AND i.src_id=l.src_id AND i.status='done' AND i.check_result IS NULL AND i.done_at>=l.done_at ORDER BY i.date DESC LIMIT 1) inst FROM learns l WHERE l.status='done' AND l.src IS NOT NULL").filter(l => l.inst && rnd() < 0.7), 8, async l => {
+    const m = sms(l.store_id)[0]; if (!m) return; const bad = rnd() < (1 - storeQ(l.store_id)) * 0.6; // 学过之后不合格的可能性比平时低
+    if (await call(m, `/instances/${l.inst}/check`, bad ? { result: 'bad', comment: '模拟复查：学后仍未达标准', rectify: { task: '由师傅带着重做一遍', deadline: addDays(today, 2) } } : { result: 'good', comment: '学后复查：已达标准' })) { ck.ver++; if (bad) ck.verBad++; }
+  });
+  for (const s of tryQ2("SELECT s.id, s.store_id, s.status, s.brief_n, s.owner_id, s.plan_date, st.region_id FROM supports s JOIN stores st ON st.id=s.store_id WHERE s.status!='done'")) {
+    const m = sms(s.store_id)[0];
+    if (s.brief_n == null && m && rnd() < 0.5 && await call(m, `/supports/${s.id}/brief`, {})) ck.brief++;
+    if (s.status === 'open' && rnd() < 0.4) {
+      const ow = ['train_manager', 'ops_manager', 'region_manager'].map(lv => q1("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.region_id=? AND r.level=? AND u.active=1", s.region_id, lv)).find(Boolean);
+      if (ow && await call(ow.id, `/supports/${s.id}/accept`, { plan: ['线上辅导', '到店带训', '安排到标杆店跟班'][Math.floor(rnd() * 3)], plan_date: addDays(today, 1 + Math.floor(rnd() * 3)) })) ck.acc++;
+    } else if (s.status === 'accepted' && s.plan_date <= today && rnd() < 0.5 && await call(s.owner_id, `/supports/${s.id}/done`, { result: '模拟：已按计划完成支持' })) ck.sdone++;
+  }
   // 2. 店长：抽查约 8% 已完成任务，执行力弱的门店不合格率更高
   const done = q("SELECT id, store_id, assignee_id FROM instances WHERE date=? AND status='done' AND check_result IS NULL", today);
   await pool(done.filter(() => rnd() < 0.08), 8, async i => {
@@ -108,6 +124,9 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     na: tryQ('SELECT COALESCE(SUM(total),0) t, COALESCE(SUM(moved),0) mv, COALESCE(SUM(need_sm),0) nd FROM night_audit WHERE date=?', today),
     ua: tryQ("SELECT COUNT(*) n FROM instances WHERE date=? AND status='pending' AND assignee_id IS NULL", today),
     push: tryQ("SELECT COUNT(*) n FROM notifications WHERE kind='report' AND substr(created_at,1,10)=? AND title LIKE '【宏图日报】%'", today) };
+  const lk = tryQ("SELECT COUNT(*) n, SUM(kind='check') c, SUM(kind='miss') m, SUM(kind='store') s FROM learns WHERE substr(created_at,1,10)=?", today),
+    ls = tryQ("SELECT SUM(status='todo') todo, SUM(status='done') done, SUM(status='verified') ok, SUM(status='failed') bad FROM learns"),
+    sp = tryQ("SELECT COUNT(*) n, SUM(status='open') o, SUM(status='accepted') a, SUM(status='done') d, SUM(brief_n IS NOT NULL) b FROM supports");
   // 5. 日报
   const m = d => {
     const r = q1("SELECT COUNT(*) n, SUM(status='done') d, SUM(escalated>=1) e, SUM(escalated=2) e2, SUM(check_result IS NOT NULL) c, SUM(check_result='bad') b FROM instances WHERE date=? AND store_id NOT IN (SELECT id FROM stores WHERE lc_stage='虚拟')", d);
@@ -124,7 +143,9 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   const dv = (k, u = '') => rep.prev ? `（昨天 ${rep.prev[k]}${u}）` : '';
   const md = [`# 宏图每日模拟日报 ${today}（截至 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}）`, '', `- 今日任务 ${rep.today.tasks} 条，完成 ${rep.today.done} 条，完成率 ${rep.today.rate}%${dv('rate', '%')}`,
     `- 超时升级 ${rep.today.escalated} 条${dv('escalated')}（其中升到教练 ${rep.today.esc2} 条${dv('esc2')}，进城市总例外清单门店 ${rep.today.esc3} 家）；店长抽查 ${rep.today.checked} 条，不合格 ${rep.today.bad} 条`,
-    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 按班派单：凌晨核对 ${brd.na.t || 0} 项，按排班换人 ${brd.na.mv || 0} 项，没有在班人员待指派 ${brd.na.nd || 0} 项；本轮店长指派 ${act.asg} 项，仍待指派 ${brd.ua.n || 0} 项`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.ovr ?? 0} 家`,
+    `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`, `- 巡店完成 ${act.patrol} 次`, `- 带教：今天自动推课 ${lk.n || 0} 门（抽查不合格 ${lk.c || 0}、多次漏做 ${lk.m || 0}、全员学习 ${lk.s || 0}）；本轮学完 ${ck.learn} 门，店长复查 ${ck.ver} 次，其中仍不合格 ${ck.verBad} 次；累计待学 ${ls.todo || 0}、待复查 ${ls.done || 0}、复查合格 ${ls.ok || 0}、仍不合格 ${ls.bad || 0}`,
+    `- 门店支持：问题集中 ${sp.n || 0} 家（待安排 ${sp.o || 0}、已安排 ${sp.a || 0}、已完成 ${sp.d || 0}），已安排晨会微课 ${sp.b || 0} 家；本轮新安排晨会微课 ${ck.brief} 家、新安排支持 ${ck.acc} 家、完成支持 ${ck.sdone} 家`,
+    `- 按班派单：凌晨核对 ${brd.na.t || 0} 项，按排班换人 ${brd.na.mv || 0} 项，没有在班人员待指派 ${brd.na.nd || 0} 项；本轮店长指派 ${act.asg} 项，仍待指派 ${brd.ua.n || 0} 项`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.ovr ?? 0} 家`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,
     `- BRD11：06:30 日报推送 ${brd.push.n || 0} 家；店长查看运营日报 ${brd.save.u || 0} 人，宏图减负合计 ${brd.save.min || 0} 分钟、带教 ${brd.save.teach || 0} 次；综合分豁免 ${brd.exempt.st || 0} 家店 ${brd.exempt.n || 0} 项`,
     `- 经营月会（本月）：${brd.meet.d || 0}/${brd.meet.n || 0} 家已开完${brd.meet.inv ? `，区域经理受邀 ${brd.meet.inv} 家、已督导 ${brd.meet.rmj || 0} 家` : ''}；今天开完 ${act2.meetDone} 家，纪要无效或加盟商未参会 ${act2.meetBad} 家，改期 ${act2.meetMove} 家${act2.insight ? `；员工洞察消息 ${act2.insight} 位店长已发送` : ''}`,

@@ -120,9 +120,9 @@ function storeSwitch(route, extra = '') {
 
 // ---------- nav ----------
 const NAV = {
-  staff: [['sec', '我的工作'], ['my', '我的任务'], ['mycare', '员工美好'], ['my-rect', '我的整改'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['engage', '敬业度调研'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
-  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['my', '我的任务'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['repair', '工程报修'], ['safety', '安全与应急'],
-    ['sec', '人员与排班'], ['team', '门店人员'], ['leave', '休息与顶岗'], ['labor', '排班与人效'], ['assign', '场景分配'], ['flex', '灵活任务'], ['deleg', '任务授权'], ['insight', '员工执行洞察'], ['train', '培训与认证'], ['pay', '绩效与薪酬'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['hrm', '人事指标'],
+  staff: [['sec', '我的工作'], ['my', '我的任务'], ['mycare', '员工美好'], ['my-rect', '我的整改'], ['learn', '我的学习'], ['repair', '工程报修'], ['complaints', '客诉登记'], ['engage', '敬业度调研'], ['pay', '我的绩效'], ['shift', '值班交接'], ['notices', '消息提醒'], ['sec', '品牌标准'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
+  store_manager: [['sec', '每日工作'], ['desk', '今日待办'], ['my', '我的任务'], ['tasks', '任务看板与抽查'], ['rect', '整改闭环'], ['train', '带教与培训'], ['shift', '值班交接'], ['complaints', '客诉闭环'], ['repair', '工程报修'], ['safety', '安全与应急'],
+    ['sec', '人员与排班'], ['team', '门店人员'], ['leave', '休息与顶岗'], ['labor', '排班与人效'], ['assign', '场景分配'], ['flex', '灵活任务'], ['deleg', '任务授权'], ['insight', '员工执行洞察'], ['pay', '绩效与薪酬'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['hrm', '人事指标'],
     ['sec', '经营与监督'], ['meet', '经营月会'], ['focus', '重点跟踪'], ['issues', '问题预警'], ['patrol', '巡店与复查'], ['proc', '采购与物料'], ['suppliers', '供应商评价'], ['value', '减负统计'], ['audit', '操作日志'],
     ['sec', '成长与标准'], ['stage', '我的阶段'], ['diag', '能力诊断'], ['onboard', '90 天上手'], ['handpack', '门店交接包'], ['tpllayer', '任务模板分层'], ['standards', '品牌标准库'], ['feed', '门店群拍墙']],
   coach: [['sec', '教练'], ['dispatch', '条线派发'], ['kpi', '我的考核'], ['stress', '负荷压力测试'], ['handpack', '门店交接包'], ['cdesk', '教练工作台'], ['value', '减负与价值'], ['coach', '本周辅导'], ['pfind', '巡店筛选'], ['patrol', '巡店计划'], ['deleg', '店长授权'], ['rsv', '储备店长'], ['wcal', '工作日历'], ['sec', '区域'], ['dash', '区域看板'], ['issues', '问题门店筛选'], ['focus', '重点跟踪'], ['people', '人事档案与梯队'], ['hrm', '人事指标'], ['care', '员工美好'], ['engage', '敬业度与留任'], ['pay', '绩效与薪酬'], ['sec', '门店'], ['tasks', '任务配置'], ['assign', '任务分配'], ['team', '门店人员'], ['complaints', '客诉闭环'], ['safety', '安全与应急'], ['labor', '排班与人效'], ['rect', '整改闭环'], ['repair', '工程报修'], ['proc', '采购与物料'], ['train', '培训与认证'], ['notices', '消息提醒'], ['standards', '品牌标准库']],
@@ -1246,7 +1246,7 @@ VIEWS.work = async () => {
   const tools = [['cal', '日历'], ['dir', '通讯录'], ...(S.me.level !== 'staff' && !byK.wcal ? [['wcal', '工作日历']] : [])];
   secs.unshift({ t: '日程与协作', items: tools }); all.unshift(...tools); tools.forEach(([k, l]) => { byK[k] = l; });
   const fk = 'lt_fav_' + S.me.id; let fav; try { fav = JSON.parse(localStorage[fk]); } catch (e) { fav = null; }
-  fav = (Array.isArray(fav) ? fav : S.me.level === 'store_manager' ? ['desk', 'tasks', 'rect', 'leave', 'assign', 'deleg', 'meet', 'insight'] : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
+  fav = (Array.isArray(fav) ? fav : S.me.level === 'store_manager' ? ['desk', 'tasks', 'rect', 'train', 'leave', 'assign', 'deleg', 'insight'] : all.slice(0, 8).map(x => x[0])).filter(k => byK[k]);
   const ed = !!S.workEdit, col = k => TILE_COLORS[[...k].reduce((a, c) => a + c.charCodeAt(0), 0) % TILE_COLORS.length];
   const tile = (k, l, e) => `<a class="tile" ${e ? `href="javascript:void 0" data-fv="${k}"` : `href="#/${k}"`}><span class="tic" style="background:${col(k)}">${esc(l.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1))}${e ? `<i class="fvb ${fav.includes(k) ? 'rm' : ''}">${fav.includes(k) ? '−' : '+'}</i>` : ''}</span><span>${esc(l)}</span></a>`;
   $('#main').innerHTML = `<input class="fsearch" id="ws" placeholder="搜索应用" autocomplete="off" style="width:100%;margin-bottom:4px"><div id="wres"></div><div id="wbody">
@@ -1650,7 +1650,7 @@ async function staffHome() {
   const groups = {};
   for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   $('#main').innerHTML = `<div class="sf-hd"><div><b>${hi}，${esc(S.me.name)}</b><div class="small">${esc(S.me.role_name)} · ${esc(storeName(sid))}</div></div><span class="sp"></span>${calMini(date, 'w')}<button class="ib w" id="more">${icon('more')}<span>更多</span></button></div>
-  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/standards', '品牌标准', '标'], ['#/labor', '排班', '排'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/standards', '品牌标准', '标']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div>${shiftCard()}<div class="sec-t2">门店一天节奏</div>${storeRhythm()}</div>`)}
+  ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${(S.me.lead ? [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['assign', '派任务', '派'], ['#/must', '点评跟进', '评'], ['#/crew', '我的团队', '队'], ['#/learn', '我的学习', '学'], ['#/labor', '排班', '排'], ['#/feed', '群拍墙', '拍'], ['#/repair', '工程报修', '修']] : [['#/my', '我的任务', '任'], ['#/my-rect', '我的整改', '改'], ['#/repair', S.me.role_name === '工程' ? '维修工单' : '工程报修', '修'], ['#/learn', '我的学习', '学']]).map(([h2, l, c], i) => `<a ${h2 === 'assign' ? 'id="asg"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span></a>`).join('')}</div>${shiftCard()}<div class="sec-t2">门店一天节奏</div>${storeRhythm()}</div>`)}
   <div class="sf-sum"><div class="ring">${gauge(r, 104, 10, rateColor(r))}<div class="rv"><b>${r ?? '-'}</b><small>${r == null ? '' : '%'}</small><span>${done.length}/${all.length}</span></div></div>
     <div class="sf-kv"><a href="#/my"><b>${pend.length}</b><span>待完成</span></a><a href="#/my" class="${od.length ? 'bad' : ''}"><b>${od.length}</b><span>已超时</span></a><a href="#/my-rect" class="${openR.length ? 'warn' : ''}"><b>${openR.length}</b><span>待整改</span></a><a href="#/my"><b>${fb.filter(t => t.check_result === 'good').length}</b><span>获肯定</span></a></div></div>
   ${next ? `<a class="sf-next" href="#/task/${next.id}"><div class="small">下一项任务 · ${next.overdue ? '<b style="color:#FFD2D2">已超时</b>' : '截止 ' + esc(next.due_time)}</div><b>${esc(next.title)}</b><div class="small">${esc(next.scene_name || '')} ${next.covered ? '· 顶岗替 ' + esc(next.orig_name) : ''}${next.need_photo ? ' · 需拍照' : ''}</div><span class="gbtn go">去完成 →</span></a>`
@@ -3443,3 +3443,82 @@ function decorateBars() {
   });
 }
 { let tm; new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(decorateBars, 30); }).observe(document.body, { childList: true, subtree: true }); }
+// ---------- 带教助手：我的学习 / 店长带教 / 门店支持 / 微课库 ----------
+COMMON.push('learn');
+const LN_ST = { todo: ['warn', '待学习'], done: ['acc', '已学完 · 待复查'], verified: ['ok', '复查合格'], failed: ['bad', '学后仍不合格'] };
+const lnK = k => '#/train?k=' + encodeURIComponent(k);
+VIEWS.learn = async id => {
+  if (!id) {
+    const xs = await api('/learn');
+    $('#main').innerHTML = `<div class="pghd"><b>我的学习</b></div><div class="list">${xs.map(l => `<a class="task" href="#/learn/${l.id}"><div class="b"><div class="ttl">${esc(l.course?.title || l.title)}</div><div class="muted small">${esc(l.reason)}${l.status === 'todo' ? ' · 请在 ' + l.due + ' 前学完' : ''}</div></div><span class="tag ${l.late ? 'bad' : LN_ST[l.status][0]}">${l.late ? '已逾期' : LN_ST[l.status][1]}</span></a>`).join('') || '<div class="empty">现在没有要学的课</div>'}</div>
+    <p class="muted small">哪项工作被抽查不合格或多次漏做，这里会出现对应的课，每门 3–5 分钟。学完后店长会在你下次做这项工作时复查一次，合格就结束。</p>`;
+    return;
+  }
+  const l = await api('/learn/' + id), c = l.course;
+  $('#main').innerHTML = `<div class="pghd"><a class="back" href="${l.mine ? '#/learn' : lnK('带教助手')}">‹</a><b>${esc(c?.title || l.title)}</b></div>
+  <div class="ldr"><div class="row between"><b>为什么学这门课</b><span class="tag ${LN_ST[l.status][0]}">${LN_ST[l.status][1]}</span></div><div class="muted small" style="margin-top:4px">${l.mine ? '' : esc(l.name) + ' · '}${esc(l.title)}：${esc(l.reason)}</div>${l.comment ? `<div class="small" style="margin-top:6px">点评：${esc(l.comment)}</div>` : ''}</div>
+  ${l.standard ? `<div class="ldr"><b>这项工作的标准</b><div class="small" style="margin-top:6px;line-height:1.6">${esc(l.standard)}</div></div>` : ''}
+  ${c ? `<div class="ldr"><div class="row between"><b>要点 · 约 ${c.minutes} 分钟</b>${c.demo ? '<span class="tag">示例课程</span>' : ''}</div><ol class="lnpts">${c.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol></div>` : ''}
+  ${l.faq.length ? `<div class="ldr"><b>大家常错在哪</b>${l.faq.map(f => `<div class="row between small" style="margin-top:6px;gap:8px"><span>${esc(f.c)}</span><span class="muted nw">${f.n} 次</span></div>`).join('')}<div class="muted small" style="margin-top:6px">来自近 60 天各店的抽查记录</div></div>` : ''}
+  ${l.mine && l.status === 'todo' ? `<form id="lnf" class="ldr"><label class="f"><span>用一句话写下以后怎么做（可不填）</span><textarea name="note" maxlength="200"></textarea></label><button class="btn primary" style="width:100%">我学会了</button></form>` : l.note ? `<div class="ldr"><b>学习心得</b><div class="small" style="margin-top:6px">${esc(l.note)}</div></div>` : ''}`;
+  if ($('#lnf')) $('#lnf').onsubmit = async e => { e.preventDefault(); if (await act(() => api(`/learn/${id}/done`, { note: e.target.note.value }), '已学完，店长会在你下次做这项工作时复查')) location.hash = '#/learn'; };
+};
+const supCard = (s, o) => {
+  const d = s.detail || {}, pct = s.total ? Math.round(s.n * 100 / s.total) : 0, my = d.ck ? Math.round(s.n * 1000 / d.ck) / 10 : null;
+  const st = { open: ['warn', '待安排支持'], accepted: ['acc', '支持已安排'], done: ['ok', '已完成'] }[s.status];
+  return `<div class="ldr"><div class="row between"><b>${o.region ? esc(s.store) + ' · ' : ''}「${esc(s.topic)}」问题集中</b><span class="tag ${st[0]}">${st[1]}</span></div>
+  <div class="muted small" style="margin-top:4px">近 14 天抽查不合格 ${s.n} 次，占全店 ${pct}%${my != null ? `；不合格率 ${my}%，各店平均 ${d.avg}%` : ''}</div>
+  ${(d.top || []).length ? `<div class="small" style="margin-top:6px">集中在：${d.top.map(t => `${esc(t.title)} ${t.n} 次`).join('、')}</div>` : ''}
+  <div class="suprow"><span>晨会微课</span><div>${s.brief_n == null ? (o.sm ? `<button class="btn sm primary" data-brief="${s.id}">一键安排全员学习</button>` : '店长还没安排') : `已安排 ${s.brief_n} 人，${s.learn.d || 0} 人学完`}</div></div>
+  ${s.bench ? `<div class="suprow"><span>标杆店</span><div>${esc(s.bench)}${s.bench_sm ? '（店长 ' + esc(s.bench_sm) + '）' : ''}这个场景不合格率最低，可以请教</div></div>` : ''}
+  <div class="suprow"><span>培训支持</span><div>${s.status === 'open' ? (o.edit ? `<button class="btn sm primary" data-acc="${s.id}">安排支持</button>` : '已通知区域负责人，等待安排') : `${esc(s.owner || '')}：${esc(s.plan || '')}，${s.plan_date || ''}${s.status === 'accepted' && (o.sm || o.edit) ? ` <button class="btn sm" data-sdone="${s.id}">支持已完成</button>` : ''}`}</div></div>
+  ${s.result ? `<div class="suprow"><span>结果</span><div>${esc(s.result)}</div></div>` : ''}
+  ${s.eff ? `<div class="suprow"><span>效果</span><div>推送前 ${s.eff.days} 天不合格 ${s.eff.before} 次，推送后 ${s.eff.days} 天 ${s.eff.after} 次</div></div>` : ''}</div>`;
+};
+function supBind() {
+  document.querySelectorAll('[data-brief]').forEach(b => b.onclick = async () => { try { const r = await api(`/supports/${b.dataset.brief}/brief`, {}); toast(`已把「${r.course}」推给 ${r.n} 人`); route(); } catch (e) { toast(e.message, true); } });
+  document.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => formModal('安排支持', `<label class="f"><span>支持方式</span><select name="way"><option>线上辅导</option><option>到店带训</option><option>安排到标杆店跟班</option><option>补充专题微课</option></select></label><label class="f"><span>日期</span><input type="date" name="plan_date" required value="${S.me.now.slice(0, 10)}"></label><label class="f"><span>说明（可不填）</span><input name="note"></label>`,
+    f => act(() => api(`/supports/${b.dataset.acc}/accept`, { plan: f.way + (f.note ? '：' + f.note : ''), plan_date: f.plan_date }), '已安排，店长会收到通知')));
+  document.querySelectorAll('[data-sdone]').forEach(b => b.onclick = () => formModal('支持已完成', '<label class="f"><span>结果</span><textarea name="result" required placeholder="例如：已到店带训 2 小时，早班 4 人全部过了一遍留样流程"></textarea></label>', f => act(() => api(`/supports/${b.dataset.sdone}/done`, f), '已记录')));
+}
+{ const f0 = VIEWS.train;
+  VIEWS.train = async () => {
+    const sm = S.me.level === 'store_manager', first = sm ? '带教助手' : '门店支持', k = qs().get('k') || (sm ? first : '全部');
+    const tabs = `<div class="tfil">${[first, '全部', '店长班', '经理班', '品牌认证', '新员工入职', '师徒带教', '微课库'].map(x => `<a class="${k === x ? 'on' : ''}" href="${lnK(x)}">${x}</a>`).join('')}</div>`;
+    if (![first, '微课库'].includes(k)) { await f0(); const t = $('#main .tfil'); if (t) t.outerHTML = tabs; return; }
+    const hd = `<div class="pghd row between"><b>${sm ? '带教与培训' : '培训与认证'}</b><span id="lnbtn"></span></div>${tabs}`;
+    if (k === '微课库') {
+      const d = await api('/courses');
+      $('#main').innerHTML = `${hd}<p class="muted small">员工哪项工作没做好，系统按场景和关键词自动推对应的课。标「示例课程」的内容是演示用的，请培训部替换成正式内容。</p>
+      ${d.list.map(c => `<div class="ldr"><div class="row between"><b>${esc(c.title)}</b><span class="muted small nw">${c.minutes} 分钟 · 已推 ${c.used} 次</span></div><div class="stags"><span class="tag">${esc(c.scene || '通用')}</span>${c.demo ? '<span class="tag warn">示例课程</span>' : ''}${c.kw ? `<span class="muted small">匹配：${esc(c.kw.replace(/\|/g, '、'))}</span>` : ''}</div><ol class="lnpts">${c.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol>${d.can_edit ? `<button class="btn sm" data-ce="${c.id}">修改</button>` : ''}</div>`).join('')}`;
+      const ed = c => formModal(c ? '修改微课' : '新增微课', `<label class="f"><span>课程名称</span><input name="title" required value="${esc(c?.title || '')}"></label><div class="row" style="gap:8px"><label class="f" style="flex:1"><span>场景</span><select name="scene_id"><option value="">通用</option>${d.scenes.map(s => `<option value="${s.id}" ${c?.scene_id === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label><label class="f" style="flex:1"><span>时长（分钟）</span><input type="number" name="minutes" value="${c?.minutes || 3}"></label></div><label class="f"><span>匹配任务的关键词，用 | 分隔</span><input name="kw" value="${esc(c?.kw || '')}" placeholder="例如：留样|早餐"></label><label class="f"><span>要点，一行一条</span><textarea name="points" rows="5" required>${esc((c?.points || []).join('\n'))}</textarea></label>`,
+        f => act(() => api('/courses', { ...f, id: c?.id }), '已保存'));
+      if (d.can_edit) { $('#lnbtn').innerHTML = '<button class="btn primary sm" id="nco">新增微课</button>'; $('#nco').onclick = () => ed(null); }
+      document.querySelectorAll('[data-ce]').forEach(b => b.onclick = () => ed(d.list.find(c => c.id === Number(b.dataset.ce))));
+      return;
+    }
+    if (!sm) {
+      const d = await api('/supports');
+      $('#main').innerHTML = `${hd}${d.test ? '<p class="muted small">教练是未来模式测试角色，这里只同步信息，支持由区域现有负责人安排。</p>' : ''}
+      ${d.top.length ? `<div class="ldr"><b>近 30 天问题集中在哪</b><div class="stags">${d.top.map(t => `<span class="tag">${esc(t.topic)} ${t.n} 家店</span>`).join('')}</div></div>` : ''}
+      ${d.list.map(s => supCard(s, { region: 1, edit: d.can_edit })).join('') || '<div class="list"><div class="empty">近 30 天没有门店出现问题集中</div></div>'}
+      <p class="muted small">一家店近 14 天某个场景抽查不合格 6 次以上，占全店不合格的 40% 以上，并且不合格率超过各店平均的 1.3 倍，就会出现在这里。</p>`;
+      supBind(); return;
+    }
+    const d = await api('/coachkit?store=' + (qs().get('store') || S.store || ''));
+    const row = (l, r) => `<div class="task"><div class="b"><div class="ttl">${esc(l.name)} <span class="muted small">${esc(l.role_name || '')}</span></div><div class="muted small">${l.course && l.course.title !== l.title ? esc(l.title) + '：' : ''}${esc(l.reason)}</div><div class="small"><a href="#/learn/${l.id}">课程：${esc(l.course?.title || l.title)}</a></div></div>${r}</div>`;
+    const sec = (t, xs, f, tip) => xs.length ? `<div class="sec-t2">${t} · ${xs.length}</div><div class="list">${xs.slice(0, 20).map(f).join('')}</div>${tip ? `<p class="muted small">${tip}</p>` : ''}` : '';
+    $('#main').innerHTML = `${hd}<div class="ck4"><div><b>${d.todo.length}</b><span>待学习</span></div><div><b>${d.verify.length}</b><span>学完待复查</span></div><div><b>${d.verified.length}</b><span>复查合格</span></div><div><b>${d.failed.length}</b><span>仍不合格</span></div></div>
+    ${d.supports.map(s => supCard(s, { sm: 1 })).join('')}
+    ${sec('学完待复查', d.verify, l => row(l, l.inst ? `<a class="btn sm primary" href="#/task/${l.inst.id}">去抽查</a>` : '<span class="tag">等下次做</span>'), '员工学完后，下一次做这项工作时抽查一次。合格就结束，不合格建议一对一带教。')}
+    ${sec('学后仍不合格', d.failed, l => row(l, `<a class="btn sm" href="${lnK('师徒带教')}">安排带教</a>`))}
+    ${sec('待学习', d.todo, l => row(l, `<span class="tag ${l.late ? 'bad' : ''}">${l.late ? '已逾期' : l.due.slice(5) + ' 前'}</span>`))}
+    ${sec('近 30 天复查合格', d.verified, l => row(l, '<span class="tag ok">已改善</span>'))}
+    ${d.todo.length + d.verify.length + d.failed.length + d.verified.length + d.supports.length ? '' : '<div class="list"><div class="empty">现在没有需要带教的事项</div></div>'}
+    <p class="muted small">员工某项工作抽查不合格，或一周内同一项漏做 3 次，系统自动把对应的课推给他，不用你操作。${d.rate != null ? `近 30 天学后复查合格率 ${d.rate}%。` : ''}</p>`;
+    $('#lnbtn').innerHTML = '<button class="btn primary sm" id="lpush">推课</button>';
+    $('#lpush').onclick = () => formModal('推课给员工', `<label class="f"><span>员工</span><select name="user_id">${d.staff.map(u => `<option value="${u.id}">${esc(u.name)} · ${esc(u.role_name)}</option>`).join('')}</select></label><label class="f"><span>课程</span><select name="course_id">${d.courses.map(c => `<option value="${c.id}">${esc(c.title)}（${c.minutes} 分钟）</option>`).join('')}</select></label><label class="f"><span>原因（可不填）</span><input name="reason" placeholder="例如：今天早餐留样标签没贴"></label>`,
+      f => act(() => api('/learn/push', { user_id: Number(f.user_id), course_id: Number(f.course_id), reason: f.reason }), '已推送'));
+    supBind();
+  };
+}

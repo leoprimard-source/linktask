@@ -284,6 +284,7 @@ app.post('/api/instances/:id/check', (req, res) => {
     }
   });
   D.audit(req.u.id, it.store_id, result === 'good' ? '抽查合格' : '抽查不合格', `${it.title} ${comment || ''}`);
+  try { learnOnCheck(it, result, comment, req.u.id); } catch (e) { console.error('learn', e.message); }
   res.json({ ok: true });
 });
 
@@ -1503,6 +1504,7 @@ function buildInbox(u, query) {
   if (['region_manager', 'coach', 'hr_manager'].includes(u.level)) { sids.map(careOf).filter(x => x.score < 70).forEach(x => add('员工美好', 'warn', `${x.name} 员工美好分 ${x.score}`, x.alerts.slice(0, 2).map(a => a.text).join('；'), '#/care?store=' + x.id));
     if (u.level !== 'hr_manager') { const qs0 = qStart(L.today()), left = [...new Set(sids.flatMap(s => D.storeManagers(s)))].filter(id => !q1("SELECT 1 x FROM care_log WHERE user_id=? AND kind='sm_talk' AND date>=?", id, qs0)); if (left.length) add('店长谈心', 'warn', `本季度还有 ${left.length} 位店长未谈心`, left.map(id => q1('SELECT name FROM users WHERE id=?', id).name).join('、'), '#/care'); } }
   q("SELECT id, title, kind FROM help_q WHERE owner_id=? AND reply IS NULL ORDER BY id DESC LIMIT 3", u.id).forEach(x => add(x.kind === 'unclear' ? '说明反馈' : '咨询', 'acc', x.title, '待你回复', '#/help/inbox'));
+  coachInbox(u, sid, add);
   return out;
 }
 const WEEKLY_TAGS = ['员工美好', '月离职率高', '关键岗位空缺', '满编率低', '90天流失高', '统购率', '师徒带教', '人事预警'];
@@ -3896,6 +3898,7 @@ function tick() {
     if (time >= '06:30' && D.getSetting('push_done', '') !== date) { D.setSetting('push_done', date); console.log('daily push', pushDaily(date)); }
     if (L.weekday(date) === 1 && time >= '09:00' && D.getSetting('save_week_sent', '') !== date) { D.setSetting('save_week_sent', date); saveWeekly(date); insightPush(date); }
     if (time >= '03:00' && !q1('SELECT 1 FROM night_audit WHERE date=? LIMIT 1', date)) runNightAudit(date);
+    if (time >= '03:00' && global.coachReady && D.getSetting('coach_day', '') !== date) { D.setSetting('coach_day', date); console.log('coach', date, coachDaily(date)); }
     const esc = D.getSetting('escalate_minutes', 30), esc2 = D.getSetting('escalate2_minutes', 120), esc3 = D.getSetting('escalate3_count', 5), escBy = {}, esc2By = {}, at0 = L.nowStr();
     const zt = new Set(q("SELECT id FROM templates WHERE tag='清零项'").map(r => r.id)), ev = D.db.prepare('INSERT INTO esc_events(date,store_id,inst_id,level,title,who,at) VALUES(?,?,?,?,?,?,?)');
     for (const it of q("SELECT i.*, st.name store_name, u.name uname FROM instances i JOIN stores st ON st.id=i.store_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.date=? AND i.status='pending' AND i.escalated<2", date)) {
@@ -4805,5 +4808,191 @@ app.post('/api/ev', (req, res) => {
   if (VAL_EV.includes(b.k) && req.u.level === 'store_manager' && ms >= 5000 && ms <= 7200000) run('INSERT INTO ev_log(user_id,store_id,k,ms,at) VALUES(?,?,?,?,?)', req.u.id, Number(b.store) || null, b.k, Math.round(ms), L.nowStr());
   res.json({ ok: true });
 });
+
+// ---------- 带教助手：员工哪项没做好 → 推对应微课 → 学完 → 店长复查；门店哪类问题集中 → 推支持 ----------
+D.db.exec(`CREATE TABLE IF NOT EXISTS courses(id INTEGER PRIMARY KEY, scene_id INTEGER, kw TEXT, title TEXT, minutes INTEGER, points TEXT, demo INTEGER DEFAULT 1, active INTEGER DEFAULT 1, by INTEGER, at TEXT);
+CREATE TABLE IF NOT EXISTS learns(id INTEGER PRIMARY KEY, user_id INTEGER, store_id INTEGER, course_id INTEGER, kind TEXT, inst_id INTEGER, src TEXT, src_id INTEGER, scene_id INTEGER, title TEXT, reason TEXT, due TEXT,
+  status TEXT DEFAULT 'todo', by INTEGER, created_at TEXT, done_at TEXT, note TEXT, verify_inst INTEGER, verified_at TEXT, sup_id INTEGER);
+CREATE INDEX IF NOT EXISTS idx_learn_user ON learns(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_learn_store ON learns(store_id, status);
+CREATE TABLE IF NOT EXISTS supports(id INTEGER PRIMARY KEY, store_id INTEGER, scene_id INTEGER, topic TEXT, n INTEGER, total INTEGER, detail TEXT, bench_id INTEGER, status TEXT DEFAULT 'open', owner_id INTEGER,
+  plan TEXT, plan_date TEXT, result TEXT, brief_n INTEGER, created_at TEXT, accepted_at TEXT, done_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_sup_store ON supports(store_id, status);`);
+const COURSE_SEED = [
+  ['前台', '入住|接待|迎来送往|预抵|退房', '前台接待与入住办理', 4, ['客人进门 10 秒内起身、目光接触、问候', '入住三核对：证件、订单、支付；3 分钟内办完', '主动告知早餐时间、Wi-Fi、房间方向', '退房时问一句住得怎么样，有问题当场记录并上报']],
+  ['前台', '交接|交班|备用金|房卡', '交接班与备用金核对', 3, ['备用金、房卡、发票当面点清，双方签字', '遗留事项逐条写进交班本，写明谁跟进、几点前完成', '接班人复述一遍重点事项再放人']],
+  ['', '客诉|投诉|点评|回访|补偿', '客诉处理与服务补救', 5, ['先听完，不打断，不辩解', '复述问题并道歉，给出明确处理时间', '补偿在权限内当场决定，超权限立即上报店长', '24 小时内回访，并把经过写进客诉记录']],
+  ['餐厅', '早餐|留样|食品|出品|餐', '早餐出品与食品留样', 4, ['开餐前检查食材效期和餐台温度', '每个品种留样 125 克以上，贴标签，冷藏保存 48 小时', '餐台每 15 分钟巡一次，及时补餐和清理', '收餐后清洁消毒并做好记录']],
+  ['客房', '清洁|查房|布草|做房|客房|卫生间', '客房清洁与查房标准', 5, ['按「开窗—撤—铺—抹—补—吸—查」顺序做房', '杯具一客一消毒，布草一客一换', '卫生间无毛发、无水渍、无异味', '查房看六处：床、卫生间、杯具、地面、设备、气味']],
+  ['公区', '5S|公区|大堂|电梯|走廊', '公区 5S 与巡检', 3, ['台面、地面、玻璃、绿植四处无脏污', '物品定位摆放，用完归位', '发现损坏当场拍照报修，不等下一班']],
+  ['', '消防|安全|巡查|巡检|机房|疏散', '消防与安全巡查', 4, ['消防主机无故障、无屏蔽，值班记录完整', '疏散通道和安全出口不堆物、不上锁', '灭火器压力在绿区，在有效期内', '发现隐患先处理再上报，并拍照留痕']],
+  ['外围', '外围|门头|停车|灯箱', '外围环境与门头', 3, ['门头灯箱全亮、无缺字', '门前三包区域无垃圾、无积水', '车辆停放有序，消防通道畅通']],
+  ['', '记录|照片|拍照|台账|登记', '记录填写与拍照规范', 3, ['记录写清时间、地点、数量、处理结果，不写「正常」两个字了事', '照片拍全景加一张细节，光线清楚，能看出是当天现场', '有异常时在备注里写原因和已做的处理']]
+];
+if (!q1('SELECT 1 FROM courses LIMIT 1')) D.tx(() => { const sc = Object.fromEntries(q('SELECT id, name FROM scenes').map(s => [s.name, s.id]));
+  COURSE_SEED.forEach(([s, kw, title, min, pts]) => run('INSERT INTO courses(scene_id,kw,title,minutes,points,demo,at) VALUES(?,?,?,?,?,1,?)', sc[s] || null, kw, title, min, JSON.stringify(pts), L.nowStr())); });
+global.coachReady = true;
+function courseFor(sceneId, title, reason) {
+  let best = null, bs = 0;
+  for (const c of q('SELECT * FROM courses WHERE active=1')) {
+    let re = null; try { re = c.kw ? new RegExp(c.kw) : null; } catch { /* 关键词写错时只按场景匹配 */ }
+    const s = (re && re.test(title || '') ? 3 : 0) + (re && re.test(reason || '') ? 1 : 0) + (c.scene_id && c.scene_id === sceneId ? 1 : 0);
+    if (s > bs && (s > 1 || !re)) { bs = s; best = c; }
+  }
+  return best;
+}
+const isStaffU = uid => q1("SELECT 1 FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.active=1 AND r.level='staff'", uid);
+function pushLearn(o) {
+  if (!o.uid || !isStaffU(o.uid)) return null;
+  const c = o.course_id ? q1('SELECT * FROM courses WHERE id=?', o.course_id) : courseFor(o.scene_id, o.title, o.reason);
+  if (o.src ? q1("SELECT 1 FROM learns WHERE user_id=? AND src=? AND src_id=? AND status='todo'", o.uid, o.src, o.src_id) : c && q1("SELECT 1 FROM learns WHERE user_id=? AND course_id=? AND status='todo'", o.uid, c.id)) return null;
+  if (!o.by && q1("SELECT COUNT(*) n FROM learns WHERE user_id=? AND status='todo'", o.uid).n >= 3) return null;
+  const title = o.title || c?.title; if (!title) return null;
+  const id = Number(run('INSERT INTO learns(user_id,store_id,course_id,kind,inst_id,src,src_id,scene_id,title,reason,due,by,created_at,sup_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)', o.uid, o.sid, c?.id || null, o.kind, o.inst || null, o.src || null, o.src_id || null,
+    o.scene_id || c?.scene_id || null, title, o.reason || '', L.addDays(L.today(), 3), o.by || null, L.nowStr(), o.sup_id || null).lastInsertRowid);
+  if (!o.quiet) D.notify([o.uid], 'train', `推荐学习：${c?.title || title}`, `${o.reason || ''}。约 ${c?.minutes || 3} 分钟，学完后店长会复查一次`, '#/learn/' + id);
+  return id;
+}
+// 抽查结果回写：学完后第一次被抽查，合格即闭环，不合格提醒店长一对一带教
+function learnOnCheck(it, result, comment, by) {
+  const l = q1("SELECT * FROM learns WHERE user_id=? AND src=? AND src_id=? AND status='done' ORDER BY id DESC LIMIT 1", it.assignee_id, it.src, it.src_id);
+  if (l) {
+    run('UPDATE learns SET status=?, verify_inst=?, verified_at=? WHERE id=?', result === 'good' ? 'verified' : 'failed', it.id, L.nowStr(), l.id);
+    if (result === 'good') D.notify([it.assignee_id], 'praise', '学后复查合格', `${it.title}：已达到标准，继续保持`, '#/learn');
+    else D.notify(D.storeManagers(it.store_id).filter(x => x !== by), 'train', '学后复查仍不合格', `${q1('SELECT name FROM users WHERE id=?', it.assignee_id)?.name || ''}「${it.title}」学完微课后仍不合格，建议安排一对一带教`, '#/train?k=' + encodeURIComponent('带教助手'));
+    return;
+  }
+  if (result === 'bad') pushLearn({ uid: it.assignee_id, sid: it.store_id, kind: 'check', inst: it.id, src: it.src, src_id: it.src_id, scene_id: it.scene_id, title: it.title, reason: '抽查不合格：' + (comment || '').slice(0, 40) });
+}
+// 每天凌晨一次：同一任务近 7 天漏做 3 次以上的员工推课；近 14 天某场景不合格集中的门店生成支持单
+// 门店支持由谁接：区域有培训经理找培训经理，没有找运营经理，再没有找城市总
+function supOwners(rid) { for (const lv of ['train_manager', 'ops_manager', 'region_manager']) { const xs = D.regionUsers(rid, lv); if (xs.length) return xs; } return []; }
+function coachDaily(date) {
+  const y = L.addDays(date, -1), out = { miss: 0, sup: 0 };
+  D.tx(() => {
+    const seen = new Set(), per = {}; // 每店每天最多推 3 人，先推漏做最多的
+    for (const r of q(`SELECT assignee_id uid, store_id, src, src_id, scene_id, title, COUNT(*) n, MAX(id) inst FROM instances WHERE date BETWEEN ? AND ? AND status IN ('pending','missed') AND assignee_id IS NOT NULL AND src IN ('tpl','flex')
+      GROUP BY assignee_id, src, src_id HAVING n>=3 ORDER BY n DESC`, L.addDays(date, -7), y)) {
+      if (seen.has(r.uid) || (per[r.store_id] || 0) >= 3) continue; seen.add(r.uid);
+      if (!q1("SELECT 1 FROM instances WHERE assignee_id=? AND date BETWEEN ? AND ? AND status='done' LIMIT 1", r.uid, L.addDays(date, -7), y)) continue; // 一周一项都没做的多半是休假或没启用，不属于不会做
+      if (q1('SELECT 1 FROM learns WHERE user_id=? AND src=? AND src_id=? AND created_at>=?', r.uid, r.src, r.src_id, L.addDays(date, -14))) continue;
+      if (pushLearn({ uid: r.uid, sid: r.store_id, kind: 'miss', inst: r.inst, src: r.src, src_id: r.src_id, scene_id: r.scene_id, title: r.title, reason: `近 7 天漏做 ${r.n} 次` })) { out.miss++; per[r.store_id] = (per[r.store_id] || 0) + 1; }
+    }
+    const f = L.addDays(date, -14), rows = q(`SELECT i.store_id sid, i.scene_id sc, SUM(i.check_result='bad') bad, COUNT(*) ck FROM instances i WHERE i.date BETWEEN ? AND ? AND i.check_result IS NOT NULL AND i.scene_id IS NOT NULL GROUP BY i.store_id, i.scene_id`, f, y);
+    const scn = Object.fromEntries(q('SELECT id, name FROM scenes').map(s => [s.id, s.name])), reg = Object.fromEntries(q('SELECT id, region_id FROM stores').map(s => [s.id, s.region_id]));
+    const avg = {}, by = {}; for (const r of rows) { (avg[r.sc] ||= { bad: 0, ck: 0 }).bad += r.bad; avg[r.sc].ck += r.ck; (by[r.sid] ||= []).push(r); }
+    for (const [sid0, xs] of Object.entries(by)) {
+      const sid = Number(sid0), tot = xs.reduce((a, x) => a + x.bad, 0);
+      const hit = xs.filter(x => x.bad >= 6 && x.bad / tot >= 0.4 && x.bad / x.ck >= 1.3 * avg[x.sc].bad / avg[x.sc].ck).sort((a, b) => b.bad - a.bad)[0];
+      if (!hit || !scn[hit.sc] || q1("SELECT 1 FROM supports WHERE store_id=? AND scene_id=? AND (status!='done' OR done_at>=?)", sid, hit.sc, f)) continue;
+      const top = q("SELECT title, COUNT(*) n FROM instances WHERE store_id=? AND scene_id=? AND check_result='bad' AND date BETWEEN ? AND ? GROUP BY src, src_id ORDER BY n DESC LIMIT 3", sid, hit.sc, f, y);
+      const bench = rows.filter(x => x.sc === hit.sc && x.sid !== sid && reg[x.sid] === reg[sid] && x.ck >= 10).sort((a, b) => a.bad / a.ck - b.bad / b.ck)[0];
+      const id = Number(run('INSERT INTO supports(store_id,scene_id,topic,n,total,detail,bench_id,created_at) VALUES(?,?,?,?,?,?,?,?)', sid, hit.sc, scn[hit.sc], hit.bad, tot, JSON.stringify({ top, ck: hit.ck, avg: Math.round(avg[hit.sc].bad * 1000 / avg[hit.sc].ck) / 10 }), bench?.sid || null, L.nowStr()).lastInsertRowid);
+      const link = '#/train?k=' + encodeURIComponent('带教助手'), nm = sname(sid), pct = Math.round(hit.bad * 100 / tot);
+      D.notify(D.storeManagers(sid), 'train', `本店「${scn[hit.sc]}」问题集中，支持已备好`, `近 14 天抽查不合格 ${hit.bad} 次，占全店 ${pct}%。可以一键安排晨会微课${bench ? '，也可以向标杆店 ' + sname(bench.sid) + ' 请教' : ''}`, link);
+      D.notify(supOwners(reg[sid]), 'train', `${nm}「${scn[hit.sc]}」问题集中，请安排支持`, `近 14 天抽查不合格 ${hit.bad} 次，集中在：${top.map(t => t.title).join('、')}`, '#/train?k=' + encodeURIComponent('门店支持'));
+      const co = coachesOf(sid); if (co.length) D.notify(co, 'train', `【未来模式测试】${nm}「${scn[hit.sc]}」问题集中`, '教练为虚拟测试角色，仅同步信息；支持由区域现有负责人安排', '#/train?k=' + encodeURIComponent('门店支持'));
+      out.sup++; void id;
+    }
+  });
+  return out;
+}
+const supRow = s => {
+  const d = JSON.parse(s.detail || '{}'), bsm = s.bench_id ? D.storeManagers(s.bench_id)[0] : null, cnt = (a, b) => q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND scene_id=? AND check_result='bad' AND date BETWEEN ? AND ?", s.store_id, s.scene_id, a, b).n;
+  const c0 = s.created_at.slice(0, 10), t = L.today(), days = dBetween(c0, t);
+  return { ...s, detail: d, store: sname(s.store_id), bench: s.bench_id ? sname(s.bench_id) : null, bench_sm: bsm ? q1('SELECT name FROM users WHERE id=?', bsm)?.name : null, owner: s.owner_id ? q1('SELECT name FROM users WHERE id=?', s.owner_id)?.name : null,
+    learn: q1("SELECT COUNT(*) n, SUM(status!='todo') d FROM learns WHERE sup_id=?", s.id), eff: days >= 7 ? { days: Math.min(days, 14), before: cnt(L.addDays(c0, -Math.min(days, 14)), L.addDays(c0, -1)), after: cnt(c0, L.addDays(c0, Math.min(days, 14) - 1)) } : null };
+};
+const learnRow = l => ({ ...l, name: q1('SELECT name FROM users WHERE id=?', l.user_id)?.name, role_name: q1('SELECT r.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?', l.user_id)?.name, course: l.course_id ? q1('SELECT title, minutes FROM courses WHERE id=?', l.course_id) : null, late: l.status === 'todo' && l.due < L.today() });
+app.get('/api/learn', (req, res) => res.json(q("SELECT * FROM learns WHERE user_id=? ORDER BY status='todo' DESC, id DESC LIMIT 30", req.u.id).map(learnRow)));
+app.get('/api/learn/:id', (req, res) => {
+  const l = q1('SELECT * FROM learns WHERE id=?', req.params.id);
+  if (!l || !(l.user_id === req.u.id || canManage(req.u, l.store_id) || leads(req.u, l.user_id) || (isRegion(req.u) && visibleStores(req.u).includes(l.store_id)))) return deny(res);
+  const it = l.inst_id ? q1('SELECT title, standard, check_comment, date FROM instances WHERE id=?', l.inst_id) : null, c = l.course_id ? q1('SELECT * FROM courses WHERE id=?', l.course_id) : null;
+  const faq = l.src ? q("SELECT check_comment c, COUNT(*) n FROM instances WHERE src=? AND src_id=? AND check_result='bad' AND date>=? AND check_comment!='' GROUP BY 1 ORDER BY n DESC LIMIT 3", l.src, l.src_id, L.addDays(L.today(), -60)) : [];
+  res.json({ ...learnRow(l), mine: l.user_id === req.u.id, standard: it?.standard || '', comment: it?.check_comment || '', course: c ? { ...c, points: JSON.parse(c.points || '[]') } : null, faq });
+});
+app.post('/api/learn/:id/done', (req, res) => {
+  const l = q1('SELECT * FROM learns WHERE id=?', req.params.id); if (!l || l.user_id !== req.u.id) return deny(res);
+  if (l.status !== 'todo') return err(res, '这门课已经学完');
+  run("UPDATE learns SET status='done', done_at=?, note=? WHERE id=?", L.nowStr(), ((req.body || {}).note || '').trim().slice(0, 200), l.id);
+  res.json({ ok: true });
+});
+app.post('/api/learn/push', (req, res) => {
+  const b = req.body || {}, x = q1(USER_SQL + ' WHERE u.id=? AND u.active=1', b.user_id), c = q1('SELECT * FROM courses WHERE id=? AND active=1', b.course_id);
+  if (!x || !c || !(canManage(req.u, x.store_id) || leads(req.u, x.id))) return deny(res);
+  const id = pushLearn({ uid: x.id, sid: x.store_id, kind: 'manual', course_id: c.id, title: c.title, reason: (b.reason || '').trim() || `${req.u.name} 安排学习`, by: req.u.id });
+  if (!id) return err(res, x.level === 'staff' ? '这门课已经推给他，还没学完' : '只能推给门店员工');
+  D.audit(req.u.id, x.store_id, '推送微课', `${c.title} → ${x.name}`);
+  res.json({ ok: true, id });
+});
+function coachKit(sid) {
+  const t = L.today(), ls = q("SELECT * FROM learns WHERE store_id=? AND (status IN ('todo','done') OR created_at>=?) ORDER BY id DESC", sid, L.addDays(t, -30)).map(learnRow);
+  const verify = ls.filter(l => l.status === 'done').map(l => ({ ...l, inst: l.src ? q1("SELECT id, date FROM instances WHERE assignee_id=? AND src=? AND src_id=? AND status='done' AND check_result IS NULL AND done_at>=? ORDER BY date DESC LIMIT 1", l.user_id, l.src, l.src_id, l.done_at) || null : null }));
+  const st = k => ls.filter(l => l.status === k);
+  return { todo: st('todo'), verify, verified: st('verified'), failed: st('failed'), rate: st('verified').length + st('failed').length ? Math.round(st('verified').length * 100 / (st('verified').length + st('failed').length)) : null,
+    supports: q("SELECT * FROM supports WHERE store_id=? AND (status!='done' OR done_at>=?) ORDER BY status='done', id DESC", sid, L.addDays(t, -30)).map(supRow) };
+}
+app.get('/api/coachkit', (req, res) => {
+  const sid = Number(req.query.store) || visibleStores(req.u)[0]; if (!canManage(req.u, sid)) return deny(res);
+  res.json({ ...coachKit(sid), store_id: sid, courses: q('SELECT id, title, minutes, scene_id FROM courses WHERE active=1 ORDER BY scene_id, id'),
+    staff: q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' ORDER BY r.sort, u.id", sid).map(u => ({ id: u.id, name: u.name, role_name: u.role_name })) });
+});
+app.post('/api/supports/:id/brief', (req, res) => {
+  const s = q1('SELECT * FROM supports WHERE id=?', req.params.id); if (!s || !canManage(req.u, s.store_id)) return deny(res);
+  if (s.brief_n != null) return err(res, '已经安排过晨会微课');
+  const tops = (JSON.parse(s.detail || '{}').top || []).map(x => x.title).join(' '), t = L.today();
+  const c = courseFor(s.scene_id, tops, '') || q1('SELECT * FROM courses WHERE active=1 AND scene_id=? ORDER BY id LIMIT 1', s.scene_id); if (!c) return err(res, '微课库里还没有这个场景的课，请联系培训经理补充');
+  const us = q("SELECT DISTINCT assignee_id id FROM instances WHERE store_id=? AND scene_id=? AND date BETWEEN ? AND ? AND assignee_id IS NOT NULL", s.store_id, s.scene_id, L.addDays(t, -7), t);
+  let n = 0; D.tx(() => { for (const x of us) if (pushLearn({ uid: x.id, sid: s.store_id, kind: 'store', course_id: c.id, title: c.title, scene_id: s.scene_id, reason: `本店「${s.topic}」近期问题集中，全员学习`, by: req.u.id, sup_id: s.id })) n++; run('UPDATE supports SET brief_n=? WHERE id=?', n, s.id); });
+  D.audit(req.u.id, s.store_id, '安排晨会微课', `${s.topic} · ${c.title} · ${n} 人`);
+  res.json({ ok: true, n, course: c.title });
+});
+const canSupport = u => isTrain(u) || ['ops_manager', 'coach', 'hq'].includes(u.level);
+app.get('/api/supports', (req, res) => {
+  if (!canSupport(req.u)) return deny(res);
+  const sids = visibleStores(req.u), xs = q(`SELECT * FROM supports WHERE store_id IN (${sids.join(',') || 'NULL'}) AND (status!='done' OR done_at>=?) ORDER BY status='done', status='accepted', n DESC LIMIT 200`, L.addDays(L.today(), -30)).map(supRow);
+  const top = q(`SELECT topic, COUNT(*) n FROM supports WHERE store_id IN (${sids.join(',') || 'NULL'}) AND created_at>=? GROUP BY topic ORDER BY n DESC`, L.addDays(L.today(), -30));
+  res.json({ list: xs, top, can_edit: isTrain(req.u) || req.u.level === 'ops_manager', test: req.u.level === 'coach' });
+});
+app.post('/api/supports/:id/accept', (req, res) => {
+  const s = q1('SELECT * FROM supports WHERE id=?', req.params.id), b = req.body || {};
+  if (!s || s.status !== 'open' || !(isTrain(req.u) || req.u.level === 'ops_manager') || !visibleStores(req.u).includes(s.store_id)) return deny(res);
+  if (!(b.plan || '').trim() || !b.plan_date) return err(res, '请填写支持方式和日期');
+  run("UPDATE supports SET status='accepted', owner_id=?, plan=?, plan_date=?, accepted_at=? WHERE id=?", req.u.id, b.plan.trim(), b.plan_date, L.nowStr(), s.id);
+  D.notify(D.storeManagers(s.store_id), 'train', `「${s.topic}」支持已安排`, `${req.u.name}：${b.plan.trim()}，时间 ${b.plan_date}`, '#/train?k=' + encodeURIComponent('带教助手'));
+  res.json({ ok: true });
+});
+app.post('/api/supports/:id/done', (req, res) => {
+  const s = q1('SELECT * FROM supports WHERE id=?', req.params.id), b = req.body || {};
+  if (!s || s.status !== 'accepted' || !(s.owner_id === req.u.id || canManage(req.u, s.store_id))) return deny(res);
+  if (!(b.result || '').trim()) return err(res, '请写一句支持结果');
+  run("UPDATE supports SET status='done', result=?, done_at=? WHERE id=?", b.result.trim(), L.nowStr(), s.id);
+  res.json({ ok: true });
+});
+app.get('/api/courses', (req, res) => res.json({ list: q('SELECT c.*, s.name scene, (SELECT COUNT(*) FROM learns l WHERE l.course_id=c.id) used FROM courses c LEFT JOIN scenes s ON s.id=c.scene_id WHERE c.active=1 ORDER BY c.scene_id, c.id').map(c => ({ ...c, points: JSON.parse(c.points || '[]') })),
+  scenes: q('SELECT id, name FROM scenes WHERE active=1 ORDER BY sort'), can_edit: req.u.level === 'train_manager' || req.u.level === 'hq' }));
+app.post('/api/courses', (req, res) => {
+  const b = req.body || {}; if (!(req.u.level === 'train_manager' || req.u.level === 'hq')) return deny(res);
+  const pts = String(b.points || '').split('\n').map(x => x.trim()).filter(Boolean);
+  if (!(b.title || '').trim() || !pts.length) return err(res, '请填写课程名称和要点');
+  try { if (b.kw) new RegExp(b.kw); } catch { return err(res, '关键词格式不对，多个词用 | 分隔'); }
+  const a = [Number(b.scene_id) || null, (b.kw || '').trim(), b.title.trim(), Number(b.minutes) || 3, JSON.stringify(pts), req.u.id, L.nowStr()];
+  if (b.id) run('UPDATE courses SET scene_id=?, kw=?, title=?, minutes=?, points=?, demo=0, by=?, at=? WHERE id=?', ...a, Number(b.id)); else run('INSERT INTO courses(scene_id,kw,title,minutes,points,demo,by,at) VALUES(?,?,?,?,?,0,?,?)', ...a);
+  D.audit(req.u.id, null, b.id ? '修改微课' : '新增微课', b.title.trim());
+  res.json({ ok: true });
+});
+function coachInbox(u, sid, add) {
+  const t = L.today(), lk = '#/train?k=' + encodeURIComponent('带教助手');
+  if (u.level === 'staff') q("SELECT l.*, c.minutes FROM learns l LEFT JOIN courses c ON c.id=l.course_id WHERE l.user_id=? AND l.status='todo' ORDER BY l.due LIMIT 2", u.id).forEach(l => add('学习', l.due < t ? 'bad' : 'acc', l.title, `约 ${l.minutes || 3} 分钟 · ${l.reason}`, '#/learn/' + l.id));
+  if (u.level === 'store_manager' && sid) {
+    const k = coachKit(sid), v = k.verify.filter(x => x.inst), late = k.todo.filter(x => x.late);
+    k.supports.filter(s => s.status === 'open' && s.brief_n == null).forEach(s => add('带教', 'warn', `「${s.topic}」问题集中，支持已备好`, `近 14 天不合格 ${s.n} 次，可一键安排晨会微课`, lk));
+    if (v.length) add('带教', 'warn', `${v.length} 人学完微课待复查`, v.slice(0, 3).map(x => x.name).join('、'), lk);
+    if (late.length) add('带教', 'acc', `${late.length} 门微课逾期未学`, late.slice(0, 3).map(x => x.name).join('、'), lk);
+    if (k.failed.length) add('带教', 'acc', `${k.failed.length} 人学后仍不合格`, '建议安排一对一带教', lk);
+  }
+  if (['train_manager', 'ops_manager', 'region_manager'].includes(u.level) && supOwners(u.region_id).includes(u.id)) { const n = q1(`SELECT COUNT(*) n FROM supports WHERE status='open' AND store_id IN (${visibleStores(u).join(',') || 'NULL'})`).n; if (n) add('门店支持', 'warn', `${n} 家门店问题集中，待安排支持`, '', '#/train?k=' + encodeURIComponent('门店支持')); }
+}
 
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));
