@@ -2085,7 +2085,9 @@ async function managerHome() {
   const openR = rs.filter(x => x.status !== 'closed').length, upN = up.focus.length + up.rects.length;
   const groups = {}; for (const t of all) (groups[t.scene_name || '其他'] ||= []).push(t);
   const top = ts => { const c = {}; ts.forEach(t => { c[t.assignee_name] = (c[t.assignee_name] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2).map(x => x[0]).join('、'); };
-  const tiles = [['#/flex', '派任务', '派', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/rect', '培训整改', '训', openR]];
+  const tiles = [['#/flex', '派任务', '派', ''], ['#/must', '今日巡查', '巡', must.length], ['#/crew', '点评员工', '评', toCheck], ['#/train', '带教培训', '带', '']];
+  api('/coachkit?store=' + sid).then(k => { const n = k.verify.filter(x => x.inst).length + k.failed.length + k.supports.filter(s => s.status !== 'done' && s.brief_n == null).length, a = document.querySelector('.mtiles a[href="#/train"]');
+    if (n && a && !a.querySelector('.badge')) a.insertAdjacentHTML('beforeend', `<b class="badge">${n}</b>`); }).catch(() => {});
   $('#main').innerHTML = `<div class="storebar"><button class="storename" id="sw" ${S.meta.stores.length > 1 ? '' : 'disabled'}>${esc(storeName(sid))}${S.meta.stores.length > 1 ? '<i>▾</i>' : ''}</button>
     ${calMini(date)}<a class="ib" href="#/me">${icon('me')}<span>${esc(CENTER[S.me.level])}</span></a><button class="ib" id="more">${icon('more')}<span>更多</span></button></div>
   ${plBar('ops', sid, `<div id="topw"><div class="sec-t2">我的工作</div><div class="mtiles">${tiles.map(([h2, l, c, n], i) => `<a ${h2 === 'sum' ? 'id="ho"' : `href="${h2}"`}><span class="tic" style="background:${TILE_COLORS[i % TILE_COLORS.length]}">${c}</span><span>${l}</span>${n ? `<b class="badge">${n}</b>` : ''}</a>`).join('')}</div>${shiftCard()}<div class="sec-t2">门店一天节奏</div>${storeRhythm()}</div>`)}
@@ -3456,7 +3458,7 @@ VIEWS.learn = async id => {
   }
   const l = await api('/learn/' + id), c = l.course;
   $('#main').innerHTML = `<div class="pghd"><a class="back" href="${l.mine ? '#/learn' : lnK('带教助手')}">‹</a><b>${esc(c?.title || l.title)}</b></div>
-  <div class="ldr"><div class="row between"><b>为什么学这门课</b><span class="tag ${LN_ST[l.status][0]}">${LN_ST[l.status][1]}</span></div><div class="muted small" style="margin-top:4px">${l.mine ? '' : esc(l.name) + ' · '}${esc(l.title)}：${esc(l.reason)}</div>${l.comment ? `<div class="small" style="margin-top:6px">点评：${esc(l.comment)}</div>` : ''}</div>
+  <div class="ldr"><div class="row between"><b>为什么学这门课</b><span class="tag ${LN_ST[l.status][0]}">${LN_ST[l.status][1]}</span></div><div class="muted small" style="margin-top:4px">${l.mine ? '' : esc(l.name) + ' · '}${esc(l.title)}：${esc(l.reason)}</div>${l.comment && !l.reason.includes(l.comment.slice(0, 20)) ? `<div class="small" style="margin-top:6px">点评：${esc(l.comment)}</div>` : ''}</div>
   ${l.standard ? `<div class="ldr"><b>这项工作的标准</b><div class="small" style="margin-top:6px;line-height:1.6">${esc(l.standard)}</div></div>` : ''}
   ${c ? `<div class="ldr"><div class="row between"><b>要点 · 约 ${c.minutes} 分钟</b>${c.demo ? '<span class="tag">示例课程</span>' : ''}</div><ol class="lnpts">${c.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol></div>` : ''}
   ${l.faq.length ? `<div class="ldr"><b>大家常错在哪</b>${l.faq.map(f => `<div class="row between small" style="margin-top:6px;gap:8px"><span>${esc(f.c)}</span><span class="muted nw">${f.n} 次</span></div>`).join('')}<div class="muted small" style="margin-top:6px">来自近 60 天各店的抽查记录</div></div>` : ''}
