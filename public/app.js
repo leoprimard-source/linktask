@@ -213,6 +213,7 @@ async function route() {
   try {
     S.me = await api('/me');
     if (!S.meta || S.meta.uid !== S.me.id) await loadMeta();
+    privacyGuide();
     verGuide();
   } catch (e) { return renderLogin(); }
   const allowed = VIEWS[name] && (COMMON.includes(name) || NAV[S.me.level].some(([k]) => k === name) || (name === 'patrol' && S.me.level !== 'staff'));
@@ -3541,5 +3542,26 @@ function supBind() {
     $('#lpush').onclick = () => formModal('推课给员工', `<label class="f"><span>员工</span><select name="user_id">${d.staff.map(u => `<option value="${u.id}">${esc(u.name)} · ${esc(u.role_name)}</option>`).join('')}</select></label><label class="f"><span>课程</span><select name="course_id">${d.courses.map(c => `<option value="${c.id}">${esc(c.title)}（${c.minutes} 分钟）</option>`).join('')}</select></label><label class="f"><span>原因（可不填）</span><input name="reason" placeholder="例如：今天早餐留样标签没贴"></label>`,
       f => act(() => api('/learn/push', { user_id: Number(f.user_id), course_id: Number(f.course_id), reason: f.reason }), '已推送'));
     supBind();
+  };
+}
+
+// ---------- 隐私说明：首次进入要确认；「我的」里能看到近 30 天谁看过自己的资料 ----------
+const PRIVACY_HTML = `<p class="small" style="line-height:1.7;margin:8px 0">为了安排和检查门店工作，宏图会用到你的这些信息：</p>
+<ul class="small" style="line-height:1.7;padding-left:18px;margin:0 0 8px"><li>姓名、手机号、岗位、所在门店、排班和请假</li><li>任务完成记录、完成时间、现场照片和拍摄时间</li><li>抽查、点评、整改、学习记录，以及由这些记录算出的执行分和绩效</li></ul>
+<p class="small" style="line-height:1.7;margin:0 0 8px"><b>谁能看</b>：你本人、你的直属上级和店长；区域和总部的人要经过授权才能看薪酬绩效和人事档案，而且每次查看都会留下记录，你可以在「我的」里看到。</p>
+<p class="small" style="line-height:1.7;margin:0 0 8px"><b>你可以</b>：查看自己的全部记录；对抽查、绩效、考核结果提出申诉；手机号对无权限的人只显示前 3 位和后 4 位。</p>
+<p class="muted small" style="line-height:1.6;margin:0">这是示例文本，保存期限等条款以公司正式发布的隐私政策为准。</p>`;
+function privacyGuide() {
+  if (!S.me || S.me.privacy_ok || document.getElementById('pvg')) return;
+  document.body.insertAdjacentHTML('beforeend', `<div id="pvg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:flex-end"><div style="background:#fff;width:100%;border-radius:16px 16px 0 0;padding:18px 18px 24px;max-height:85vh;overflow:auto"><b style="font-size:17px">个人信息使用说明</b>${PRIVACY_HTML}<button class="btn primary" id="pvgok" style="width:100%;margin-top:14px;justify-content:center">我已了解</button></div></div>`);
+  $('#pvgok').onclick = async () => { if (await act(() => api('/me/privacy', {}))) { S.me.privacy_ok = true; $('#pvg').remove(); } };
+}
+{ const f0 = VIEWS.me;
+  VIEWS.me = async (...a) => {
+    await f0(...a);
+    const vs = await api('/me/viewers').catch(() => []);
+    $('#main').insertAdjacentHTML('beforeend', `<div class="sec-t2">隐私与数据</div><div class="list"><a class="task" id="pvw"><div class="b"><div class="ttl">谁看过我的资料</div><div class="muted small">近 30 天 ${vs.length ? vs.length + ' 次' : '没有人看过'}</div></div><span class="muted">›</span></a><a class="task" id="pvn"><div class="b"><div class="ttl">个人信息使用说明</div></div><span class="muted">›</span></a></div>`);
+    $('#pvw').onclick = () => modal('谁看过我的资料', vs.length ? `<div class="list">${vs.map(v => `<div class="task"><div class="b"><div class="ttl">${esc(v.name)} <span class="muted small">${esc(v.role_name)}</span></div><div class="muted small">${v.date} 看了${esc(v.cat)}</div></div></div>`).join('')}</div>` : '<div class="empty">近 30 天没有人看过你的薪酬绩效和人事档案</div>');
+    $('#pvn').onclick = () => modal('个人信息使用说明', PRIVACY_HTML);
   };
 }

@@ -14,6 +14,9 @@ for (const col of ['opened_ms INTEGER', 'done_ms INTEGER', 'dur_s INTEGER', 'fla
 D.db.exec('CREATE TABLE IF NOT EXISTS photo_hash(hash TEXT, store_id INTEGER, inst_id INTEGER, user_id INTEGER, at TEXT); CREATE INDEX IF NOT EXISTS idx_ph ON photo_hash(hash, store_id)');
 const FLAG_TXT = { fast: n => `打开 ${n} 秒就完成`, batch: n => `1 分钟内连续完成 ${n} 项`, old: n => `照片不是现场拍的，原图是 ${n >= 1440 ? Math.round(n / 1440) + ' 天' : n >= 60 ? Math.round(n / 60) + ' 小时' : n + ' 分钟'}前的`, dup: () => '照片和以前上传过的是同一张', rand: () => '系统随机抽中' };
 const flagList = s => (s ? String(s).split(',').map(x => { const [k, v] = x.split(':'); return FLAG_TXT[k] ? { k, text: FLAG_TXT[k](Number(v) || 0) } : null; }).filter(Boolean) : []);
+// 隐私：谁在哪天看过谁的哪类资料（每人每类每天记一次）；隐私说明的确认记录
+D.db.exec('CREATE TABLE IF NOT EXISTS view_log(date TEXT, user_id INTEGER, target_id INTEGER, cat TEXT, at TEXT, PRIMARY KEY(date, user_id, target_id, cat)); CREATE INDEX IF NOT EXISTS idx_vl_t ON view_log(target_id, date); CREATE TABLE IF NOT EXISTS consents(user_id INTEGER PRIMARY KEY, ver TEXT, at TEXT)');
+const PRIVACY_VER = '1';
 // ---------- 安全基线：响应头、限流、访问口令、照片签名 ----------
 app.disable('x-powered-by');
 const crypto = require('crypto');
@@ -127,7 +130,10 @@ app.use('/api', (req, res, next) => {
   if (req.method !== 'GET') return next();
   for (const [re, k, gi] of DA_ROUTES) {
     const m = req.path.match(re); if (!m) continue;
-    if ((gi && Number(m[gi]) === req.u.id) || daCan(req.u, k)) return next();
+    if ((gi && Number(m[gi]) === req.u.id) || daCan(req.u, k)) {
+      if (gi && Number(m[gi]) !== req.u.id) res.on('finish', () => { if (res.statusCode === 200) try { run('INSERT OR IGNORE INTO view_log VALUES(?,?,?,?,?)', L.today(), req.u.id, Number(m[gi]), k, L.nowStr()); } catch { /* 留痕失败不影响查看 */ } });
+      return next();
+    }
     return res.status(403).json({ error: '未获授权查看此类数据，可请区域经理在「数据授权」中开通', da: k });
   }
   next();
@@ -204,6 +210,11 @@ function decorate(rows) {
 }
 
 // ---------- me / meta ----------
+app.post('/api/me/privacy', (req, res) => { run('INSERT INTO consents VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET ver=excluded.ver, at=excluded.at', req.u.id, PRIVACY_VER, L.nowStr()); res.json({ ok: true }); });
+app.get('/api/me/viewers', (req, res) => {
+  const lab = { pay: '薪酬绩效', hr: '人事档案', diag: '能力诊断', mentor: '带教记录' };
+  res.json(q(`SELECT v.date, v.cat, u.name, r.name role_name FROM view_log v JOIN users u ON u.id=v.user_id JOIN roles r ON r.id=u.role_id WHERE v.target_id=? AND v.date>=? ORDER BY v.at DESC LIMIT 50`, req.u.id, L.addDays(L.today(), -30)).map(x => ({ ...x, cat: lab[x.cat] || x.cat })));
+});
 app.post('/api/me/region', (req, res) => {
   const u = req.u, rid = Number((req.body || {}).region_id), r = q1('SELECT * FROM regions WHERE id=?', rid);
   if (u.level !== 'hq') return deny(res, '只有总部和省区可以切换区域');
@@ -214,7 +225,7 @@ app.get('/api/me', (req, res) => {
   const u = req.u;
   const rg = q1('SELECT r.name, p.name pname FROM regions r LEFT JOIN provinces p ON p.id=r.province_id WHERE r.id=?', u.region_id);
   const unread = q1('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read=0', u.id).n;
-  res.json({ ...u, region_name: rg?.name, province_name: rg?.pname, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
+  res.json({ ...u, privacy_ok: q1('SELECT ver FROM consents WHERE user_id=?', u.id)?.ver === PRIVACY_VER, region_name: rg?.name, province_name: rg?.pname, level_label: LEVEL_LABEL[u.level], stores: visibleStores(u), unread, today: L.today(), now: L.nowHM(),
     can: { manage: ['region_manager', 'coach', 'store_manager'].includes(u.level), region: isRegion(u), patrol: rmLike(u), settings: u.level === 'region_manager' },
     category: catFilter(u), data_auth: daAuth()[daKey(u)] || [], da_admin: ['region_manager', 'hq'].includes(u.level), team: u.store_id ? teamOf(u, u.store_id).map(x => x.id) : [], lead: !!LEADS[u.role_name], shift: myShift(u) });
 });
