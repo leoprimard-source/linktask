@@ -5073,4 +5073,26 @@ function coachInbox(u, sid, add) {
   if (['train_manager', 'ops_manager', 'region_manager'].includes(u.level) && supOwners(u.region_id).includes(u.id)) { const n = q1(`SELECT COUNT(*) n FROM supports WHERE status='open' AND store_id IN (${visibleStores(u).join(',') || 'NULL'})`).n; if (n) add('门店支持', 'warn', `${n} 家门店问题集中，待安排支持`, '', '#/train?k=' + encodeURIComponent('门店支持')); }
 }
 
+// ---------- 消息推送：免打扰时段 + 推送队列（推送通道还没接飞书/华通，目前是模拟接口，只生成待推内容，不真正发出） ----------
+D.db.exec(`CREATE TABLE IF NOT EXISTS push_out(id INTEGER PRIMARY KEY, user_id INTEGER, at TEXT, kind TEXT, title TEXT, urgent INTEGER, status TEXT, send_after TEXT, sent_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_po ON push_out(status, send_after); CREATE INDEX IF NOT EXISTS idx_po_u ON push_out(user_id, id); CREATE TABLE IF NOT EXISTS push_pref(user_id INTEGER PRIMARY KEY, dnd INTEGER DEFAULT 1)`);
+const QUIET = ['22:00', '07:00'], PUSH_URGENT = /清零|客诉|安全|消防|待指派|升级|应急/;
+const inQuiet = hm => hm >= QUIET[0] || hm < QUIET[1];
+function onShiftNow(uid, hm) {
+  try { const u = q1(USER_SQL + ' WHERE u.id=?', uid), s = u && myShift(u); if (!s || s.rest || !s.start || !s.end) return false; return s.start <= s.end ? hm >= s.start && hm <= s.end : hm >= s.start || hm <= s.end; } catch { return false; }
+}
+function pushEnqueue(ids, kind, title) {
+  const at = L.nowStr(), hm = at.slice(11), quiet = inQuiet(hm), urgent = PUSH_URGENT.test(title || '') ? 1 : 0, wake = (hm < QUIET[1] ? at.slice(0, 10) : L.addDays(at.slice(0, 10), 1)) + ' ' + QUIET[1];
+  const st = D.db.prepare('INSERT INTO push_out(user_id,at,kind,title,urgent,status,send_after) VALUES(?,?,?,?,?,?,?)');
+  for (const uid of new Set(ids.filter(Boolean))) {
+    const hold = quiet && !urgent && (q1('SELECT dnd FROM push_pref WHERE user_id=?', uid)?.dnd ?? 1) && !onShiftNow(uid, hm);
+    st.run(uid, at, kind, String(title || '').slice(0, 80), urgent, hold ? 'held' : 'queued', hold ? wake : at);
+  }
+}
+{ const n0 = D.notify; D.notify = (ids, kind, title, body, link) => { n0(ids, kind, title, body, link); try { pushEnqueue(ids, kind, title); } catch (e) { console.error('push', e.message); } }; }
+setInterval(() => { try { const at = L.nowStr(); run("UPDATE push_out SET status='sim', sent_at=? WHERE status IN ('queued','held') AND send_after<=?", at, at); run('DELETE FROM push_out WHERE at<?', L.addDays(L.today(), -7)); } catch (e) { console.error('push', e.message); } }, 60000);
+app.get('/api/push/me', (req, res) => res.json({ dnd: q1('SELECT dnd FROM push_pref WHERE user_id=?', req.u.id)?.dnd ?? 1, quiet: QUIET, held: q1("SELECT COUNT(*) n FROM push_out WHERE user_id=? AND status='held'", req.u.id).n,
+  admin: ['hq', 'region_manager'].includes(req.u.level) ? q1("SELECT COUNT(*) n, SUM(urgent) u, SUM(send_after>at) h FROM push_out WHERE substr(at,1,10)=?", L.today()) : null }));
+app.post('/api/push/me', (req, res) => { run('INSERT INTO push_pref VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET dnd=excluded.dnd', req.u.id, (req.body || {}).dnd ? 1 : 0); res.json({ ok: true }); });
+
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));

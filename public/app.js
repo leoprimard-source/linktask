@@ -3561,6 +3561,10 @@ function privacyGuide() {
     await f0(...a);
     const vs = await api('/me/viewers').catch(() => []);
     $('#main').insertAdjacentHTML('beforeend', `<div class="sec-t2">隐私与数据</div><div class="list"><a class="task" id="pvw"><div class="b"><div class="ttl">谁看过我的资料</div><div class="muted small">近 30 天 ${vs.length ? vs.length + ' 次' : '没有人看过'}</div></div><span class="muted">›</span></a><a class="task" id="pvn"><div class="b"><div class="ttl">个人信息使用说明</div></div><span class="muted">›</span></a></div>`);
+    const pm = await api('/push/me').catch(() => null);
+    if (pm) { $('#main').insertAdjacentHTML('beforeend', `<div class="sec-t2">消息设置</div><div class="list"><label class="task" style="cursor:pointer"><div class="b"><div class="ttl">夜间免打扰</div><div class="muted small">${pm.quiet[0]} 到次日 ${pm.quiet[1]} 不在班时，普通消息攒到早上 ${pm.quiet[1]} 再推；清零项、客诉、安全、待指派和升级照常推${pm.held ? `。现在有 ${pm.held} 条在等早上推送` : ''}</div></div><input type="checkbox" id="dnd" ${pm.dnd ? 'checked' : ''} style="width:20px;height:20px;flex:none"></label>
+      ${pm.admin ? `<div class="task"><div class="b"><div class="ttl">推送通道 <span class="tag warn">模拟接口</span></div><div class="muted small">还没接飞书或华通，消息只在 App 里显示。今天应推送 ${pm.admin.n || 0} 条，其中紧急 ${pm.admin.u || 0} 条，免打扰顺延 ${pm.admin.h || 0} 条</div></div></div>` : ''}</div>`);
+      $('#dnd').onchange = e => act(() => api('/push/me', { dnd: e.target.checked }), e.target.checked ? '已开启夜间免打扰' : '已关闭夜间免打扰'); }
     $('#pvw').onclick = () => modal('谁看过我的资料', vs.length ? `<div class="list">${vs.map(v => `<div class="task"><div class="b"><div class="ttl">${esc(v.name)} <span class="muted small">${esc(v.role_name)}</span></div><div class="muted small">${v.date} 看了${esc(v.cat)}</div></div></div>`).join('')}</div>` : '<div class="empty">近 30 天没有人看过你的薪酬绩效和人事档案</div>');
     $('#pvn').onclick = () => modal('个人信息使用说明', PRIVACY_HTML);
   };
