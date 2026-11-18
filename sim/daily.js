@@ -12,10 +12,11 @@ const addDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toI
 let seed = [...today].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
 const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 const hash = n => ((n * 2654435761) >>> 0) / 2 ** 32;
+const GATE_H = fs.existsSync(path.join(DIR, 'gate-code.txt')) ? { 'x-gate': fs.readFileSync(path.join(DIR, 'gate-code.txt'), 'utf8').trim() } : {};
 const stat = { ok: 0, fail: 0, err: {} };
 async function call(uid, p, body) {
   try {
-    const r = await fetch(BASE + '/api' + p, { method: body ? 'POST' : 'GET', headers: { 'x-user-id': String(uid), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch(BASE + '/api' + p, { method: body ? 'POST' : 'GET', headers: { 'x-user-id': String(uid), 'content-type': 'application/json', ...GATE_H }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     if (r.ok) { stat.ok++; return j; }
     stat.fail++; const k = p.replace(/\d+/g, ':id') + ' ' + (j.error || r.status); stat.err[k] = (stat.err[k] || 0) + 1; return null;

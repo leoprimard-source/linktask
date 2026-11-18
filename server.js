@@ -9,7 +9,50 @@ require('./seed').seed();
 const app = express();
 app.use(require('compression')());
 app.use(express.json({ limit: '8mb' }));
-app.use('/uploads', express.static(path.join(D.DATA_DIR, 'uploads'), { maxAge: '7d' }));
+// ---------- 安全基线：响应头、限流、访问口令、照片签名 ----------
+app.disable('x-powered-by');
+const crypto = require('crypto');
+const SECRET = (() => { let s = D.getSetting('srv_secret', ''); if (!s) { s = crypto.randomBytes(32).toString('hex'); D.setSetting('srv_secret', s); } return s; })();
+const sign = v => crypto.createHmac('sha256', SECRET).update(String(v)).digest('hex').slice(0, 32);
+const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+const cookieOf = (req, k) => { const m = (req.headers.cookie || '').match(new RegExp('(?:^|;\\s*)' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; };
+const ipOf = req => (req.get('x-forwarded-for') || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+const RL = new Map();
+function limited(key, max) { // 每分钟计数，超过 max 返回 true
+  const m = Math.floor(Date.now() / 60000), k = key + '|' + m, n = (RL.get(k) || 0) + 1; RL.set(k, n);
+  if (RL.size > 20000) for (const x of RL.keys()) if (!x.endsWith('|' + m)) RL.delete(x);
+  return n > max;
+}
+app.use((req, res, next) => {
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'self'" });
+  next();
+});
+// 访问口令：设了 ACCESS_CODE 或数据目录下有 gate-code.txt 才启用（分享演示用）；它只挡住没有口令的人，不等于实名登录
+const GATE = (process.env.ACCESS_CODE || (fs.existsSync(path.join(D.DATA_DIR, 'gate-code.txt')) ? fs.readFileSync(path.join(D.DATA_DIR, 'gate-code.txt'), 'utf8') : '')).trim();
+const GATE_HTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>宏图计划</title>
+<body style="margin:0;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#F2F3F5;display:flex;min-height:100vh;align-items:center;justify-content:center">
+<form id="f" style="background:#fff;border-radius:16px;padding:28px 24px;width:300px;box-sizing:border-box"><h3 style="margin:0 0 6px">宏图计划 · 演示</h3><p style="margin:0 0 16px;color:#8F959E;font-size:13px">请输入访问口令</p>
+<input id="c" inputmode="numeric" autocomplete="off" autofocus style="width:100%;box-sizing:border-box;font-size:18px;padding:10px 12px;border:1px solid #DEE0E3;border-radius:10px;letter-spacing:2px">
+<p id="e" style="color:#F54A45;font-size:13px;min-height:18px;margin:8px 0"></p><button style="width:100%;padding:11px;border:0;border-radius:10px;background:#3370FF;color:#fff;font-size:16px">进入</button></form>
+<script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();const r=await fetch('/gate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:document.getElementById('c').value})});if(r.ok)location.reload();else document.getElementById('e').textContent=(await r.json().catch(()=>({}))).error||'口令不对'}</script></body></html>`;
+app.post('/gate', (req, res) => {
+  if (limited('gate|' + ipOf(req), 10) || limited('gate|all', 60)) return res.status(429).json({ error: '尝试次数太多，请 1 分钟后再试' });
+  if (!GATE || !safeEq(String((req.body || {}).code || '').trim(), GATE)) return res.status(401).json({ error: '口令不对' });
+  res.append('Set-Cookie', `lt_gate=${sign('gate:' + GATE)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}`); res.json({ ok: true });
+});
+app.use((req, res, next) => {
+  if (!GATE || safeEq(req.get('x-gate') || '', GATE) || cookieOf(req, 'lt_gate') === sign('gate:' + GATE)) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) return res.status(401).json({ error: '需要访问口令', gate: 1 });
+  res.set('Cache-Control', 'no-store').type('html').send(GATE_HTML);
+});
+// 照片地址要带签名才能打开：签名绑定查看人和日期，接口返回时自动加上，最长 2 天有效
+const upSig = (name, uid, day) => sign(`u:${name}:${uid}:${day}`).slice(0, 16);
+app.use('/uploads', (req, res, next) => {
+  const name = path.basename(req.path), { u, k } = req.query, t = L.today();
+  if (u && k && [t, L.addDays(t, -1)].some(d => upSig(name, u, d) === k)) return next();
+  res.status(401).type('text').send('需要登录后查看');
+}, express.static(path.join(D.DATA_DIR, 'uploads'), { setHeaders: res => res.set('Cache-Control', 'private, max-age=86400') }));
 const ASSET_V = (() => { const h = require('crypto').createHash('md5'); for (const f of ['app.js', 'help.js', 'style.css']) h.update(fs.readFileSync(path.join(__dirname, 'public', f))); return h.digest('hex').slice(0, 8); })();
 const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace(/(src|href)="\/(app\.js|help\.js|style\.css)"/g, `$1="/$2?v=${ASSET_V}"`);
 app.get(['/', '/index.html'], (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(INDEX));
@@ -21,6 +64,7 @@ const LEVEL_LABEL = { region_manager: '城市总', ops_manager: '运营经理', 
 let USED = D.getSetting('used_uids', {}), USERS_C = null;
 const markUsed = id => { const t = L.today(); if (USED[id] === t) return; USED[id] = t; D.setSetting('used_uids', USED); USERS_C = null; };
 app.get('/api/users', (req, res) => {
+  if (limited('users|' + ipOf(req), 60)) return res.status(429).json({ error: '操作太频繁，请稍后再试' });
   if (!USERS_C) {
     const users = q(USER_SQL + ' WHERE u.active=1 ORDER BY r.sort, u.store_id, u.id');
     const sn = Object.fromEntries(q('SELECT id, name FROM stores').map(s => [s.id, s.name])), rg = Object.fromEntries(q('SELECT id, name FROM regions').map(r => [r.id, r.name]));
@@ -44,6 +88,9 @@ app.use('/api', (req, res, next) => {
   if (u.temp_until && u.temp_until < L.today()) return res.status(401).json({ error: '临时账号已过期，请联系总部' });
   if (u.level === 'hq' && u.view_region) { u.home_region = u.region_id; u.region_id = u.view_region; }
   req.u = u;
+  if (limited('u|' + u.id, 600)) return res.status(429).json({ error: '操作太频繁，请稍后再试' });
+  const send0 = res.send.bind(res); // 响应里的照片地址统一加签名
+  res.send = b => send0(typeof b === 'string' && b.includes('/uploads/') && /json/.test(String(res.get('Content-Type'))) ? b.replace(/\/uploads\/([\w.-]+)(?=\\?")/g, (m, n) => `${m}?u=${u.id}&k=${upSig(n, u.id, L.today())}`) : b);
   if (req.path === '/me') markUsed(u.id);
   next();
 });
@@ -123,7 +170,7 @@ function savePhoto(dataUrl) {
   if (!m) return null;
   const buf = Buffer.from(m[2], 'base64'), h = buf.subarray(0, 4).toString('hex');
   if (!(h.startsWith('89504e47') || h.startsWith('ffd8ff') || h.startsWith('52494646') || h.startsWith('47494638'))) return null;
-  const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + (m[1] === 'png' ? 'png' : 'jpg');
+  const name = Date.now() + '-' + require('crypto').randomBytes(9).toString('hex') + '.' + (m[1] === 'png' ? 'png' : 'jpg');
   fs.writeFileSync(path.join(D.DATA_DIR, 'uploads', name), buf);
   return '/uploads/' + name;
 }
@@ -3041,7 +3088,7 @@ const CK_ACT = { 待接班: '确认接班，未完成的问题安排到人', 物
 app.get('/api/cockpit', async (req, res) => {
   const u = req.u; if (u.level !== 'store_manager') return deny(res);
   const sids = visibleStores(u), sid = Number(req.query.store) || sids[0];
-  const ib = await (await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/inbox?store=${sid}`, { headers: { 'x-user-id': String(u.id) } })).json();
+  const ib = await (await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/inbox?store=${sid}`, { headers: { 'x-user-id': String(u.id), 'x-gate': GATE } })).json();
   const items = (Array.isArray(ib) ? ib : []).map(x => ({ ...x, w: ({ bad: 3, warn: 2, acc: 1 }[x.lv] || 1) * 2 + (Object.entries(CK_W).find(([k]) => (x.tag || '').includes(k))?.[1] || 0), how: CK_ACT[x.tag] || (x.lv === 'bad' ? '今天必须处理' : '今天内处理') })).sort((a, b) => b.w - a.w).slice(0, 3);
   const dg = smDiag(u.id), wk = dg && dg.caps.find(c => c.k === dg.weak[0]);
   if (wk && items.length < 3) items.push({ tag: '能力提升', lv: 'acc', title: `本月短板：${wk.l}（${wk.v} 分）`, how: wk.act, link: '#/diag?uid=' + u.id });

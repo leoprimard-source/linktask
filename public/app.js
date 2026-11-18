@@ -10,6 +10,7 @@ async function api(path, body, method) {
   if (body) { opt.headers['content-type'] = 'application/json'; opt.body = JSON.stringify(body); }
   const r = await fetch('/api' + path, opt);
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && j.gate) { location.reload(); throw new Error(j.error); }
   if (r.status === 401) { localStorage.removeItem('lt_uid'); location.hash = '#/login'; throw new Error(j.error || '请选择身份'); }
   if (!r.ok) throw new Error(j.error || '请求失败');
   return j;
@@ -46,7 +47,16 @@ function compressImage(file) {
     img.onload = () => {
       const k = Math.min(1, 1280 / Math.max(img.width, img.height));
       const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      try { // 水印：门店、姓名、时间；原图不是 10 分钟内拍的会标出来
+        const p2 = n => String(n).padStart(2, '0'), fm = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+        const now = new Date(), shot = new Date(file.lastModified || now), old = now - shot > 10 * 60000, fs0 = Math.max(14, Math.round(c.width / 36));
+        const lines = [`${S.me ? S.me.name + ' · ' : ''}${typeof storeName === 'function' && S.store ? storeName(S.store) : ''}`, old ? `非实时拍摄 · 原图时间 ${fm(shot)} · 上传 ${fm(now)}` : `拍摄 ${fm(now)}`];
+        g.font = `${fs0}px sans-serif`; g.textBaseline = 'bottom';
+        g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, c.height - fs0 * 3.2, c.width, fs0 * 3.2);
+        g.fillStyle = '#fff'; g.fillText(lines[0], fs0 * 0.6, c.height - fs0 * 1.7, c.width - fs0);
+        g.fillStyle = old ? '#FFD666' : '#fff'; g.fillText(lines[1], fs0 * 0.6, c.height - fs0 * 0.4, c.width - fs0);
+      } catch { /* 水印失败不影响上传 */ }
       resolve(c.toDataURL('image/jpeg', 0.8));
     };
     img.onerror = reject; img.src = url;
