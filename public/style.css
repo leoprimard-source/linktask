@@ -742,3 +742,4 @@ label.f input:not([type=checkbox]),label.f select,label.f textarea{border-radius
 .suprow{display:flex;gap:10px;font-size:13px;line-height:1.5;padding:8px 0 0;margin-top:8px;border-top:1px solid var(--border)}.suprow>span{flex:none;width:4.5em;color:var(--text-muted)}.suprow>div{flex:1;min-width:0}
 #lnf .btn{justify-content:center;text-align:center}
 .howto{background:#fff;border-radius:12px;margin:8px 0 12px;border:1px solid var(--border);font-size:13px}.howto summary{padding:10px 14px;color:var(--accent);cursor:pointer;list-style:none}.howto summary::-webkit-details-marker{display:none}.howto summary::after{content:' ›'}.howto[open] summary::after{content:' ⌄'}.howto ul{margin:0;padding:0 14px 12px 30px;line-height:1.7;color:var(--text)}
+#offbar{position:fixed;left:0;right:0;top:0;z-index:998;background:#FFF4E5;color:#B25E00;font-size:13px;line-height:1.4;padding:6px 14px;text-align:center}

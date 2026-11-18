@@ -9,13 +9,46 @@ async function api(path, body, method) {
   const opt = { method: method || (body ? 'POST' : 'GET'), headers: { 'x-user-id': localStorage.lt_uid || '', 'x-app': '1' } };
   if (body && typeof body === 'object') { const ps = [body.photo, ...(Array.isArray(body.photos) ? body.photos : [])].filter(x => typeof x === 'string' && x.startsWith('data:image/')); if (ps.length) body = { ...body, _pm: ps.map(x => PHOTO_META[x.slice(-80)] || null) }; }
   if (body) { opt.headers['content-type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const r = await fetch('/api' + path, opt);
+  const getKey = 'lt_c:' + (localStorage.lt_uid || '') + ':' + path, cacheable = opt.method === 'GET' && OFF_GET.test(path), queueable = opt.method === 'POST' && OFF_POST.test(path);
+  let r;
+  try { r = await fetch('/api' + path, opt); } catch (e) { // 没有网络：能离线做的先存在手机里，能读缓存的读缓存
+    if (queueable) { if (offPush({ path, body: { ...body, offline_at: offNow() }, uid: localStorage.lt_uid })) { toast('现在没有网络，已存在手机里，有网后自动提交'); return { ok: true, queued: true }; } throw new Error('手机存储已满，请到有网的地方再提交'); }
+    if (cacheable && localStorage[getKey]) { offBar(); return JSON.parse(localStorage[getKey]); }
+    throw new Error('现在没有网络，请稍后再试');
+  }
   const j = await r.json().catch(() => ({}));
   if (r.status === 401 && j.gate) { location.reload(); throw new Error(j.error); }
   if (r.status === 401) { localStorage.removeItem('lt_uid'); location.hash = '#/login'; throw new Error(j.error || '请选择身份'); }
   if (!r.ok) throw new Error(j.error || '请求失败');
+  if (cacheable) try { localStorage[getKey] = JSON.stringify(j); } catch { /* 存不下就不缓存 */ }
   return j;
 }
+// ---------- 弱网离线：当天任务可离线查看；完成任务、学完微课没网时先存本机，有网自动补传 ----------
+const OFF_GET = /^\/(me|meta|my\/tasks|instances\/\d+|learn|learn\/\d+|inbox)(\?|$)/, OFF_POST = /^\/(instances\/\d+\/complete|learn\/\d+\/done)$/;
+const offNow = () => { const d = new Date(Date.now() + 8 * 3600e3).toISOString(); return d.slice(0, 10) + ' ' + d.slice(11, 16); };
+const offList = () => { try { return JSON.parse(localStorage.lt_q || '[]'); } catch { return []; } };
+function offPush(x) { try { localStorage.lt_q = JSON.stringify([...offList(), x]); offBar(); return true; } catch { return false; } }
+function offBar() {
+  const n = offList().length, off = !navigator.onLine; let b = document.getElementById('offbar');
+  if (!n && !off) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'offbar'; document.body.append(b); }
+  b.textContent = (off ? '现在没有网络，看到的是上次的内容' : '') + (n ? `${off ? '；' : ''}${n} 项已完成的工作等待上传` : '');
+}
+let offBusy = false;
+async function offFlush() {
+  if (offBusy || !navigator.onLine) return offBar(); offBusy = true;
+  try {
+    for (let q = offList(); q.length; q = offList()) {
+      const x = q[0]; let r;
+      try { r = await fetch('/api' + x.path, { method: 'POST', headers: { 'x-user-id': x.uid, 'x-app': '1', 'content-type': 'application/json' }, body: JSON.stringify(x.body) }); } catch { break; }
+      if (r.status === 401 || r.status === 429 || r.status >= 500) break; // 稍后再试
+      localStorage.lt_q = JSON.stringify(offList().slice(1));
+      if (r.ok) toast('离线完成的工作已上传'); else toast('有一项离线完成的工作没传上去：' + ((await r.json().catch(() => ({}))).error || '已失效'), true);
+    }
+  } finally { offBusy = false; offBar(); }
+}
+addEventListener('online', offFlush); addEventListener('offline', offBar); setInterval(offFlush, 30000); setTimeout(offFlush, 3000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 function toast(msg, isErr) {
   const d = document.createElement('div'); d.textContent = msg; if (isErr) d.className = 'e';
   $('#toast').appendChild(d); setTimeout(() => d.remove(), 2600);
