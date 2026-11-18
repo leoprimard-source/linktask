@@ -3607,3 +3607,20 @@ const howto = (title, lines) => `<details class="howto"><summary>${title}</summa
 const EXEC_HOW = ['取近 30 天的任务记录', '完成率 × 40% + 按时率 × 25% + 抽查合格率 × 25% + 被点评肯定每次 2 分（最多 10 分）', '90 分及以上金牌，80–89 银牌，70–79 合格，70 以下待提升', '对抽查结果有异议，可以在「我的绩效」里申诉，申诉通过后重新计算'];
 { const f0 = fillExec; fillExec = async uid => { await f0(uid); const el = $('#exs'); if (el && el.innerHTML && !el.querySelector('.howto')) el.insertAdjacentHTML('beforeend', howto('执行分怎么算的', EXEC_HOW)); }; }
 { const f0 = VIEWS.insight; VIEWS.insight = async (...a) => { await f0(...a); const m = $('#main'); if (m && !m.querySelector('.howto')) m.insertAdjacentHTML('beforeend', howto('四类员工怎么分的', ['只看上一自然周的任务记录', '完成率 90% 及以上、抽查合格率 85% 及以上：优秀执行型', '完成率 90% 及以上、抽查合格率低于 85%：质量提升型', '完成率低于 90%、抽查合格率 85% 及以上：效率提升型', '两项都没达到：重点辅导型', '这个分类只给店长做辅导参考，不计入绩效和薪酬；发给员工的话由店长确认后才发出'])); }; }
+// ---------- 长页面压缩：任务看板、区域和总部的首页与看板里，长列表只先显示前几行，其余点开再看 ----------
+const CLAMP_ROUTES = { tasks: 3, dash: 5, home: 5, hq: 6 }, clampOpen = new Set();
+function clampLists() {
+  const name = (location.hash.slice(2).split('?')[0].split('/')[0]) || 'home', n = CLAMP_ROUTES[name], main = $('#main');
+  if (!n || !main || !S.me || (name === 'home' && ['staff', 'store_manager'].includes(S.me.level))) return;
+  [...new Set([...main.querySelectorAll('.list, tbody, .quad .q'), ...[...main.querySelectorAll('a.ldr, a.dcard')].map(x => x.parentElement)])].forEach((l, i) => {
+    if (l.dataset.cl) return; l.dataset.cl = 1;
+    const rows = [...l.children].filter(x => x.matches('.task, a.task, .prw, tr, a') && !x.matches('.hd, .empty, .clmore')), key = name + ':' + i + ':' + location.hash;
+    if (rows.length <= n + 2 || clampOpen.has(key)) return;
+    rows.slice(n).forEach(x => x.classList.add('clh'));
+    const b = document.createElement(l.tagName === 'TBODY' ? 'tr' : 'div'); b.className = 'clmore';
+    b.innerHTML = l.tagName === 'TBODY' ? `<td colspan="20">展开其余 ${rows.length - n} 行</td>` : `展开其余 ${rows.length - n} 项`;
+    b.onclick = () => { clampOpen.add(key); rows.forEach(x => x.classList.remove('clh')); b.remove(); };
+    rows.at(-1).after(b);
+  });
+}
+{ let tm; new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(clampLists, 60); }).observe(document.body, { childList: true, subtree: true }); }
