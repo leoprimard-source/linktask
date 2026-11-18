@@ -3624,3 +3624,20 @@ function clampLists() {
   });
 }
 { let tm; new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(clampLists, 60); }).observe(document.body, { childList: true, subtree: true }); }
+
+// ---------- 使用埋点和使用情况看板 ----------
+{ const cur = () => (location.hash.slice(2).split('?')[0].split('/')[0]) || 'home';
+  const send = s => { if (!localStorage.lt_uid || !navigator.onLine) return; fetch(`/api/track?r=${cur()}${s ? '&s=' + s : ''}`, { headers: { 'x-user-id': localStorage.lt_uid } }).catch(() => {}); };
+  addEventListener('hashchange', () => send(0)); setTimeout(() => send(0), 2000);
+  setInterval(() => { if (document.visibilityState === 'visible') send(30); }, 30000); }
+for (const lv of ['hq', 'region_manager']) if (NAV[lv] && !NAV[lv].some(x => x[0] === 'usage')) NAV[lv].push(['usage', '使用情况']);
+VIEWS.usage = async () => {
+  const d = await api('/usage'), lab = lv => (d.roles.find(r => r.level === lv) || {}).label || lv;
+  const used = {}; d.routes.forEach(r => ((used[r.level] ||= {})[r.route] = r));
+  const sec = lv => { const all = (NAV[lv] || []).filter(x => x[0] !== 'sec'), no = all.filter(x => !(used[lv] || {})[x[0]]), top = Object.values(used[lv] || {}).sort((a, b) => b.views - a.views).slice(0, 5), nm = k => (all.find(x => x[0] === k) || [k, { home: '首页', work: '工作台', todo: '任务', notices: '消息', me: '我的', task: '任务详情' }[k] || k])[1];
+    return `<div class="ldr"><div class="row between"><b>${esc(lab(lv))}</b><span class="muted small">${all.length} 个入口，${no.length} 个没人打开过</span></div>${top.length ? `<div class="small" style="margin-top:6px">用得最多：${top.map(t => `${esc(nm(t.route))} ${t.views} 次`).join('、')}</div>` : ''}${no.length ? `<div class="muted small" style="margin-top:6px">没人打开过：${no.map(x => esc(x[1])).join('、')}</div>` : ''}</div>`; };
+  $('#main').innerHTML = `<div class="pghd"><b>使用情况</b></div><p class="muted small">${d.from} 至 ${d.to}。只统计真人在 App 里的操作，每日模拟不计入；从 2026-11-18 开始记录，之前没有数据。</p>
+  <div class="sec-t2">每个角色实际用了多久</div><div class="list">${d.roles.map(r => `<div class="task"><div class="b"><div class="ttl">${esc(r.label)}</div><div class="muted small">${r.users} 人用过 · 共 ${r.days} 人天</div></div><b>${r.min_per_day} 分钟/天</b></div>`).join('') || '<div class="empty">还没有使用记录</div>'}</div>
+  <div class="sec-t2">哪些入口没人用</div>${d.roles.map(r => sec(r.level)).join('') || '<div class="list"><div class="empty">还没有使用记录</div></div>'}
+  <p class="muted small">连续 3 个月没人打开的入口，建议从工作台下线。</p>`;
+};

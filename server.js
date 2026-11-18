@@ -5096,4 +5096,19 @@ app.get('/api/push/me', (req, res) => res.json({ dnd: q1('SELECT dnd FROM push_p
   admin: ['hq', 'region_manager'].includes(req.u.level) ? q1("SELECT COUNT(*) n, SUM(urgent) u, SUM(send_after>at) h FROM push_out WHERE substr(at,1,10)=?", L.today()) : null }));
 app.post('/api/push/me', (req, res) => { run('INSERT INTO push_pref VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET dnd=excluded.dnd', req.u.id, (req.body || {}).dnd ? 1 : 0); res.json({ ok: true }); });
 
+// ---------- 使用埋点：谁在哪天打开过哪个页面、用了多久，用来看哪些入口没人用、每个角色每天实际用多少分钟 ----------
+D.db.exec('CREATE TABLE IF NOT EXISTS usage(date TEXT, user_id INTEGER, route TEXT, n INTEGER DEFAULT 0, sec INTEGER DEFAULT 0, PRIMARY KEY(date, user_id, route))');
+app.get('/api/track', (req, res) => { // 用 GET 是为了不触发写操作的缓存清理
+  const r = String(req.query.r || '').slice(0, 30), s = Math.min(60, Math.max(0, Number(req.query.s) || 0));
+  if (/^[\w-]+$/.test(r)) run('INSERT INTO usage VALUES(?,?,?,?,?) ON CONFLICT(date,user_id,route) DO UPDATE SET n=n+excluded.n, sec=sec+excluded.sec', L.today(), req.u.id, r, s ? 0 : 1, s);
+  res.json({ ok: true });
+});
+app.get('/api/usage', (req, res) => {
+  if (!['hq', 'region_manager'].includes(req.u.level)) return deny(res);
+  const f = L.addDays(L.today(), -6);
+  res.json({ from: f, to: L.today(),
+    roles: q(`SELECT r.level, COUNT(DISTINCT g.user_id) users, COUNT(DISTINCT g.user_id || g.date) days, SUM(g.sec) sec FROM usage g JOIN users u ON u.id=g.user_id JOIN roles r ON r.id=u.role_id WHERE g.date>=? GROUP BY r.level ORDER BY users DESC`, f).map(x => ({ ...x, label: LEVEL_LABEL[x.level] || (x.level === 'staff' ? '员工' : x.level === 'store_manager' ? '店长' : x.level), min_per_day: x.days ? Math.round(x.sec / 60 / x.days) : 0 })),
+    routes: q(`SELECT r.level, g.route, COUNT(DISTINCT g.user_id) users, SUM(g.n) views, SUM(g.sec) sec FROM usage g JOIN users u ON u.id=g.user_id JOIN roles r ON r.id=u.role_id WHERE g.date>=? GROUP BY r.level, g.route`, f) });
+});
+
 app.listen(PORT, () => console.log('LinkTask on :' + PORT));
