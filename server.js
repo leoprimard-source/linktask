@@ -9,6 +9,11 @@ require('./seed').seed();
 const app = express();
 app.use(require('compression')());
 app.use(express.json({ limit: '8mb' }));
+// 数据真实性：记录打开和完成时间、异常标记、照片指纹
+for (const col of ['opened_ms INTEGER', 'done_ms INTEGER', 'dur_s INTEGER', 'flags TEXT']) { try { D.db.exec('ALTER TABLE instances ADD COLUMN ' + col); } catch { /* 已有 */ } }
+D.db.exec('CREATE TABLE IF NOT EXISTS photo_hash(hash TEXT, store_id INTEGER, inst_id INTEGER, user_id INTEGER, at TEXT); CREATE INDEX IF NOT EXISTS idx_ph ON photo_hash(hash, store_id)');
+const FLAG_TXT = { fast: n => `打开 ${n} 秒就完成`, batch: n => `1 分钟内连续完成 ${n} 项`, old: n => `照片不是现场拍的，原图是 ${n >= 1440 ? Math.round(n / 1440) + ' 天' : n >= 60 ? Math.round(n / 60) + ' 小时' : n + ' 分钟'}前的`, dup: () => '照片和以前上传过的是同一张', rand: () => '系统随机抽中' };
+const flagList = s => (s ? String(s).split(',').map(x => { const [k, v] = x.split(':'); return FLAG_TXT[k] ? { k, text: FLAG_TXT[k](Number(v) || 0) } : null; }).filter(Boolean) : []);
 // ---------- 安全基线：响应头、限流、访问口令、照片签名 ----------
 app.disable('x-powered-by');
 const crypto = require('crypto');
@@ -195,7 +200,7 @@ function pillarOf(r) {
 function decorate(rows) {
   const t = L.today(), hm = L.nowHM();
   return rows.map(r => ({ ...r, pillar: r.tpillar || pillarOf(r), overdue: r.status === 'missed' || r.status === 'pending' && (r.due_date ? r.due_date < t : (r.date < t || (r.date === t && r.due_time < hm))),
-    covered: !r.deleg_id && r.assignee_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id }));
+    covered: !r.deleg_id && r.assignee_id && r.orig_assignee_id && r.assignee_id !== r.orig_assignee_id, flags: flagList(r.flags) }));
 }
 
 // ---------- me / meta ----------
@@ -265,6 +270,7 @@ app.get('/api/tasks', (req, res) => {
 app.get('/api/instances/:id', (req, res) => {
   const it = q1(INST_SQL + ' WHERE i.id=?', req.params.id);
   if (!it || !visibleStores(req.u).includes(it.store_id)) return deny(res);
+  if (it.status === 'pending' && it.assignee_id === req.u.id && !it.opened_ms && req.get('x-app')) run('UPDATE instances SET opened_ms=? WHERE id=?', Date.now(), it.id);
   const rects = q(`SELECT r.*, u.name assignee_name FROM rectifications r LEFT JOIN users u ON u.id=r.assignee_id WHERE instance_id=? ORDER BY id`, it.id);
   res.json({ ...decorate([it])[0], rects });
 });
@@ -285,6 +291,18 @@ app.post('/api/instances/:id/complete', (req, res) => {
   if (tpl && tpl.need_value && !reading) return err(res, '该任务需要填写计量读数');
   const at = L.nowStr();
   run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=?, photos=?, reading=? WHERE id=?", at, req.body.note || '', photo, photos.length > 1 ? JSON.stringify(photos) : null, reading || null, it.id);
+  { // 异常标记：只对 App 里本人的操作判断速度；照片看是否旧图、是否重复；其余按 3% 随机抽
+    const now = Date.now(), fl = (it.flags || '').split(',').filter(x => x && x !== 'rand' && !x.startsWith('batch')), mine = req.get('x-app') && req.u.id === it.assignee_id, dur = it.opened_ms ? Math.round((now - it.opened_ms) / 1000) : null;
+    if (mine && dur != null && dur < (it.need_photo ? 8 : 3) && !fl.some(x => x.startsWith('fast'))) fl.push('fast:' + dur);
+    if (mine) { const n = q1('SELECT COUNT(*) n FROM instances WHERE assignee_id=? AND date=? AND done_ms>?', req.u.id, it.date, now - 60000).n; if (n >= 4) fl.push('batch:' + (n + 1)); }
+    for (const m of (Array.isArray(req.body._pm) ? req.body._pm : []).slice(0, 10)) {
+      if (!m) continue;
+      if (Number(m.age) > 10 && !fl.some(x => x.startsWith('old'))) fl.push('old:' + Math.round(Number(m.age)));
+      if (typeof m.h === 'string' && /^[0-9a-f]{64}$/.test(m.h)) { if (q1('SELECT 1 FROM photo_hash WHERE hash=? AND store_id=? AND inst_id!=?', m.h, it.store_id, it.id) && !fl.includes('dup')) fl.push('dup'); run('INSERT INTO photo_hash VALUES(?,?,?,?,?)', m.h, it.store_id, it.id, req.u.id, at); }
+    }
+    if (!fl.length && (it.id * 2654435761 >>> 0) % 100 < 3) fl.push('rand');
+    run('UPDATE instances SET done_ms=?, dur_s=?, flags=? WHERE id=?', now, dur, fl.join(',') || null, it.id);
+  }
   D.audit(req.u.id, it.store_id, '完成任务', it.title);
   const dg = it.deleg_id && q1('SELECT from_id, notify_done FROM delegations WHERE id=?', it.deleg_id);
   if (dg?.notify_done) D.notify([dg.from_id], 'deleg_done', '【任务完成提醒】', `您授权给员工「${req.u.name}」的任务「${it.title}」已完成。完成时间：${Number(at.slice(5, 7))}月${Number(at.slice(8, 10))}日 ${at.slice(11, 16)}。点击查看任务完成详情`, '#/task/' + it.id);
@@ -295,7 +313,7 @@ app.post('/api/instances/:id/undo', (req, res) => {
   if (!it || (it.assignee_id !== req.u.id && !canManage(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res);
   if (it.check_result) return err(res, '已抽查的任务不能撤回');
   if (it.status !== 'done' || it.date < L.today()) return err(res, '只能撤回今天已完成的任务');
-  run("UPDATE instances SET status='pending', done_at=NULL WHERE id=?", it.id);
+  run("UPDATE instances SET status='pending', done_at=NULL, done_ms=NULL WHERE id=?", it.id);
   D.audit(req.u.id, it.store_id, '撤回完成', it.title);
   res.json({ ok: true });
 });
@@ -1445,6 +1463,8 @@ function buildInbox(u, query) {
   }
   if (u.level === 'store_manager' && sid) {
     const ua = q("SELECT title, due_time FROM instances WHERE store_id=? AND date=? AND status='pending' AND assignee_id IS NULL ORDER BY due_time", sid, t);
+    { const sus = q("SELECT title, flags FROM instances WHERE store_id=? AND date=? AND status='done' AND check_result IS NULL AND flags IS NOT NULL AND flags!='rand'", sid, t);
+      if (sus.length) add('待核实', 'warn', `${sus.length} 项完成记录需要核实`, [...new Set(sus.flatMap(x => flagList(x.flags).map(f => ({ fast: '完成过快', batch: '连着点完成', old: '照片不是现场拍的', dup: '照片重复' })[f.k])))].filter(Boolean).join('、'), `#/tasks?store=${sid}&st=sus`); }
     if (ua.length) add('待指派', 'bad', `${ua.length} 项任务没有在班人员，待你指派`, ua.slice(0, 2).map(x => `${x.due_time} ${x.title}`).join('；'), `#/tasks?store=${sid}&st=unasg`);
     const fx = q("SELECT i.id, i.title FROM instances i WHERE i.store_id=? AND i.date=? AND i.origin='focus' AND i.status='pending'", sid, t);
     if (fx.length) add('上级安排', 'bad', `重点跟踪今日待落实 ${fx.length} 项`, fx[0].title, '#/upper');

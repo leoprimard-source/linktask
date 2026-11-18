@@ -6,7 +6,8 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const WD = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 async function api(path, body, method) {
-  const opt = { method: method || (body ? 'POST' : 'GET'), headers: { 'x-user-id': localStorage.lt_uid || '' } };
+  const opt = { method: method || (body ? 'POST' : 'GET'), headers: { 'x-user-id': localStorage.lt_uid || '', 'x-app': '1' } };
+  if (body && typeof body === 'object') { const ps = [body.photo, ...(Array.isArray(body.photos) ? body.photos : [])].filter(x => typeof x === 'string' && x.startsWith('data:image/')); if (ps.length) body = { ...body, _pm: ps.map(x => PHOTO_META[x.slice(-80)] || null) }; }
   if (body) { opt.headers['content-type'] = 'application/json'; opt.body = JSON.stringify(body); }
   const r = await fetch('/api' + path, opt);
   const j = await r.json().catch(() => ({}));
@@ -41,8 +42,15 @@ function formData(form) {
   }
   return o;
 }
+const PHOTO_META = {}; // 照片指纹和原图时间，提交时一起带上，用来识别旧图和重复图
+async function fileMeta(file) {
+  const m = { age: Math.round((Date.now() - (file.lastModified || Date.now())) / 60000) };
+  try { if (crypto.subtle) m.h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(b => b.toString(16).padStart(2, '0')).join(''); } catch { /* 不支持就不带指纹 */ }
+  return m;
+}
 function compressImage(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve0, reject) => {
+    const resolve = async url2 => { PHOTO_META[url2.slice(-80)] = await fileMeta(file); resolve0(url2); };
     const img = new Image(); const url = URL.createObjectURL(file);
     img.onload = () => {
       const k = Math.min(1, 1280 / Math.max(img.width, img.height));
@@ -553,7 +561,7 @@ VIEWS.tasks = async () => {
   const all = all0.filter(t => !mm || (mm === 'std' ? !t.code : t.m === mm));
   const filt = {
     '': () => true, pending: t => t.status === 'pending' && !t.overdue, overdue: t => t.overdue, done: t => t.status === 'done',
-    unchecked: t => t.status === 'done' && !t.check_result, bad: t => t.check_result === 'bad', cover: t => t.covered, unasg: t => t.status === 'pending' && !t.assignee_id,
+    unchecked: t => t.status === 'done' && !t.check_result, bad: t => t.check_result === 'bad', cover: t => t.covered, unasg: t => t.status === 'pending' && !t.assignee_id, sus: t => t.status === 'done' && !t.check_result && (t.flags || []).length > 0,
   };
   const list = all.filter(t => (!scene || t.scene_id === Number(scene)) && filt[st](t));
   const link = (k, v) => { const q = new URLSearchParams({ store: sid, date, scene, st, m: mm }); q.set(k, v); return '#/tasks?' + q; };
@@ -565,13 +573,13 @@ VIEWS.tasks = async () => {
   $('#main').innerHTML = `<div class="row between"><h1>${title}</h1><div class="row">${storeSwitch('#/tasks', '&date=' + date)}<input type="date" value="${date}" onchange="location.hash='${link('date', '')}'.replace('date=','date='+this.value)"></div></div>
   <div class="tabs"><a href="${link('scene', '')}" class="${!scene ? 'on' : ''}">全部场景</a>${S.meta.scenes.map(s => `<a href="${link('scene', s.id)}" class="${Number(scene) === s.id ? 'on' : ''}">${esc(s.name)}</a>`).join('')}</div>
   <div class="tabs">${[['', '全部来源'], ['std', '日常运营'], ['M1', 'M1 店长亲做'], ['M2', 'M2 下级做·复查'], ['M3', 'M3 分工·抽查'], ['M4', 'M4 群拍']].map(([k, l]) => `<a href="${link('m', k)}" class="${mm === k ? 'on' : ''}">${l} <span class="muted">${all0.filter(t => !k || (k === 'std' ? !t.code : t.m === k)).length}</span></a>`).join('')}</div>
-  <div class="tabs">${[['', '全部'], ['pending', '待完成'], ['overdue', '超时'], ['done', '已完成'], ['unchecked', mm === 'M2' ? '待复查' : '待抽查'], ['bad', '不合格'], ['cover', '顶岗'], ['unasg', '待指派']]
+  <div class="tabs">${[['', '全部'], ['pending', '待完成'], ['overdue', '超时'], ['done', '已完成'], ['unchecked', mm === 'M2' ? '待复查' : '待抽查'], ['bad', '不合格'], ['cover', '顶岗'], ['unasg', '待指派'], ['sus', '待核实']]
     .map(([k, l]) => `<a href="${link('st', k)}" class="${st === k ? 'on' : ''}">${l} <span class="muted">${cnt(k)}</span></a>`).join('')}</div>
   ${list.length ? Object.entries(byScene).map(([sc, ts]) => `<div class="list" style="margin-bottom:12px"><div class="hd">${esc(sc)}</div>
     ${ts.map(t => `<div class="task ${t.status === 'done' ? 'done' : ''}"><div class="t">${esc(t.due_time)}</div><div class="b">
       <div class="ttl">${esc(t.title)} ${originTag(t.origin)} ${stdTags(t)} ${t.category === 'sales' ? '<span class="tag">销售</span>' : ''}</div>
       <div class="row small" style="margin-top:2px"><span>${t.assignee_id ? esc(t.assignee_name) : '<b class="warn">待指派</b>'} <span class="muted">${esc(t.assignee_role || '')}</span></span>
-        ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.why ? `<span class="tag">${esc(t.why)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''} ${statusTag(t)} ${checkTag(t)} ${t.photo ? '<span class="tag">有照片</span>' : ''}</div></div>
+        ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.why ? `<span class="tag">${esc(t.why)}</span>` : ''}${t.status === 'done' && !t.check_result ? (t.flags || []).map(f => `<span class="tag ${f.k === 'rand' ? '' : 'warn'}">${esc(f.text)}</span>`).join('') : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''} ${statusTag(t)} ${checkTag(t)} ${t.photo ? '<span class="tag">有照片</span>' : ''}</div></div>
       <div class="row">${canCheck && t.status === 'done' && !t.check_result ? `<button class="btn primary sm" data-chk="${t.id}">${t.m === 'M2' ? '复查' : '抽查'}</button>` : ''}<button class="btn sm" data-view="${t.id}">详情</button></div></div>`).join('')}</div>`).join('')
     : '<div class="list"><div class="empty">没有符合条件的任务</div></div>'}`;
   document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => taskDetail(Number(b.dataset.view)));
@@ -591,6 +599,7 @@ async function taskDetail(id) {
     <div>执行人</div><div>${t.assignee_id ? esc(t.assignee_name) : '<b class="warn">待指派</b>'} ${t.covered ? `<span class="tag acc">顶岗 · 原 ${esc(t.orig_name)}</span>` : ''}${t.why ? `<span class="tag">${esc(t.why)}</span>` : ''}${t.deleg_id ? `<span class="tag warn">授权 · 原店长 ${esc(t.orig_name)}</span>` : ''}</div>
     <div>状态</div><div>${statusTag(t)} ${checkTag(t)}</div>
     ${t.done_note ? `<div>完成说明</div><div>${esc(t.done_note)}</div>` : ''}
+    ${t.status === 'done' && S.me.id !== t.assignee_id && (t.flags || []).length ? `<div>需要核实</div><div>${t.flags.map(f => `<span class="tag ${f.k === 'rand' ? '' : 'warn'}">${esc(f.text)}</span>`).join(' ')}</div>` : ''}
     ${t.check_result ? `<div>抽查</div><div>${esc(t.checker_name)}：${esc(t.check_comment)} <span class="muted small">${esc(t.checked_at)}</span></div>` : ''}
   </div>${t.photo ? `<img class="photo" src="${esc(t.photo)}" alt="现场照片">` : ''}
   ${t.rects.map(r => `<div class="note"><b>整改</b> ${rectStatus(r)}：${esc(r.task)}（截止 ${esc(r.deadline)}，责任人 ${esc(r.assignee_name)}）${r.submit_note ? '<br>反馈：' + esc(r.submit_note) : ''}</div>`).join('')}
