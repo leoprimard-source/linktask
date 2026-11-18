@@ -2122,7 +2122,8 @@ function smArrange() {
     const ua = byText('上级安排'), ul = ua && ua.nextElementSibling;
     fold('ops', '今日运营', [ua, ul, ob, $('#scops'), mt, ml], join([ua && `上级安排 ${(ua.querySelector('a')?.textContent || '').replace(/[^0-9]/g, '')} 项`, ob && (bad ? `简报 ${bad} 项异常` : '简报正常'), sco && `${sco} 个场景超时`, mt && `必做 ${(mt.querySelector('a')?.textContent || '').replace(/[^0-9]/g, '')} 项`]));
     const ldc = $('#ldc'), tb = $('#tbud'), rh = byText('门店一天节奏');
-    fold('plan', '今日安排', [tb, ldc, $('#exc'), rh, $('.rhythm'), $('#rhl')], join([tb && '预计 ' + (tb.querySelector('b')?.textContent.replace('今日预计用时 ', '') || ''), ldc && '条线 ' + (ldc.querySelector('.row span')?.textContent || '')]));
+    { let at = $('#hx-ov'); [rh, $('.rhythm'), $('#rhl')].filter(Boolean).forEach(n => { if (at && n.previousElementSibling !== at) at.after(n); at = n; }); const on = $('.drh .on'); if (on) on.parentNode.scrollLeft = Math.max(0, on.offsetLeft - 40); } // 门店一天节奏直接显示在首页概览卡下面，不折叠
+    fold('plan', '今日安排', [tb, ldc, $('#exc')], join([tb && '预计 ' + (tb.querySelector('b')?.textContent.replace('今日预计用时 ', '') || ''), ldc && '条线 ' + (ldc.querySelector('.row span')?.textContent || '')]));
     ['ops', 'plan'].forEach(k => { const d = more.querySelector(`[data-fold="${k}"]`); if (d) more.append(d); });
     obs.observe(main, { childList: true, subtree: true });
   };
