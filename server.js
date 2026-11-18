@@ -24,8 +24,8 @@ function limited(key, max) { // 每分钟计数，超过 max 返回 true
   return n > max;
 }
 app.use((req, res, next) => {
-  res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'self'" });
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin' });
+  if (!process.env.NO_CSP) res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'self'"); // 嵌在别的平台里运行时可用 NO_CSP=1 关掉
   next();
 });
 // 访问口令：设了 ACCESS_CODE 或数据目录下有 gate-code.txt 才启用（分享演示用）；它只挡住没有口令的人，不等于实名登录
