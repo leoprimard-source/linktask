@@ -3565,3 +3565,8 @@ function privacyGuide() {
     $('#pvn').onclick = () => modal('个人信息使用说明', PRIVACY_HTML);
   };
 }
+// ---------- 评分透明：分数旁边放「怎么算的」 ----------
+const howto = (title, lines) => `<details class="howto"><summary>${title}</summary><ul>${lines.map(x => `<li>${x}</li>`).join('')}</ul></details>`;
+const EXEC_HOW = ['取近 30 天的任务记录', '完成率 × 40% + 按时率 × 25% + 抽查合格率 × 25% + 被点评肯定每次 2 分（最多 10 分）', '90 分及以上金牌，80–89 银牌，70–79 合格，70 以下待提升', '对抽查结果有异议，可以在「我的绩效」里申诉，申诉通过后重新计算'];
+{ const f0 = fillExec; fillExec = async uid => { await f0(uid); const el = $('#exs'); if (el && el.innerHTML && !el.querySelector('.howto')) el.insertAdjacentHTML('beforeend', howto('执行分怎么算的', EXEC_HOW)); }; }
+{ const f0 = VIEWS.insight; VIEWS.insight = async (...a) => { await f0(...a); const m = $('#main'); if (m && !m.querySelector('.howto')) m.insertAdjacentHTML('beforeend', howto('四类员工怎么分的', ['只看上一自然周的任务记录', '完成率 90% 及以上、抽查合格率 85% 及以上：优秀执行型', '完成率 90% 及以上、抽查合格率低于 85%：质量提升型', '完成率低于 90%、抽查合格率 85% 及以上：效率提升型', '两项都没达到：重点辅导型', '这个分类只给店长做辅导参考，不计入绩效和薪酬；发给员工的话由店长确认后才发出'])); }; }
