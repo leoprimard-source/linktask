@@ -33,14 +33,15 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   // 0. 职能条线：每天第一轮各条线向本区域部分门店派任务，走统一出口和店长负荷上限
   const LT = { hr_manager: ['员工档案信息核对', '新员工入职面谈'], train_manager: ['本周岗位技能抽考', '服务标准微课学习'], sales_manager: ['周末房价与渠道检查', 'OTA 点评回复'],
     dev_manager: ['门店业主满意度回访'], build_manager: ['消防设施月检拍照'], ops_manager: ['能耗抄表上报', '早餐出品抽检'] };
-  if (!q1("SELECT 1 FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=? LIMIT 1", today)) {
+  const LITE = !!process.env.LITE; // 执行轮：只有一线员工按时做到点的任务，不派发、不抽查、不出日报
+  if (!LITE && !q1("SELECT 1 FROM flex_tasks WHERE source='line' AND substr(created_at,1,10)=? LIMIT 1", today)) {
     for (const u of q("SELECT u.id, u.region_id, r.level FROM users u JOIN roles r ON r.id=u.role_id WHERE u.active=1 AND r.level IN ('hr_manager','train_manager','sales_manager','dev_manager','build_manager','ops_manager')")) {
       const ss = q('SELECT id FROM stores WHERE region_id=?', u.region_id).map(x => x.id).filter(() => rnd() < 0.4), ts = LT[u.level];
       if (ss.length) await call(u.id, '/dispatch', { title: ts[Math.floor(rnd() * ts.length)], minutes: [10, 15, 20, 30][Math.floor(rnd() * 4)], date: today, due_time: '16:00', stores: ss, urgent: rnd() < 0.05 });
     }
   }
   // 0.5 店长：按班派单找不到在班人员的任务，店长按门店执行力指派给本店员工
-  const ua = q("SELECT id, store_id FROM instances WHERE date=? AND status='pending' AND assignee_id IS NULL", today);
+  const ua = LITE ? [] : q("SELECT id, store_id FROM instances WHERE date=? AND status='pending' AND assignee_id IS NULL", today);
   await pool(ua.filter(i => rnd() < storeQ(i.store_id)), 8, async i => {
     const m = sms(i.store_id)[0], ss = q("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE u.store_id=? AND u.active=1 AND r.level='staff'", i.store_id);
     if (m && ss.length && await call(m, `/instances/${i.id}/reassign`, { user_id: ss[Math.floor(rnd() * ss.length)].id })) act.asg++;
@@ -55,6 +56,7 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     const lazy = storeQ(i.store_id) < 0.84 && hash(i.assignee_id) < 0.3, oldp = lazy && i.need_photo && rnd() < 0.15;
     if (await call(i.assignee_id, `/instances/${i.id}/complete`, { note: '模拟执行：已按标准完成', photo: i.need_photo ? PNG : undefined, reading: nv[i.id] ? String(20 + Math.round(rnd() * 10)) : undefined, _pm: oldp ? [{ age: 600 + Math.round(rnd() * 3000) }] : undefined }, lazy)) act.done++;
   });
+  if (LITE) return console.log(`# 执行轮 ${today} ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}：到点任务 ${inst.length} 项，完成 ${act.done} 项；接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${Math.round((Date.now() - t0) / 1000)} 秒`);
   // 1b. 带教：员工学推来的微课；店长对学完的人复查一次；问题集中的店安排晨会微课，区域负责人安排支持
   const ck = { learn: 0, ver: 0, verBad: 0, brief: 0, acc: 0, sdone: 0 };
   await pool(tryQ2("SELECT id, user_id, store_id FROM learns WHERE status='todo'").filter(l => rnd() < storeQ(l.store_id) * 0.6), 8, async l => { if (await call(l.user_id, `/learn/${l.id}/done`, { note: '' })) ck.learn++; });
