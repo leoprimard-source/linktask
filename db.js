@@ -280,8 +280,12 @@ function shiftPick(sid, base, date, hm) {
   const all = storeStaff(sid), me = all.find(x => x.id === base), g = shiftGroup(me.rn);
   const peers = all.filter(x => x.id !== base && shiftGroup(x.rn) === g).sort((a, b) => (b.rn === me.rn) - (a.rn === me.rn));
   const p0 = peers.find(x => onShift(sid, x.id, date, hm)); if (p0) return p0.id;
-  const lead = all.find(x => x.rn === ({ 前台: '前台经理', 客房: '客房经理' }[g] || '店助') && x.id !== base && onShift(sid, x.id, date, hm));
-  return lead ? lead.id : storeManagers(sid)[0] || base;
+  const rel = { 前台经理: '前台', 客房经理: '客房' }[g]; // 经理不在班，先交给他带的那一组里在班的人
+  const p1 = rel && all.find(x => shiftGroup(x.rn) === rel && onShift(sid, x.id, date, hm)); if (p1) return p1.id;
+  const lead = all.find(x => x.rn === ({ 前台: '前台经理', 客房: '客房经理' }[g] || '店助') && x.id !== base && onShift(sid, x.id, date, hm)); if (lead) return lead.id;
+  // 常日班下班以后（17:30 到次日 08:00），门店只有前台在值班，由当班前台兜底
+  const duty = (hm > SHIFT_DEF.常[2] || hm < SHIFT_DEF.常[1]) && all.find(x => x.id !== base && shiftGroup(x.rn) === '前台' && onShift(sid, x.id, date, hm));
+  return duty ? duty.id : storeManagers(sid)[0] || base;
 }
 function ensureInstances0(date, storeIds) {
   if (date > L.addDays(L.today(), 30)) return;
@@ -340,7 +344,7 @@ function nightAudit(date, storeIds) {
   shiftReset(); ensureInstances0(date, stores);
   const tpls = new Map(q('SELECT * FROM templates').map(t => [t.id, t])), flex = new Map(q('SELECT id, assignee_id FROM flex_tasks').map(f => [f.id, f]));
   for (const sid of stores) {
-    const sm = new Set(storeManagers(sid)); let moved = 0, need = 0;
+    const sm = new Set(storeManagers(sid)), staff = storeStaff(sid); let moved = 0, need = 0;
     const rows = q("SELECT * FROM instances WHERE store_id=? AND date=? AND status='pending' AND src IN ('tpl','flex') AND COALESCE(manual,0)=0 AND deleg_id IS NULL", sid, date);
     tx(() => {
       for (const r of rows) {
@@ -348,9 +352,11 @@ function nightAudit(date, storeIds) {
         const own = r.src === 'tpl' ? baseAssignee(sid, src) : src.assignee_id; if (!own) continue;
         const base = shiftPick(sid, own, date, r.due_time), c = coverFor(base, date, sid), none = sm.has(c) && !sm.has(own);
         const fin = none ? null : c;
-        const why = fin === own ? null : none ? NEED_SM : fin !== base ? '原负责人请假，由顶岗人执行' : '原负责人不在班，由在班同组人员执行';
+        const grp = id => shiftGroup((staff.find(x => x.id === id) || {}).rn || ''), g0 = { 前台经理: '前台', 客房经理: '客房' }[grp(own)] || grp(own);
+        const why = fin === own ? null : none ? NEED_SM : fin !== base ? '原负责人请假，由顶岗人执行' : grp(fin) === '前台' && g0 !== '前台' ? '原负责人不在班，由当班前台执行' : '原负责人不在班，由在班同组人员执行';
         if (none) need++;
-        if (fin !== r.assignee_id || why !== r.why) { moved += fin !== r.assignee_id && !none; run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, why=? WHERE id=?', fin, own, why, r.id); }
+        moved += fin !== own && !none; // 换人数按「执行人不是原负责人」算，生成任务时已经按排班选好人的也算
+        if (fin !== r.assignee_id || why !== r.why) { run('UPDATE instances SET assignee_id=?, orig_assignee_id=?, why=? WHERE id=?', fin, own, why, r.id); }
       }
       run('INSERT OR REPLACE INTO night_audit VALUES(?,?,?,?,?,?)', date, sid, rows.length, moved, need, at);
     });
