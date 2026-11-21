@@ -1749,7 +1749,7 @@ function checkPlan(list, yb, t, sid) {
     if (r.m === 'M2' && r.src === 'tpl' && !seen7.has(r.src_id)) { sc += 4; why.push('M2 本周还没复查'); }
     if (r.tag === '重点项' || r.tag === '关注项') { sc += 2; why.push(r.tag); }
     if (fa.some(f => f.k === 'rand')) { sc += 2; why.push('系统随机抽中'); }
-    sc += Math.min(2, (r.tscore || 0) * 0.4);
+    { const ts = Number(r.tscore); if (Number.isFinite(ts)) sc += Math.min(2, ts * 0.4); } // 分值高的质检项略优先；分值不是数字的不加
     return [r, why.join('、') || (r.code ? '质检清单抽查' : '随机抽查'), sc];
   }).sort((a, b) => b[2] - a[2]);
 }
