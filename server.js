@@ -11,8 +11,15 @@ app.use(require('compression')());
 app.use(express.json({ limit: '8mb' }));
 // 数据真实性：记录打开和完成时间、异常标记、照片指纹
 for (const col of ['opened_ms INTEGER', 'done_ms INTEGER', 'dur_s INTEGER', 'flags TEXT']) { try { D.db.exec('ALTER TABLE instances ADD COLUMN ' + col); } catch { /* 已有 */ } }
+for (const col of ['bad_cause TEXT', 'pack INTEGER']) { try { D.db.exec('ALTER TABLE instances ADD COLUMN ' + col); } catch { /* 已有 */ } }
+for (const col of ["kind TEXT DEFAULT 'behavior'", 'cause TEXT', 'repair_id INTEGER', 'appr TEXT', 'appr_note TEXT', 'appr_at TEXT']) { try { D.db.exec('ALTER TABLE rectifications ADD COLUMN ' + col); } catch { /* 已有 */ } }
+// 抽查不合格先选原因：只有「不会做」才推课；整改分三类：行为类当天闭环、维修类转工程报修、投入类报加盟商（直营店报城市总）审批后按周跟进
+if (!D.getSetting('ms_noperf', 0)) { try { D.db.exec('DELETE FROM month_scores'); } catch { /* 表还没建 */ } D.setSetting('ms_noperf', 1); } // 综合分口径变了，以前月份的缓存重算
+const CAUSES = { skill: '不会做或标准不清', time: '没时间或人手不够', material: '缺物料', equip: '设备坏' };
+const RECT_KINDS = { behavior: '行为类', repair: '维修类', invest: '投入类' };
+const CAUSE_KIND = { skill: 'behavior', time: 'behavior', material: 'invest', equip: 'repair' };
 D.db.exec('CREATE TABLE IF NOT EXISTS photo_hash(hash TEXT, store_id INTEGER, inst_id INTEGER, user_id INTEGER, at TEXT); CREATE INDEX IF NOT EXISTS idx_ph ON photo_hash(hash, store_id)');
-const FLAG_TXT = { fast: n => `打开 ${n} 秒就完成`, batch: n => `1 分钟内连续完成 ${n} 项`, old: n => `照片不是现场拍的，原图是 ${n >= 1440 ? Math.round(n / 1440) + ' 天' : n >= 60 ? Math.round(n / 60) + ' 小时' : n + ' 分钟'}前的`, dup: () => '照片和以前上传过的是同一张', rand: () => '系统随机抽中', offline: () => '没网时完成，之后补传' };
+const FLAG_TXT = { abn: () => '清单里报了异常', fast: n => `打开 ${n} 秒就完成`, batch: n => `1 分钟内连续完成 ${n} 项`, old: n => `照片不是现场拍的，原图是 ${n >= 1440 ? Math.round(n / 1440) + ' 天' : n >= 60 ? Math.round(n / 60) + ' 小时' : n + ' 分钟'}前的`, dup: () => '照片和以前上传过的是同一张', rand: () => '系统随机抽中', offline: () => '没网时完成，之后补传' };
 const flagList = s => (s ? String(s).split(',').map(x => { const [k, v] = x.split(':'); return FLAG_TXT[k] ? { k, text: FLAG_TXT[k](Number(v) || 0) } : null; }).filter(Boolean) : []);
 // 隐私：谁在哪天看过谁的哪类资料（每人每类每天记一次）；隐私说明的确认记录
 D.db.exec('CREATE TABLE IF NOT EXISTS view_log(date TEXT, user_id INTEGER, target_id INTEGER, cat TEXT, at TEXT, PRIMARY KEY(date, user_id, target_id, cat)); CREATE INDEX IF NOT EXISTS idx_vl_t ON view_log(target_id, date); CREATE TABLE IF NOT EXISTS consents(user_id INTEGER PRIMARY KEY, ver TEXT, at TEXT)');
@@ -285,6 +292,49 @@ app.get('/api/instances/:id', (req, res) => {
   const rects = q(`SELECT r.*, u.name assignee_name FROM rectifications r LEFT JOIN users u ON u.id=r.assignee_id WHERE instance_id=? ORDER BY id`, it.id);
   res.json({ ...decorate([it])[0], rects });
 });
+// ---------- 清单合并：同一人同一时点的多项任务，逐项确认后一次提交，共用一轮照片；每项仍是独立记录 ----------
+app.post('/api/instances/pack-open', (req, res) => {
+  const ids = [...new Set((req.body.ids || []).map(Number).filter(Boolean))].slice(0, 40);
+  if (ids.length && req.get('x-app')) run(`UPDATE instances SET opened_ms=? WHERE id IN (${ids.map(() => '?').join(',')}) AND assignee_id=? AND status='pending' AND opened_ms IS NULL`, Date.now(), ...ids, req.u.id);
+  res.json({ ok: true });
+});
+app.post('/api/instances/batch-done', (req, res) => {
+  const b = req.body || {}, ids = [...new Set((b.ids || []).map(Number).filter(Boolean))];
+  if (ids.length < 2 || ids.length > 40) return err(res, '清单至少 2 项，最多 40 项');
+  const its = q(`SELECT * FROM instances WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids), a = its[0];
+  if (its.length !== ids.length) return err(res, '清单里有任务不存在');
+  if (its.some(it => it.assignee_id !== req.u.id)) return deny(res, '只能完成分配给自己的任务');
+  if (its.some(it => it.store_id !== a.store_id || it.date !== a.date || it.due_time !== a.due_time)) return err(res, '清单里的任务必须是同一天同一时点的');
+  if (its.some(it => it.status !== 'pending' || !['tpl', 'flex'].includes(it.src) || it.deleg_id)) return err(res, '清单里有任务已完成或不能合并，请刷新后再试');
+  if ((a.due_date || a.date) < L.today()) return err(res, '该清单已逾期未完成，不能补做');
+  if (a.date > L.today()) return err(res, '还没到执行日期');
+  if (its.some(it => it.src === 'tpl' && q1('SELECT need_value FROM templates WHERE id=?', it.src_id)?.need_value)) return err(res, '需要填读数的任务请单独完成');
+  const raw = Array.isArray(b.photos) ? b.photos : [];
+  if (raw.length > 10) return err(res, '照片最多 10 张');
+  const abn = b.abn && typeof b.abn === 'object' ? b.abn : {}, bad = its.filter(it => abn[it.id] != null);
+  if (bad.some(it => String(abn[it.id] || '').trim().length < 2)) return err(res, '报异常的项目请写明情况');
+  const photos = raw.map(savePhoto).filter(Boolean), needP = its.filter(it => it.need_photo);
+  if (needP.length && !photos.length) return err(res, '清单里有需要拍照的项目，请至少拍 1 张现场照片');
+  const now0 = L.nowStr(), off = String(b.offline_at || ''), at = /^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(off) && off.slice(0, 10) === now0.slice(0, 10) && off <= now0 ? off : now0;
+  const now = Date.now(), n = its.length, op = Math.min(...its.map(it => it.opened_ms || Infinity)), dur = Number.isFinite(op) ? Math.round((now - op) / 1000) : null;
+  const all = [], ph = []; // all：每项都带的标记；ph：只给要拍照的项
+  if (req.get('x-app') && dur != null && dur < Math.max(8, 4 * n)) all.push('fast:' + dur); // 清单按每项至少 4 秒算，太快的照样标出来
+  for (const m of (Array.isArray(b._pm) ? b._pm : []).slice(0, 10)) {
+    if (!m) continue;
+    if (Number(m.age) > 10 && !ph.some(x => x.startsWith('old'))) ph.push('old:' + Math.round(Number(m.age)));
+    if (typeof m.h === 'string' && /^[0-9a-f]{64}$/.test(m.h)) { if (q1('SELECT 1 FROM photo_hash WHERE hash=? AND store_id=?', m.h, a.store_id) && !ph.includes('dup')) ph.push('dup'); run('INSERT INTO photo_hash VALUES(?,?,?,?,?)', m.h, a.store_id, (needP[0] || a).id, req.u.id, at); }
+  }
+  if (at !== now0) all.push('offline');
+  D.tx(() => { for (const it of its) {
+    const isBad = abn[it.id] != null, withP = it.need_photo || isBad, fl = [...(isBad ? ['abn'] : []), ...all, ...(it.need_photo ? ph : [])];
+    if (!fl.length && (it.id * 2654435761 >>> 0) % 100 < 3) fl.push('rand');
+    run("UPDATE instances SET status='done', done_at=?, done_note=?, photo=?, photos=?, done_ms=?, dur_s=?, flags=?, pack=? WHERE id=?", at, isBad ? '异常：' + String(abn[it.id]).trim() : (b.note || '').trim() || '清单逐项确认，正常',
+      withP ? photos[0] || null : null, withP && photos.length > 1 ? JSON.stringify(photos) : null, now, dur, fl.join(',') || null, a.id, it.id);
+  } });
+  for (const it of bad) D.notify(D.storeManagers(a.store_id).filter(x => x !== req.u.id), 'remind', `清单报异常：${it.title}`, `${req.u.name}：${String(abn[it.id]).trim()}`, '#/task/' + it.id);
+  D.audit(req.u.id, a.store_id, '完成清单', `${a.due_time} ${n} 项${bad.length ? '，异常 ' + bad.length + ' 项' : ''}`);
+  res.json({ ok: true, n, abn: bad.length });
+});
 app.post('/api/instances/:id/complete', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it) return err(res, '任务不存在');
@@ -305,7 +355,7 @@ app.post('/api/instances/:id/complete', (req, res) => {
   { // 异常标记：只对 App 里本人的操作判断速度；照片看是否旧图、是否重复；其余按 3% 随机抽
     const now = Date.now(), fl = (it.flags || '').split(',').filter(x => x && x !== 'rand' && !x.startsWith('batch')), mine = req.get('x-app') && req.u.id === it.assignee_id, dur = it.opened_ms ? Math.round((now - it.opened_ms) / 1000) : null;
     if (mine && dur != null && dur < (it.need_photo ? 8 : 3) && !fl.some(x => x.startsWith('fast'))) fl.push('fast:' + dur);
-    if (mine) { const n = q1('SELECT COUNT(*) n FROM instances WHERE assignee_id=? AND date=? AND done_ms>?', req.u.id, it.date, now - 60000).n; if (n >= 4) fl.push('batch:' + (n + 1)); }
+    if (mine) { const n = q1('SELECT COUNT(*) n FROM instances WHERE assignee_id=? AND date=? AND done_ms>? AND pack IS NULL', req.u.id, it.date, now - 60000).n; if (n >= 4) fl.push('batch:' + (n + 1)); }
     for (const m of (Array.isArray(req.body._pm) ? req.body._pm : []).slice(0, 10)) {
       if (!m) continue;
       if (Number(m.age) > 10 && !fl.some(x => x.startsWith('old'))) fl.push('old:' + Math.round(Number(m.age)));
@@ -343,25 +393,40 @@ app.post('/api/instances/:id/check', (req, res) => {
   const it = q1('SELECT * FROM instances WHERE id=?', req.params.id);
   if (!it || (!apprOk(req.u, it.store_id) && !leads(req.u, it.assignee_id))) return deny(res, '只有店长、区域经理或直属上级可以点评');
   const { result, comment, rectify } = req.body;
+  const cause = CAUSES[req.body.cause] ? req.body.cause : 'skill';
   if (it.status !== 'done') return err(res, '任务还未完成，不能抽查');
   if (it.check_result) return err(res, '该任务已抽查过');
   if (!['good', 'bad'].includes(result)) return err(res, '请选择抽查结果');
   if (result === 'bad' && !(comment || '').trim()) return err(res, '请写明不合格原因');
   D.tx(() => {
-    run('UPDATE instances SET check_result=?, check_comment=?, checked_by=?, checked_at=? WHERE id=?', result, comment || '', req.u.id, L.nowStr(), it.id);
+    run('UPDATE instances SET check_result=?, check_comment=?, checked_by=?, checked_at=?, bad_cause=? WHERE id=?', result, comment || '', req.u.id, L.nowStr(), result === 'bad' ? cause : null, it.id);
     if (result === 'good') {
       D.notify([it.assignee_id], 'praise', '工作获得肯定', `${it.title}：${comment || '执行到位，继续保持'}`, '#/my');
     } else {
-      const r = rectify || {};
-      if (!r.deadline || !(r.task || '').trim()) throw new Error('请填写整改任务和整改日期');
-      const assignee = Number(r.assignee_id) || it.assignee_id;
-      run(`INSERT INTO rectifications(instance_id,store_id,assignee_id,reason,training,task,deadline,status,created_by,created_at)
-        VALUES(?,?,?,?,?,?,?,'open',?,?)`, it.id, it.store_id, assignee, comment, r.training || '', r.task, r.deadline, req.u.id, L.nowStr());
-      D.notify([assignee], 'rectify', '收到整改任务', `${it.title}：${comment}。整改要求：${r.task}，截止 ${r.deadline}`, '#/my-rect');
+      const r = rectify || {}, kind = RECT_KINDS[r.kind] ? r.kind : CAUSE_KIND[cause], t0 = L.today(), now = L.nowStr();
+      if (kind === 'behavior' && (!r.deadline || !(r.task || '').trim())) throw new Error('请填写整改任务和整改日期');
+      // 不是员工本人原因的，整改不派给员工：维修类、投入类由店长跟进
+      const sm = D.storeManagers(it.store_id)[0] || req.u.id;
+      const assignee = kind === 'behavior' ? Number(r.assignee_id) || (cause === 'skill' ? it.assignee_id : sm) : sm;
+      const task = (r.task || '').trim() || (kind === 'repair' ? '已转工程报修，修好后确认' : '报审批后落实');
+      const deadline = r.deadline || L.addDays(t0, kind === 'invest' ? 14 : 3);
+      let rp = null;
+      if (kind === 'repair') {
+        const eng = engineersOf(it.store_id), urg = RP_URG[r.urgency] ? r.urgency : 'normal';
+        rp = Number(run('INSERT INTO repairs(store_id,location,title,body,urgency,photo,status,created_by,created_at,due_at,assignee_id,log) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+          it.store_id, (r.location || '').trim() || q1('SELECT name FROM scenes WHERE id=?', it.scene_id)?.name || '门店', `${it.title}：${comment}`.slice(0, 60), `抽查不合格转报修。${task}`, urg, it.photo || null, 'open', req.u.id, now, addHours(now, cfg().sla[urg]), eng[0] || null,
+          JSON.stringify([{ at: now, by: req.u.name, act: '抽查转报修', note: comment }])).lastInsertRowid);
+        D.notify(eng, 'repair', `${RP_URG[urg]}报修：${it.title}`, `${comment} · 抽查发现，${cfg().sla[urg]} 小时内修复`, '#/repair/' + rp);
+      }
+      run(`INSERT INTO rectifications(instance_id,store_id,assignee_id,reason,training,task,deadline,status,created_by,created_at,kind,cause,repair_id,appr)
+        VALUES(?,?,?,?,?,?,?,'open',?,?,?,?,?,?)`, it.id, it.store_id, assignee, comment, cause === 'skill' ? r.training || '' : '', task, deadline, req.u.id, now, kind, cause, rp, kind === 'invest' ? 'pending' : null);
+      if (assignee !== req.u.id) D.notify([assignee], 'rectify', '收到整改任务', `${it.title}：${comment}。整改要求：${task}，截止 ${deadline}`, '#/my-rect');
+      if (cause !== 'skill' && it.assignee_id && it.assignee_id !== assignee) D.notify([it.assignee_id], 'rectify', '抽查结果说明', `${it.title}：这次不合格的原因记为「${CAUSES[cause]}」，不算你个人的问题，${kind === 'repair' ? '已转工程报修' : kind === 'invest' ? '由店长报审批后解决' : '由店长调整安排'}`, '#/my');
     }
   });
   D.audit(req.u.id, it.store_id, result === 'good' ? '抽查合格' : '抽查不合格', `${it.title} ${comment || ''}`);
-  try { learnOnCheck(it, result, comment, req.u.id); } catch (e) { console.error('learn', e.message); }
+  // 只有「不会做」才推课；没时间、缺物料、设备坏不推课，也不算学后复查不合格
+  if (result === 'good' || cause === 'skill') { try { learnOnCheck(it, result, comment, req.u.id); } catch (e) { console.error('learn', e.message); } }
   res.json({ ok: true });
 });
 
@@ -477,7 +542,7 @@ app.put('/api/flex/:id', (req, res) => {
 });
 
 // ---------- rectifications ----------
-const RECT_SQL = `SELECT r.*, COALESCE(i.title, r.title) title, i.date inst_date, i.scene_id, s.name scene_name, st.name store_name, u.name assignee_name, c.name creator_name, v.name verifier_name
+const RECT_SQL = `SELECT r.*, (SELECT status FROM repairs WHERE id=r.repair_id) repair_status, (SELECT stype FROM stores WHERE id=r.store_id) stype, COALESCE(i.title, r.title) title, i.date inst_date, i.scene_id, s.name scene_name, st.name store_name, u.name assignee_name, c.name creator_name, v.name verifier_name
   FROM rectifications r LEFT JOIN instances i ON i.id=r.instance_id LEFT JOIN scenes s ON s.id=i.scene_id LEFT JOIN stores st ON st.id=r.store_id
   LEFT JOIN users u ON u.id=r.assignee_id LEFT JOIN users c ON c.id=r.created_by LEFT JOIN users v ON v.id=r.verified_by`;
 app.get('/api/rectifications', (req, res) => {
@@ -502,10 +567,24 @@ app.post('/api/rectifications/:id/submit', (req, res) => {
   D.audit(req.u.id, r.store_id, '提交整改', req.body.note);
   res.json({ ok: true });
 });
+// 投入类整改：店长登记加盟商（直营店为城市总）的审批结果；没批的同步区域经理协调
+app.post('/api/rectifications/:id/appr', (req, res) => {
+  const r = q1('SELECT * FROM rectifications WHERE id=?', req.params.id), b = req.body || {};
+  if (!r || !apprOk(req.u, r.store_id)) return deny(res);
+  if (r.kind !== 'invest' || r.status === 'closed') return err(res, '只有未闭环的投入类整改需要登记审批结果');
+  if (!b.ok && !(b.note || '').trim()) return err(res, '请写明没有批准的原因');
+  const who = isFr(r.store_id) ? '加盟商' : '城市总';
+  run('UPDATE rectifications SET appr=?, appr_note=?, appr_at=?, deadline=COALESCE(?, deadline) WHERE id=?', b.ok ? 'approved' : 'rejected', (b.note || '').trim(), L.nowStr(), /^\d{4}-\d\d-\d\d$/.test(b.deadline || '') ? b.deadline : null, r.id);
+  if (!b.ok) D.notify(D.regionUsers(q1('SELECT region_id FROM stores WHERE id=?', r.store_id).region_id, 'region_manager'), 'rectify', `${sname(r.store_id)} 投入类整改${who}未批准`, `${r.task}：${(b.note || '').trim()}`, '#/rect');
+  D.audit(req.u.id, r.store_id, b.ok ? '投入类整改已批准' : '投入类整改未批准', `${r.task} ${b.note || ''}`);
+  res.json({ ok: true });
+});
 app.post('/api/rectifications/:id/verify', (req, res) => {
   const r = q1('SELECT * FROM rectifications WHERE id=?', req.params.id);
   if (!r || !apprOk(req.u, r.store_id)) return deny(res);
-  if (r.status !== 'submitted') return err(res, r.status === 'closed' ? '整改已闭环' : '整改还未提交，不能复查');
+  if (r.kind === 'invest' && req.body.pass && r.appr !== 'approved') return err(res, '投入类整改要先登记审批结果，批准并落实后才能闭环');
+  if (r.kind === 'repair' && req.body.pass && r.repair_status !== 'closed' && q1('SELECT status FROM repairs WHERE id=?', r.repair_id)?.status !== 'closed') return err(res, '维修类整改在工程报修确认修好后自动闭环');
+  if (r.status !== 'submitted' && !(r.status === 'open' && req.body.pass && r.kind !== 'repair')) return err(res, r.status === 'closed' ? '整改已闭环' : '整改还未提交，不能复查');
   const pass = !!req.body.pass;
   if (!pass && !req.body.deadline) return err(res, '复查不通过需重新规定整改日期');
   run('UPDATE rectifications SET status=?, verify_comment=?, verified_by=?, verified_at=?, deadline=COALESCE(?, deadline), escalated=0 WHERE id=?',
@@ -563,7 +642,7 @@ function pagg(from, to) {
     const m = new Map();
     for (const r of q(`SELECT assignee_id uid, COUNT(*) total, SUM(status='done') done,
       SUM(status='done' AND (substr(COALESCE(done_at,''),1,10)<date OR (substr(COALESCE(done_at,''),1,10)=date AND substr(done_at,12,5)<=due_time))) ot,
-      SUM(COALESCE(check_result,'')!='') ck, SUM(check_result='good') good, SUM(check_result='bad') bad FROM instances WHERE date BETWEEN ? AND ? GROUP BY assignee_id`, from, to)) m.set(r.uid, r);
+      SUM(check_result='good' OR (check_result='bad' AND COALESCE(bad_cause,'skill')='skill')) ck, SUM(check_result='good') good, SUM(check_result='bad' AND COALESCE(bad_cause,'skill')='skill') bad FROM instances WHERE date BETWEEN ? AND ? GROUP BY assignee_id`, from, to)) m.set(r.uid, r);
     const tr = new Map(q("SELECT assignee_id uid, COUNT(*) n FROM rectifications WHERE created_at>=? AND training!='' GROUP BY assignee_id", from).map(r => [r.uid, r.n]));
     if (PAGG.size > 50) PAGG.clear();
     PAGG.set(k, e = { at: Date.now(), m, tr });
@@ -613,7 +692,7 @@ app.get('/api/must', (req, res) => {
   const mgr = apprOk(req.u, sc.sid), ids = new Set(teamOf(req.u, sc.sid).map(x => x.id));
   const mine = r => mgr || ids.has(r.assignee_id);
   const T = decorate(q(INST_SQL + ' WHERE i.store_id=? AND i.date=?', sc.sid, t)).filter(r => mine(r) || r.assignee_id === req.u.id);
-  const out = [], seen = new Set();
+  const out = [], seen = new Set(); let meta = null;
   const push = (kind, reason, r) => { if (!seen.has(r.id)) { seen.add(r.id); out.push({ kind, reason, t: r }); } };
   T.filter(r => r.assignee_id === req.u.id && r.status !== 'done').forEach(r => push('self', '我亲做', r));
   T.filter(r => r.origin === 'focus' && r.assignee_id !== req.u.id).forEach(r => push('focus', '上级重点跟踪', r));
@@ -621,13 +700,21 @@ app.get('/api/must', (req, res) => {
   if (mgr && zs.length > 1) { push('zero', `清零项未完成 ${zs.length} 项，系统已提醒执行人和主管；最早 ${zs[0].due_time || '今日'} 到期`, zs[0]); out[out.length - 1].n = zs.length; }
   else zs.forEach(r => push('zero', '清零项：当日必须完成', r));
   if (mgr) T.filter(r => r.deleg_review && r.status === 'done' && !r.check_result).forEach(r => push('review', '授权任务：待复核', r));
-  T.filter(r => r.m === 'M2' && r.status === 'done' && !r.check_result).forEach(r => push('review', 'M2：待复查', r));
+  if (!mgr) T.filter(r => r.m === 'M2' && r.status === 'done' && !r.check_result).forEach(r => push('review', 'M2：待复查', r));
   const yb = q("SELECT src, src_id FROM instances WHERE store_id=? AND date=? AND check_result='bad'", sc.sid, y);
-  T.filter(r => yb.some(b => b.src === r.src && b.src_id === r.src_id)).forEach(r => push('again', '昨日点评不合格，今日复看', r));
+  if (!mgr) T.filter(r => yb.some(b => b.src === r.src && b.src_id === r.src_id)).forEach(r => push('again', '昨日点评不合格，今日复看', r)); // 店长的并进每天 10 项抽查里
   T.filter(r => r.overdue && r.status !== 'done').slice(0, 6).forEach(r => push('late', '已超时，跟进原因', r));
-  if (mgr) riskSample(T.filter(r => r.status === 'done' && !r.check_result && r.assignee_id !== req.u.id && !seen.has(r.id)), yb, t).forEach(([r, why]) => push('spot', '风险抽查：' + why, r));
+  if (mgr) { // 店长每天抽查定量：以质检清单为准，优先抽系统标记的，抽够就不再推
+    const quota = checkQuota(), did = q1('SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND checked_by=?', sc.sid, t, req.u.id).n, per = {};
+    let left = Math.max(0, quota - did);
+    for (const [r, why] of checkPlan(T.filter(r => r.status === 'done' && !r.check_result && r.assignee_id !== req.u.id && !seen.has(r.id)), yb, t, sc.sid)) {
+      if (!left) break; if ((per[r.assignee_id] = (per[r.assignee_id] || 0) + 1) > 3) continue; // 同一个人最多抽 3 项，免得一张清单占满名额
+      push('spot', why, r); left--;
+    }
+    meta = { quota, did };
+  }
   else T.filter(r => r.m === 'M3' && r.status === 'done' && !r.check_result).sort((a, b) => hash(t + a.id) - hash(t + b.id)).slice(0, 3).forEach(r => push('spot', 'M3：随机抽查', r));
-  res.json(out);
+  res.json(req.query.meta ? { list: out, ...(meta || {}) } : out);
 });
 app.get('/api/upper', (req, res) => {
   const sc = homeScope(req, res); if (!sc) return;
@@ -688,9 +775,11 @@ app.get('/api/profile', (req, res) => {
   const key = rows.filter(r => r.tag === '重点项');
   add('品牌标准', '重点项执行率', R(key.filter(done), key), 98, 90);
   const m2 = rows.filter(r => r.m === 'M2' && done(r));
-  add('品牌标准', 'M2 店长复查覆盖率', R(m2.filter(r => r.check_result), m2), 90, 70);
+  { const wk = d => L.addDays(d, -((new Date(d + 'T00:00:00Z').getUTCDay() + 6) % 7)), mk = new Map();
+    for (const r of m2) { const k = r.src + r.src_id + wk(r.date); mk.set(k, mk.get(k) || !!r.check_result); }
+    add('品牌标准', 'M2 店长复查覆盖率（每项每周至少一次）', R([...mk.values()].filter(Boolean), [...mk.values()]), 90, 70); }
   const m3 = rows.filter(r => r.m === 'M3' && done(r));
-  add('品牌标准', 'M3 抽查覆盖率', R(m3.filter(r => r.check_result), m3), 20, 10);
+  add('品牌标准', 'M3 抽查覆盖率', R(m3.filter(r => r.check_result), m3), 5, 2);
   const f4 = rows.filter(r => (r.f || '').includes('F4'));
   add('品牌标准', 'F4 群拍提交率', R(f4.filter(r => done(r) && r.photo), f4), 95, 85);
   const f3 = rows.filter(r => r.need_value);
@@ -711,8 +800,10 @@ app.get('/api/profile', (req, res) => {
       add('经营', '差评数', b.bad, 0, 2, '条', false);
     }
   }
-  const cnt = s => ind.filter(i => i.status === s).length;
-  const health = ind.length ? Math.round((cnt('ok') * 100 + cnt('warn') * 60) / ind.length) : null;
+  // 完成率不进绩效：「执行」「场景」两组是过程指标，只用来发现问题，不计入综合分
+  for (const i of ind) if (i.group === '执行' || i.group === '场景') i.ref = true;
+  const core = ind.filter(i => !i.ref), cnt = s => core.filter(i => i.status === s).length;
+  const health = core.length ? Math.round((cnt('ok') * 100 + cnt('warn') * 60) / core.length) : null;
   const rateIn = (f, a, b) => {
     const r = q1(`SELECT COUNT(*) total, SUM(i.status='done') done FROM instances i WHERE i.date BETWEEN ? AND ? AND COALESCE(CASE WHEN i.src='tpl' THEN (SELECT freq FROM templates WHERE id=i.src_id) ELSE (SELECT recur FROM flex_tasks WHERE id=i.src_id) END,'daily')=?${sc.w}`, a, b, f, ...sc.p);
     return r.total ? Math.round((r.done || 0) * 100 / r.total) : null;
@@ -724,7 +815,7 @@ app.get('/api/profile', (req, res) => {
     year: { day: rateIn('daily', ys, y), week: rateIn('weekly', ys, t), month: rateIn('monthly', ys, t) },
   };
   const cr = R(rows.filter(done), rows);
-  const score = health == null || cr == null ? null : Math.round(health * 0.6 + cr * 0.4);
+  const score = health; // 综合分只看结果指标的健康度，任务完成率单独显示，不再占 40%
   const since = smSince(u.id);
   res.json({ user: { name: u.name, role: u.role_name, level: u.level, since }, store: { ...store, patrol_score: patrol?.score ?? null, patrol_at: patrol?.done_at || null },
     from, to, ym: week ? null : ms.slice(0, 7), months: monthsBack(7).map(m => m.slice(0, 7)).reverse(), mode: week ? 'week' : 'month', health, completion_rate: cr, score, counts: { ok: cnt('ok'), warn: cnt('warn'), bad: cnt('bad') }, indicators: ind, completion });
@@ -1014,7 +1105,7 @@ function perfOf(u) {
     const end = i === 5 ? L.addDays(t, -1) : L.addDays(L.addDays(m, 32).slice(0, 8) + '01', -1);
     const s = pstatsLite(u.id, m, end);
     let score, real = s.total >= 10 && s.done > 0;
-    if (real) score = Math.round((s.rate ?? 0) * 0.5 + (s.pass ?? s.rate ?? 0) * 0.3 + (s.ontime ?? 0) * 0.2);
+    if (real) score = perfCalc(u, s).score;
     else score = Math.round(76 + hash('pf' + u.id) * 16 + (hash('pm' + u.id + m) - 0.5) * 8);
     return { ym: m.slice(0, 7), score, grade: grade(score), real, total: s.total, rate: s.rate, pass: s.pass, good: s.good, bad: s.bad };
   });
@@ -1252,6 +1343,13 @@ const STORE_DIM_BASE = [['biz', '经营业绩'], ['brand', '品牌标准'], ['op
 const STORE_DIMS_FN = () => STORE_DIM_BASE.map(([k, l]) => [k, l, cfg().dims[k]]);
 const STORE_TYPES = { 标杆店: ['ok', '经营和运营都好，总结经验在区域复制'], 潜力店: ['acc', '运营扎实但经营偏弱，营销经理重点发力'], 隐患店: ['warn', '经营尚可但运营偏弱，盯执行和品牌标准'], 帮扶店: ['bad', '经营和运营都偏弱，列入重点巡店和帮扶'] };
 const sgrade = s => { const g = cfg().grades; return s >= g.S ? 'S' : s >= g.A ? 'A' : s >= g.B ? 'B' : s >= g.C ? 'C' : 'D'; };
+// 门店结果指标：质检（巡店 + 神秘访客）和客人点评（差评、客诉）。单独算，供个人绩效分用，不依赖门店画像
+const storeResult = memo('sr', sid => {
+  const t = L.today(), b = bizRange(sid, L.addDays(t, -30), L.addDays(t, -1));
+  const patrol = q1("SELECT score FROM patrols WHERE store_id=? AND status='done' AND COALESCE(kind,'patrol')='patrol' ORDER BY done_at DESC LIMIT 1", sid)?.score ?? Math.round(86 + hash('b' + sid) * 8);
+  const mys = q1("SELECT score FROM patrols WHERE store_id=? AND status='done' AND kind='mystery' AND done_at>=? ORDER BY done_at DESC LIMIT 1", sid, L.addDays(t, -90));
+  return { qa: Math.round(clamp(mys ? patrol * 0.7 + mys.score * 0.3 : patrol)), guest: Math.round(clamp(100 - b.bad * 2.2 - cpPenalty(sid))) };
+});
 function storeScore0(sid) {
   const t = L.today(), y = L.addDays(t, -1), f30 = L.addDays(t, -30);
   const st = storeStats([sid], f30, y)[0], b = bizRange(sid, f30, y);
@@ -1266,7 +1364,7 @@ function storeScore0(sid) {
   const d = {
     biz: clamp(ach * 0.6 + (60 + (b.mpi - 92) * 1.6) * 0.4),
     brand: clamp(mys ? patrol * 0.7 + mys.score * 0.3 : patrol),
-    ops: clamp((st.rate ?? 80) * 0.4 + (st.pass_rate ?? 80) * 0.3 + (100 - st.rect_late * C.pen.rect_late - st.rect_open * C.pen.rect_open) * 0.3),
+    ops: clamp((st.pass_rate ?? 80) * 0.5 + (100 - st.rect_late * C.pen.rect_late - st.rect_open * C.pen.rect_open) * 0.5), // 完成率不进绩效，只看抽查合格率和整改
     guest: clamp(100 - b.bad * 2.2 - cpPenalty(sid)),
     team: clamp(100 - coach * 100 / Math.max(1, people.length) * 0.8 - certBad * 4 - bench * 6),
     safe: clamp(100 - lic.filter(x => x.status === 'bad').length * 25 - lic.filter(x => x.status === 'warn').length * 8 - rpLate * C.pen.repair_late - safePenalty(sid)),
@@ -1274,7 +1372,7 @@ function storeScore0(sid) {
   const total = Math.round(STORE_DIMS_FN().reduce((a, [k, , w]) => a + d[k] * w, 0) / 100);
   const bx = Math.round((d.biz + d.guest) / 2), ox = Math.round((d.brand + d.ops) / 2), TH = C.type_th;
   const type = bx >= TH && ox >= TH ? '标杆店' : ox >= TH ? '潜力店' : bx >= TH ? '隐患店' : '帮扶店';
-  const why = { biz: `近 30 天 RevPAR 达成 ${Math.round(ach)}%，MPI ${Math.round(b.mpi)}`, brand: `最近一次巡店 ${patrol} 分${mys ? ` · 神秘访客 ${mys.score} 分` : ''}`, ops: `完成率 ${st.rate ?? '-'}% · 合格率 ${st.pass_rate ?? '-'}% · 整改逾期 ${st.rect_late}`,
+  const why = { biz: `近 30 天 RevPAR 达成 ${Math.round(ach)}%，MPI ${Math.round(b.mpi)}`, brand: `最近一次巡店 ${patrol} 分${mys ? ` · 神秘访客 ${mys.score} 分` : ''}`, ops: `抽查合格率 ${st.pass_rate ?? '-'}% · 整改逾期 ${st.rect_late}（完成率 ${st.rate ?? '-'}% 仅参考，不计分）`,
     guest: `近 30 天差评 ${b.bad} 条`, team: `需辅导 ${coach} 人 · 证照过期 ${certBad} · 关键岗位无储备 ${bench}`, safe: `证照年检过期 ${lic.filter(x => x.status === 'bad').length} · 临期 ${lic.filter(x => x.status === 'warn').length} · 报修超时 ${rpLate}` };
   const weak = STORE_DIMS_FN().map(([k, l]) => ({ k, l, v: d[k], why: why[k] })).sort((a, b2) => a.v - b2.v).slice(0, 2);
   const trend = [5, 4, 3, 2, 1].map(i => Math.round(total + (hash(i + 'sg' + sid) - 0.5) * 8)).concat(total).map(v => ({ v, g: sgrade(v) }));
@@ -1480,8 +1578,9 @@ function buildInbox(u, query) {
     if (ua.length) add('待指派', 'bad', `${ua.length} 项任务没有在班人员，待你指派`, ua.slice(0, 2).map(x => `${x.due_time} ${x.title}`).join('；'), `#/tasks?store=${sid}&st=unasg`);
     const fx = q("SELECT i.id, i.title FROM instances i WHERE i.store_id=? AND i.date=? AND i.origin='focus' AND i.status='pending'", sid, t);
     if (fx.length) add('上级安排', 'bad', `重点跟踪今日待落实 ${fx.length} 项`, fx[0].title, '#/upper');
-    const ck = q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND status='done' AND check_result IS NULL", sid, t).n;
-    if (ck) add('待点评', 'warn', `今日风险抽查 ${Math.min(6, ck)} 项`, `已完成 ${ck} 项，按风险抽 6 项，其余免检`, '#/must');
+    const ck = q1("SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND status='done' AND check_result IS NULL AND assignee_id!=?", sid, t, u.id).n;
+    const cq = checkQuota(), cd = q1('SELECT COUNT(*) n FROM instances WHERE store_id=? AND date=? AND checked_by=?', sid, t, u.id).n;
+    if (ck && cd < cq) add('待点评', 'warn', `今日抽查 ${cd}/${cq} 项`, '以质检清单为准，优先抽系统标记的，抽够其余免检', '#/must');
     const rv = q1("SELECT COUNT(*) n FROM rectifications WHERE store_id=? AND status='submitted'", sid).n;
     if (rv) add('待复查', 'warn', `整改已提交待复查 ${rv} 项`, '', '#/rect');
     q("SELECT * FROM patrols WHERE store_id=? AND status='planned' AND COALESCE(kind,'patrol')='patrol' ORDER BY planned_date LIMIT 1", sid).forEach(p => add('巡店', 'acc', `区域经理 ${p.planned_date} 巡店`, p.reason || '例行巡店', '#/patrol/' + p.id));
@@ -1635,6 +1734,25 @@ app.get('/api/timebudget', (req, res) => {
   if (req.u.level !== 'store_manager') return deny(res);
   res.json(timeOf(req.u));
 });
+const checkQuota = () => Math.max(1, Number(D.getSetting('check_quota', 10)) || 10);
+// 抽查排序：系统标记的可疑记录 > 学完微课后的复查 > 清零项 > 昨日不合格 > 本周还没复查过的 M2 项 > 重点项、关注项 > 随机
+function checkPlan(list, yb, t, sid) {
+  const seen7 = new Set(q("SELECT DISTINCT src_id FROM instances WHERE store_id=? AND src='tpl' AND date BETWEEN ? AND ? AND check_result IS NOT NULL", sid, L.addDays(t, -6), t).map(x => x.src_id));
+  const lv = new Set(q("SELECT user_id || ':' || src || ':' || src_id k FROM learns WHERE store_id=? AND status='done'", sid).map(x => x.k));
+  return list.map(r => {
+    const why = []; let sc = hash(t + 'rs' + r.id);
+    const fa = Array.isArray(r.flags) ? r.flags : flagList(r.flags), fl = fa.filter(f => !['rand', 'offline'].includes(f.k));
+    if (fl.length) { sc += 8; why.push(fl[0].text); }
+    if (lv.has(`${r.assignee_id}:${r.src}:${r.src_id}`)) { sc += 7; why.push('学完微课后复查'); }
+    if (r.tag === '清零项') { sc += 5; why.push('清零项'); }
+    if (yb.some(b => b.src === r.src && b.src_id === r.src_id)) { sc += 4; why.push('昨日不合格'); }
+    if (r.m === 'M2' && r.src === 'tpl' && !seen7.has(r.src_id)) { sc += 4; why.push('M2 本周还没复查'); }
+    if (r.tag === '重点项' || r.tag === '关注项') { sc += 2; why.push(r.tag); }
+    if (fa.some(f => f.k === 'rand')) { sc += 2; why.push('系统随机抽中'); }
+    sc += Math.min(2, (r.tscore || 0) * 0.4);
+    return [r, why.join('、') || (r.code ? '质检清单抽查' : '随机抽查'), sc];
+  }).sort((a, b) => b[2] - a[2]);
+}
 function riskSample(list, yb, t, n = 6) {
   return list.map(r => {
     const why = []; let sc = hash(t + 'rs' + r.id);
@@ -2042,6 +2160,7 @@ app.post('/api/repairs/:id/:op', (req, res) => {
     const rating = Math.max(1, Math.min(5, Number(b.rating) || 5));
     run("UPDATE repairs SET status='closed', closed_at=?, rating=?, log=? WHERE id=?", now, rating, rpLog(x0, u, '确认关单', `评价 ${rating} 星 ${b.note || ''}`), x.id);
     D.notify([x.assignee_id].filter(Boolean), 'repair', `报修已确认关单：${x.title}`, `评价 ${rating} 星`, '#/repair/' + x.id);
+    run("UPDATE rectifications SET status='closed', verify_comment='工程报修已修好并确认', verified_by=?, verified_at=? WHERE repair_id=? AND status!='closed'", u.id, now, x.id);
   } else if (op === 'reject' && x.can.confirm) {
     if (!(b.note || '').trim()) return err(res, '请说明未修好的情况');
     run("UPDATE repairs SET status='accepted', done_at=NULL, log=? WHERE id=?", rpLog(x0, u, '退回重修', b.note.trim()), x.id);
@@ -2331,6 +2450,14 @@ function seedLifecycle() {
 }
 seedLifecycle();
 
+// ---------- 绩效分：只看结果指标（个人抽查合格率、本店质检、本店客人点评、获得的肯定），完成率和准时率不计入 ----------
+// 执行分保留，只用来发现问题和触发带教，不进绩效工资、月度绩效等级和晋升条件
+function perfCalc(u, s) {
+  if (!s.total) return null;
+  const d = u.store_id ? storeResult(u.store_id) : null, qa = d ? d.qa : 80, guest = d ? d.guest : 80, pass = s.pass ?? 80, plus = Math.min(10, s.good * 2);
+  return { score: clamp(pass * 0.5 + qa * 0.3 + guest * 0.2 + plus), parts: { pass: s.pass, qa, guest, good: s.good, plus } };
+}
+function perfScore(u) { const t = L.today(); return perfCalc(u, pstatsLite(u.id, L.addDays(t, -30), L.addDays(t, -1))); }
 // ---------- 执行分 ----------
 function execScore(uid) {
   const t = L.today(), s = pstatsLite(uid, L.addDays(t, -30), L.addDays(t, -1));
@@ -2732,12 +2859,12 @@ function smAssess(u) {
 function payOf(u) {
   const ym = L.today().slice(0, 7), base = BASE_PAY[u.role_name] || 4500;
   if (u.level === 'store_manager') { const a = smAssess(u); return { ym, kind: 'sm', base, assess: a, bonus: Math.round(base * 0.3 * (a?.coef ?? 1)), total: base + Math.round(base * 0.3 * (a?.coef ?? 1)), items: [{ l: '基本工资', amt: base }, { l: `季度绩效奖金（${a?.grade ?? '-'} 级 × ${a?.coef ?? 1}）`, amt: Math.round(base * 0.3 * (a?.coef ?? 1)) }] }; }
-  const ex = execScore(u.id), cm = commOf(u), coef = perfCoef(ex?.score ?? 80), perf = Math.round(base * 0.2 * coef);
+  const ex = execScore(u.id), pf = perfScore(u), cm = commOf(u), coef = perfCoef(pf?.score ?? 80), perf = Math.round(base * 0.2 * coef);
   const credits = q("SELECT c.start, c.end FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE e.user_id=? AND e.status IN ('passed','certified') AND c.start>=?", u.id, ym.slice(0, 4) + '-01-01').reduce((a, c) => a + (dBetween(c.start, c.end) + 1) * 4, 0);
   const ms = mentorStats(u.id), mb = q('SELECT checks FROM mentors WHERE mentor_id=?', u.id).reduce((a, m) => a + Object.keys(JSON.parse(m.checks || '{}')).length * 100, 0);
-  const items = [{ l: '基本工资', amt: base }, { l: `绩效工资（执行分 ${ex?.score ?? '-'} × ${coef}）`, amt: perf }];
+  const items = [{ l: '基本工资', amt: base }, { l: `绩效工资（绩效分 ${pf?.score ?? '-'} × ${coef}）`, amt: perf }];
   if (cm) items.push({ l: cm.kind, amt: cm.amount }); if (mb) items.push({ l: `带教津贴（验收 ${mb / 100} 次）`, amt: mb });
-  return { ym, kind: 'staff', base, exec: ex?.score ?? null, coef, credits, credit_target: 24, mentor: ms, items, total: items.reduce((a, x) => a + x.amt, 0) };
+  return { ym, kind: 'staff', base, exec: ex?.score ?? null, perf: pf, coef, credits, credit_target: 24, mentor: ms, items, total: items.reduce((a, x) => a + x.amt, 0) };
 }
 app.get('/api/pay/:uid', (req, res) => {
   const x = q1(USER_SQL + ' WHERE u.id=?', req.params.uid); if (!x || !(x.id === req.u.id || canPeople(req.u, x))) return deny(res);
@@ -4306,10 +4433,10 @@ app.post('/api/care/fix', (req, res) => { const b = req.body || {}, sid = Number
   D.notify(hcPeople(sid).filter(x => x.pos !== '店长').map(x => x.id), 'care', `门店针对「${b.theme}」的改进`, b.action.trim(), '#/mycare'); res.json({ ok: true }); });
 app.get('/api/care/me', (req, res) => {
   const u = req.u, sid = u.store_id; if (!sid) return res.json({ none: true });
-  const t = L.today(), ym = t.slice(0, 7), c = careOf(sid), p = profileOf(u), ex = execScore(u.id), nx = nextRole(u.role_name);
+  const t = L.today(), ym = t.slice(0, 7), c = careOf(sid), p = profileOf(u), ex = perfScore(u), nx = nextRole(u.role_name);
   const credits = q("SELECT c.start, c.end FROM train_enroll e JOIN train_classes c ON c.id=e.class_id WHERE e.user_id=? AND e.status IN ('passed','certified') AND c.start>=?", u.id, t.slice(0, 4) + '-01-01').reduce((a, x) => a + (dBetween(x.start, x.end) + 1) * 4, 0);
   const cert = p.certs.filter(x => x.name !== '健康证'), mon = Math.round(dBetween(p.history[p.history.length - 1].from, t) / 30);
-  const req2 = nx ? [{ l: '执行分 85 分以上', ok: (ex?.score ?? 0) >= 85, v: ex ? ex.score + ' 分' : '暂无' }, { l: '年度学分 24 分', ok: credits >= 24, v: credits + ' 分' }, { l: '品牌认证在有效期内', ok: cert.length ? cert.every(x => x.expire >= t) : false, v: cert.length ? cert.map(x => x.expire).join('、') + ' 到期' : '未认证' }, { l: '现岗位满 6 个月', ok: mon >= 6, v: mon + ' 个月' }] : [];
+  const req2 = nx ? [{ l: '绩效分 85 分以上', ok: (ex?.score ?? 0) >= 85, v: ex ? ex.score + ' 分' : '暂无' }, { l: '年度学分 24 分', ok: credits >= 24, v: credits + ' 分' }, { l: '品牌认证在有效期内', ok: cert.length ? cert.every(x => x.expire >= t) : false, v: cert.length ? cert.map(x => x.expire).join('、') + ' 到期' : '未认证' }, { l: '现岗位满 6 个月', ok: mon >= 6, v: mon + ' 个月' }] : [];
   res.json({ meal: { std: c.meal.std, menu: c.meal.menu, rated: q1('SELECT score, comment FROM meal_rate WHERE user_id=? AND ym=?', u.id, ym) || null, avg: c.meal.rate.avg },
     acts: c.acts.slice(0, 5).map(a => ({ kind: a.kind, title: a.title, date: a.date })), bday: bdOf(u.id), kudos: q('SELECT k.*, b.name from_name FROM kudos k LEFT JOIN users b ON b.id=k.from_user WHERE k.to_user=? ORDER BY k.id DESC LIMIT 10', u.id),
     welfare: c.welfare.find(w => w.id === u.id)?.items || [], replies: c.sg.filter(s => s.reply).slice(0, 5).map(s => ({ cat: s.cat, body: s.body, reply: s.reply })), fixes: c.fixes.slice(0, 5),
@@ -5014,7 +5141,8 @@ function coachKit(sid) {
 }
 app.get('/api/coachkit', (req, res) => {
   const sid = Number(req.query.store) || visibleStores(req.u)[0]; if (!canManage(req.u, sid)) return deny(res);
-  res.json({ ...coachKit(sid), store_id: sid, courses: q('SELECT id, title, minutes, scene_id FROM courses WHERE active=1 ORDER BY scene_id, id'),
+  const cz = Object.fromEntries(q("SELECT COALESCE(bad_cause,'skill') c, COUNT(*) n FROM instances WHERE store_id=? AND date>=? AND check_result='bad' GROUP BY c", sid, L.addDays(L.today(), -14)).map(x => [x.c, x.n]));
+  res.json({ ...coachKit(sid), causes: Object.entries(CAUSES).map(([k, l]) => ({ k, l, n: cz[k] || 0 })), store_id: sid, courses: q('SELECT id, title, minutes, scene_id FROM courses WHERE active=1 ORDER BY scene_id, id'),
     staff: q(USER_SQL + " WHERE u.active=1 AND u.store_id=? AND r.level='staff' ORDER BY r.sort, u.id", sid).map(u => ({ id: u.id, name: u.name, role_name: u.role_name })) });
 });
 app.post('/api/supports/:id/brief', (req, res) => {
