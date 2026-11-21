@@ -1896,7 +1896,9 @@ function rhythmBar(R = RHYTHM) {
   const s0 = R[0] ? R[0][0] : '00:00', nk = t => (t < s0 ? String(Number(t.slice(0, 2)) + 24) + t.slice(2) : t), now = nk(S.me.now); let cur = -1; R.forEach(([t], i) => { if (nk(t) <= now) cur = i; });
   return `<div class="rhythm">${R.map(([t, l], i) => `<div class="${i === cur ? 'on' : i < cur ? 'past' : ''}"><b>${t}</b><span>${l}</span></div>`).join('')}</div>`;
 }
-const mustRow = x => `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div></div><span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span></a>`;
+// 抽查理由可能有好几条，放在标题下面换行显示，不挤标题
+const mustRow = x => { const long = x.kind === 'spot' && x.reason.length > 6, tags = long ? `<div class="mrs">${x.reason.split('、').map(r => `<span class="tag ${MUST_TAG[x.kind]}">${esc(r)}</span>`).join('')}</div>` : '';
+  return `<a class="task" href="#/task/${x.t.id}"><div class="t mono">${esc(x.t.due_time)}</div><div class="b"><div class="ttl">${esc(x.t.title)}</div><div class="muted small">${esc(x.t.scene_name || '')} · ${esc(x.t.assignee_name || '')}</div>${tags}</div>${long ? '' : `<span class="tag ${MUST_TAG[x.kind]}">${esc(x.reason)}</span>`}</a>`; };
 const crewCard = m => `<a class="crew" href="#/person/${m.id}"><span class="av">${esc(m.name.slice(0, 1))}</span><b>${esc(m.name)}</b><span class="muted small">${esc(m.role_name)}</span>
   ${m.leave ? '<span class="tag warn">休息</span>' : `<span class="small">${m.today.done}/${m.today.total}${m.today.overdue ? ` · <em class="bad">超时${m.today.overdue}</em>` : ''}</span>`}<span class="muted small">30天合格 ${pct(m.s30.pass)}</span></a>`;
 async function loadCard(sid) {

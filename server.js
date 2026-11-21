@@ -5084,6 +5084,9 @@ function coachDaily(date) {
       if (q1('SELECT 1 FROM learns WHERE user_id=? AND src=? AND src_id=? AND created_at>=?', r.uid, r.src, r.src_id, L.addDays(date, -14))) continue;
       if (pushLearn({ uid: r.uid, sid: r.store_id, kind: 'miss', inst: r.inst, src: r.src, src_id: r.src_id, scene_id: r.scene_id, title: r.title, reason: `近 7 天漏做 ${r.n} 次` })) { out.miss++; per[r.store_id] = (per[r.store_id] || 0) + 1; }
     }
+    // 投入类整改按周跟进：从下发那天起每满 7 天提醒店长一次，直到闭环
+    for (const r of q("SELECT store_id, task, appr, created_at FROM rectifications WHERE kind='invest' AND status!='closed'")) { const n = dBetween(r.created_at.slice(0, 10), date);
+      if (n > 0 && n % 7 === 0) D.notify(D.storeManagers(r.store_id), 'rectify', '投入类整改本周跟进', `${r.task}：${r.appr === 'approved' ? '已批准，请确认落实进度' : '还没批准，请再跟一次审批'}`, '#/rect?st=active&kd=invest'); }
     const f = L.addDays(date, -14), rows = q(`SELECT i.store_id sid, i.scene_id sc, SUM(i.check_result='bad') bad, COUNT(*) ck FROM instances i WHERE i.date BETWEEN ? AND ? AND i.check_result IS NOT NULL AND i.scene_id IS NOT NULL GROUP BY i.store_id, i.scene_id`, f, y);
     const scn = Object.fromEntries(q('SELECT id, name FROM scenes').map(s => [s.id, s.name])), reg = Object.fromEntries(q('SELECT id, region_id FROM stores').map(s => [s.id, s.region_id]));
     const avg = {}, by = {}; for (const r of rows) { (avg[r.sc] ||= { bad: 0, ck: 0 }).bad += r.bad; avg[r.sc].ck += r.ck; (by[r.sid] ||= []).push(r); }
