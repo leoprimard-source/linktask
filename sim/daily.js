@@ -53,7 +53,7 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
   const nv = Object.fromEntries(q("SELECT id, src, src_id FROM instances WHERE date=?", today).map(i => [i.id, i.src === 'tpl' && tpl[i.src_id]]));
   // 同一人同一时点 3 项以上合成一张清单：逐项确认后一次提交，共用一轮照片；约 1% 的项目报异常
   const packs = {}, single = [];
-  for (const i of inst) { if (['tpl', 'flex'].includes(i.src) && !i.deleg_id && !nv[i.id] && i.due_time) (packs[i.assignee_id + '|' + i.due_time] ||= []).push(i); else single.push(i); }
+  for (const i of inst) { if (['tpl', 'flex'].includes(i.src) && !i.deleg_id && !nv[i.id] && i.due_time) (packs[i.assignee_id + '|' + i.store_id + '|' + i.due_time] ||= []).push(i); else single.push(i); }
   const pk = Object.values(packs).filter(g => g.length >= 3); Object.values(packs).filter(g => g.length < 3).forEach(g => single.push(...g));
   await pool(pk.filter(g => rnd() < storeQ(g[0].store_id)), 12, async g => {
     const u = g[0].assignee_id, lazy = storeQ(g[0].store_id) < 0.84 && hash(u) < 0.3, ph = g.some(i => i.need_photo), abn = {};
