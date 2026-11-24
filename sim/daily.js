@@ -86,7 +86,7 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     const m = sms(x.sid)[0]; if (!m) return;
     const r = await call(m, `/must?store=${x.sid}&meta=1`, null, true); if (!r || !r.quota) return;
     for (const it of r.list.filter(y => y.kind === 'spot').slice(0, process.env.FINAL ? 10 : 3)) {
-      const ver = /学完微课/.test(it.reason), sus = /秒就完成|连续完成|不是现场拍|同一张|报了异常/.test(it.reason);
+      const ver = /学完微课/.test(it.reason), sus = /秒就完成|秒就提交|连续完成|不是现场拍|同一张|报了异常/.test(it.reason);
       const bad = rnd() < (sus ? 0.5 : ver ? (1 - storeQ(x.sid)) * 0.6 : (1 - storeQ(x.sid)) * 1.5), p = rnd(), c = CZ.find(z => p < z[1]);
       if (await call(m, `/instances/${it.t.id}/check`, bad ? { result: 'bad', comment: ver ? '模拟复查：学后仍未达标准' : '模拟抽查：未达标准', cause: c[0], rectify: c[2] } : { result: 'good', comment: ver ? '学后复查：已达标准' : '执行到位' })) {
         act.checked++; if (bad) { act.bad++; cz[c[0]]++; } if (ver) { ck.ver++; if (bad && c[0] === 'skill') ck.verBad++; } }
@@ -153,9 +153,9 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     na: tryQ('SELECT COALESCE(SUM(total),0) t, COALESCE(SUM(moved),0) mv, COALESCE(SUM(need_sm),0) nd FROM night_audit WHERE date=?', today),
     ua: tryQ("SELECT COUNT(*) n FROM instances WHERE date=? AND status='pending' AND assignee_id IS NULL", today),
     push: tryQ("SELECT COUNT(*) n FROM notifications WHERE kind='report' AND substr(created_at,1,10)=? AND title LIKE '【宏图日报】%'", today) };
-  const fg = tryQ("SELECT COUNT(*) n, SUM(flags LIKE '%batch%') b, SUM(flags LIKE '%fast%') f, SUM(flags LIKE '%abn%') ab, SUM(flags LIKE '%old%') o, SUM(flags='rand') r, SUM(check_result IS NOT NULL) ck, SUM(check_result='bad') bad FROM instances WHERE date=? AND flags IS NOT NULL", today);
+  const fg = tryQ("SELECT COUNT(*) n, SUM(flags LIKE '%batch%') b, SUM(flags LIKE '%fast%' AND flags NOT LIKE '%pfast%') f, SUM(flags LIKE '%pfast%') pf, SUM(flags LIKE '%pbad%') pb, SUM(flags LIKE '%abn%') ab, SUM(flags LIKE '%old%') o, SUM(flags='rand') r, SUM(check_result IS NOT NULL) ck, SUM(check_result='bad') bad FROM instances WHERE date=? AND flags IS NOT NULL", today);
   const lk = tryQ("SELECT COUNT(*) n, SUM(kind='check') c, SUM(kind='miss') m, SUM(kind='store') s FROM learns WHERE substr(created_at,1,10)=?", today),
-    ls = tryQ("SELECT SUM(status='todo') todo, SUM(status='done') done, SUM(status='verified') ok, SUM(status='failed') bad FROM learns"),
+    ls = tryQ("SELECT SUM(status='todo') todo, SUM(status='done') done, SUM(status='verified') ok, SUM(status='failed') bad, SUM(status='ended') ended FROM learns"),
     sp = tryQ("SELECT COUNT(*) n, SUM(status='open') o, SUM(status='accepted') a, SUM(status='done') d, SUM(brief_n IS NOT NULL) b FROM supports");
   const pkd = tryQ("SELECT COUNT(*) n, COUNT(DISTINCT pack) p, SUM(flags LIKE '%abn%') a FROM instances WHERE date=? AND pack IS NOT NULL", today), dn = tryQ("SELECT COUNT(*) n, COUNT(DISTINCT assignee_id) u FROM instances WHERE date=? AND status='done'", today);
   const czd = Object.fromEntries(tryQ2("SELECT COALESCE(bad_cause,'skill') c, COUNT(*) n FROM instances WHERE date=? AND check_result='bad' GROUP BY c", today).map(x => [x.c, x.n]));
@@ -180,8 +180,8 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     `- 整改：今天闭环 ${rect.closed || 0}，未闭环 ${rect.open || 0}，其中逾期 ${rect.late || 0}`,
     `- 整改三类：今天新增 行为类 ${rk.behavior?.nw || 0}、维修类 ${rk.repair?.nw || 0}、投入类 ${rk.invest?.nw || 0}；未闭环 行为类 ${rk.behavior?.op || 0}、维修类 ${rk.repair?.op || 0}、投入类 ${rk.invest?.op || 0}（其中待审批 ${rk.invest?.wa || 0}）`,
     `- 清单合并：今天完成的 ${dn.n || 0} 项里，${pkd.n || 0} 项合成了 ${pkd.p || 0} 张清单提交，员工实际操作 ${(dn.n || 0) - (pkd.n || 0) + (pkd.p || 0)} 次，平均每人 ${dn.u ? (((dn.n || 0) - (pkd.n || 0) + (pkd.p || 0)) / dn.u).toFixed(1) : 0} 次（不合并是 ${dn.u ? ((dn.n || 0) / dn.u).toFixed(1) : 0} 次）；清单里报异常 ${pkd.a || 0} 项`,
-    `- 抽查定量：${ckd.st || 0} 家店共抽查 ${ckd.n || 0} 条，平均每店 ${ckd.st ? (ckd.n / ckd.st).toFixed(1) : 0} 条；不合格原因：不会做 ${czd.skill || 0}、没时间 ${czd.time || 0}、设备坏 ${czd.equip || 0}、缺物料 ${czd.material || 0}（只有「不会做」推课）`, `- 巡店完成 ${act.patrol} 次`, `- 数据真实性：今天系统标记 ${fg.n || 0} 项待核实（1 分钟内连续完成 ${fg.b || 0}、完成过快 ${fg.f || 0}、清单报异常 ${fg.ab || 0}、旧照片 ${fg.o || 0}、随机抽中 ${fg.r || 0}），店长已核实 ${fg.ck || 0} 项，其中不合格 ${fg.bad || 0} 项`,
-    `- 带教：今天自动推课 ${lk.n || 0} 门（抽查不合格 ${lk.c || 0}、多次漏做 ${lk.m || 0}、全员学习 ${lk.s || 0}）；本轮学完 ${ck.learn} 门，店长复查 ${ck.ver} 次，其中仍不合格 ${ck.verBad} 次；累计待学 ${ls.todo || 0}、待复查 ${ls.done || 0}、复查合格 ${ls.ok || 0}、仍不合格 ${ls.bad || 0}`,
+    `- 抽查定量：${ckd.st || 0} 家店共抽查 ${ckd.n || 0} 条，平均每店 ${ckd.st ? (ckd.n / ckd.st).toFixed(1) : 0} 条；不合格原因：不会做 ${czd.skill || 0}、没时间 ${czd.time || 0}、设备坏 ${czd.equip || 0}、缺物料 ${czd.material || 0}（只有「不会做」推课）`, `- 巡店完成 ${act.patrol} 次`, `- 数据真实性：今天系统标记 ${fg.n || 0} 项待核实（1 分钟内连续完成 ${fg.b || 0}、完成过快 ${fg.f || 0}、清单交得太快 ${fg.pf || 0} 张、同清单有项目不合格要再看 ${fg.pb || 0}、清单报异常 ${fg.ab || 0}、旧照片 ${fg.o || 0}、随机抽中 ${fg.r || 0}），店长已核实 ${fg.ck || 0} 项，其中不合格 ${fg.bad || 0} 项`,
+    `- 带教：今天自动推课 ${lk.n || 0} 门（抽查不合格 ${lk.c || 0}、多次漏做 ${lk.m || 0}、全员学习 ${lk.s || 0}）；本轮学完 ${ck.learn} 门，店长复查 ${ck.ver} 次，其中仍不合格 ${ck.verBad} 次；累计待学 ${ls.todo || 0}、待复查 ${ls.done || 0}（只有抽查不合格推的课要复查）、学完就结束 ${ls.ended || 0}、复查合格 ${ls.ok || 0}、仍不合格 ${ls.bad || 0}`,
     `- 门店支持：问题集中 ${sp.n || 0} 家（待安排 ${sp.o || 0}、已安排 ${sp.a || 0}、已完成 ${sp.d || 0}），已安排晨会微课 ${sp.b || 0} 家；本轮新安排晨会微课 ${ck.brief} 家、新安排支持 ${ck.acc} 家、完成支持 ${ck.sdone} 家`,
     `- 按班派单：凌晨核对 ${brd.na.t || 0} 项，按排班换人 ${brd.na.mv || 0} 项，没有在班人员待指派 ${brd.na.nd || 0} 项；本轮店长指派 ${act.asg} 项，仍待指派 ${brd.ua.n || 0} 项`, `- 条线统一派发 ${ln.n} 条，覆盖 ${ln.st} 家门店，因店长负荷满顺延 ${ln.df} 条；店长当天条线负荷平均 ${ld.avg ?? 0} 分钟、最高 ${ld.mx ?? 0} 分钟，超 60 分钟 ${ld.ovr ?? 0} 家`,
     `- 完成率最低的区域：${regions.slice(0, 3).map(r => `${r.name} ${r.rate}%`).join('、')}`, `- 完成率最低的门店：${worst.slice(0, 5).map(r => `${r.name} ${r.rate}%`).join('、')}`,

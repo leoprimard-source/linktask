@@ -632,7 +632,7 @@ VIEWS.tasks = async () => {
   const all = all0.filter(t => !mm || (mm === 'std' ? !t.code : t.m === mm));
   const filt = {
     '': () => true, pending: t => t.status === 'pending' && !t.overdue, overdue: t => t.overdue, done: t => t.status === 'done',
-    unchecked: t => t.status === 'done' && !t.check_result, bad: t => t.check_result === 'bad', cover: t => t.covered, unasg: t => t.status === 'pending' && !t.assignee_id, sus: t => t.status === 'done' && !t.check_result && (t.flags || []).length > 0,
+    unchecked: t => t.status === 'done' && !t.check_result, bad: t => t.check_result === 'bad', cover: t => t.covered, unasg: t => t.status === 'pending' && !t.assignee_id, sus: t => t.status === 'done' && !t.check_result && (t.flags || []).some(f => !['rand', 'offline'].includes(f.k)),
   };
   const list = all.filter(t => (!scene || t.scene_id === Number(scene)) && filt[st](t));
   const link = (k, v) => { const q = new URLSearchParams({ store: sid, date, scene, st, m: mm }); q.set(k, v); return '#/tasks?' + q; };
@@ -3561,13 +3561,13 @@ function decorateBars() {
 { let tm; new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(decorateBars, 30); }).observe(document.body, { childList: true, subtree: true }); }
 // ---------- 带教助手：我的学习 / 店长带教 / 门店支持 / 微课库 ----------
 COMMON.push('learn');
-const LN_ST = { todo: ['warn', '待学习'], done: ['acc', '已学完 · 待复查'], verified: ['ok', '复查合格'], failed: ['bad', '学后仍不合格'] };
+const LN_ST = { todo: ['warn', '待学习'], done: ['acc', '已学完 · 待复查'], verified: ['ok', '复查合格'], failed: ['bad', '学后仍不合格'], ended: ['ok', '已学完'] };
 const lnK = k => '#/train?k=' + encodeURIComponent(k);
 VIEWS.learn = async id => {
   if (!id) {
     const xs = await api('/learn');
     $('#main').innerHTML = `<div class="pghd"><b>我的学习</b></div><div class="list">${xs.map(l => `<a class="task" href="#/learn/${l.id}"><div class="b"><div class="ttl">${esc(l.course?.title || l.title)}</div><div class="muted small">${esc(l.reason)}${l.status === 'todo' ? ' · 请在 ' + l.due + ' 前学完' : ''}</div></div><span class="tag ${l.late ? 'bad' : LN_ST[l.status][0]}">${l.late ? '已逾期' : LN_ST[l.status][1]}</span></a>`).join('') || '<div class="empty">现在没有要学的课</div>'}</div>
-    <p class="muted small">哪项工作被抽查不合格或多次漏做，这里会出现对应的课，每门 3–5 分钟。学完后店长会在你下次做这项工作时复查一次，合格就结束。</p>`;
+    <p class="muted small">哪项工作被抽查不合格或多次漏做，这里会出现对应的课，每门 3–5 分钟。抽查不合格推来的课，学完后店长会在你下次做这项工作时复查一次，合格就结束；其他的课学完就结束。</p>`;
     return;
   }
   const l = await api('/learn/' + id), c = l.course;
@@ -3577,7 +3577,7 @@ VIEWS.learn = async id => {
   ${c ? `<div class="ldr"><div class="row between"><b>要点 · 约 ${c.minutes} 分钟</b>${c.demo ? '<span class="tag">示例课程</span>' : ''}</div><ol class="lnpts">${c.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol></div>` : ''}
   ${l.faq.length ? `<div class="ldr"><b>大家常错在哪</b>${l.faq.map(f => `<div class="row between small" style="margin-top:6px;gap:8px"><span>${esc(f.c)}</span><span class="muted nw">${f.n} 次</span></div>`).join('')}<div class="muted small" style="margin-top:6px">来自近 60 天各店的抽查记录</div></div>` : ''}
   ${l.mine && l.status === 'todo' ? `<form id="lnf" class="ldr"><label class="f"><span>用一句话写下以后怎么做（可不填）</span><textarea name="note" maxlength="200"></textarea></label><button class="btn primary" style="width:100%">我学会了</button></form>` : l.note ? `<div class="ldr"><b>学习心得</b><div class="small" style="margin-top:6px">${esc(l.note)}</div></div>` : ''}`;
-  if ($('#lnf')) $('#lnf').onsubmit = async e => { e.preventDefault(); if (await act(() => api(`/learn/${id}/done`, { note: e.target.note.value }), '已学完，店长会在你下次做这项工作时复查')) location.hash = '#/learn'; };
+  if ($('#lnf')) $('#lnf').onsubmit = async e => { e.preventDefault(); if (await act(() => api(`/learn/${id}/done`, { note: e.target.note.value }), l.kind === 'check' ? '已学完，店长会在你下次做这项工作时复查' : '已学完')) location.hash = '#/learn'; };
 };
 const supCard = (s, o) => {
   const d = s.detail || {}, pct = s.total ? Math.round(s.n * 100 / s.total) : 0, my = d.ck ? Math.round(s.n * 1000 / d.ck) / 10 : null;
@@ -3627,7 +3627,7 @@ function supBind() {
     $('#main').innerHTML = `${hd}<div class="ck4"><div><b>${d.todo.length}</b><span>待学习</span></div><div><b>${d.verify.length}</b><span>学完待复查</span></div><div><b>${d.verified.length}</b><span>复查合格</span></div><div><b>${d.failed.length}</b><span>仍不合格</span></div></div>
     ${d.causes && d.causes.some(c => c.n) ? `<div class="ldr"><b>近 14 天抽查不合格的原因</b><div class="stags">${d.causes.map(c => `<span class="tag ${c.k === 'skill' ? 'acc' : ''}">${esc(c.l)} ${c.n} 次</span>`).join('')}</div><div class="muted small" style="margin-top:6px">只有「不会做」会推课。${(d.causes.find(c => c.k === 'time') || {}).n >= 3 ? '「没时间」偏多，建议看一下排班和分工。' : ''}「缺物料」「设备坏」已转成投入类、维修类整改。</div></div>` : ''}
     ${d.supports.map(s => supCard(s, { sm: 1 })).join('')}
-    ${sec('学完待复查', d.verify, l => row(l, l.inst ? `<a class="btn sm primary" href="#/task/${l.inst.id}">去抽查</a>` : '<span class="tag">等下次做</span>'), '员工学完后，下一次做这项工作时抽查一次。合格就结束，不合格建议一对一带教。')}
+    ${sec('学完待复查', d.verify, l => row(l, l.inst ? `<a class="btn sm primary" href="#/task/${l.inst.id}">去抽查</a>` : '<span class="tag">等下次做</span>'), '只有抽查不合格推的课要复查：员工学完后，下一次做这项工作时抽查一次。合格就结束，不合格建议一对一带教。多次漏做和全员学习的课学完就结束。')}
     ${sec('学后仍不合格', d.failed, l => row(l, `<a class="btn sm" href="${lnK('师徒带教')}">安排带教</a>`))}
     ${sec('待学习', d.todo, l => row(l, `<span class="tag ${l.late ? 'bad' : ''}">${l.late ? '已逾期' : l.due.slice(5) + ' 前'}</span>`))}
     ${sec('近 30 天复查合格', d.verified, l => row(l, '<span class="tag ok">已改善</span>'))}
