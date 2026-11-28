@@ -6,7 +6,8 @@ const L = require('./lib');
 const DATA_DIR = process.env.DATA_DIR || path.join(require('os').homedir(), 'linktask-data');
 fs.mkdirSync(path.join(DATA_DIR, 'uploads'), { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'linktask.db'));
-db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
+// WAL + synchronous=NORMAL：每次提交不再强制刷盘，只在检查点刷，机械硬盘（如 NAS）上快几十倍；断电最多丢最后几秒的写入，不会损坏数据库
+db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-65536; PRAGMA foreign_keys=ON;');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS regions(id INTEGER PRIMARY KEY, name TEXT);

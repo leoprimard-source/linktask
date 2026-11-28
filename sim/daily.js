@@ -20,7 +20,7 @@ async function call(uid, p, body, app) {
     const j = await r.json().catch(() => ({}));
     if (r.ok) { stat.ok++; return j; }
     stat.fail++; const k = p.replace(/\d+/g, ':id') + ' ' + (j.error || r.status); stat.err[k] = (stat.err[k] || 0) + 1; return null;
-  } catch (e) { stat.fail++; return null; }
+  } catch (e) { stat.fail++; const k = p.replace(/\d+/g, ':id') + ' ' + (e.cause?.code || e.name || 'error'); stat.err[k] = (stat.err[k] || 0) + 1; return null; }
 }
 async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ length: n }, async () => { while (i < items.length) await fn(items[i++]); })); }
 const tryQ2 = (s, ...x) => { try { return q(s, ...x); } catch { return []; } };
@@ -66,7 +66,7 @@ const sms = sid => q("SELECT us.user_id id FROM user_stores us JOIN users u ON u
     const lazy = storeQ(i.store_id) < 0.84 && hash(i.assignee_id) < 0.3, oldp = lazy && i.need_photo && rnd() < 0.15;
     if (await call(i.assignee_id, `/instances/${i.id}/complete`, { note: '模拟执行：已按标准完成', photo: i.need_photo ? PNG : undefined, reading: nv[i.id] ? String(20 + Math.round(rnd() * 10)) : undefined, _pm: oldp ? [{ age: 600 + Math.round(rnd() * 3000) }] : undefined }, lazy)) act.done++;
   });
-  if (LITE) return console.log(`# 执行轮 ${today} ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}：到点任务 ${inst.length} 项，完成 ${act.done} 项（其中清单 ${act.packs} 张）；接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${Math.round((Date.now() - t0) / 1000)} 秒`);
+  if (LITE) return console.log(`# 执行轮 ${today} ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16)}：到点任务 ${inst.length} 项，完成 ${act.done} 项（其中清单 ${act.packs} 张）；接口调用 成功 ${stat.ok} / 失败 ${stat.fail}；用时 ${Math.round((Date.now() - t0) / 1000)} 秒` + (stat.fail ? '\n失败明细 ' + JSON.stringify(stat.err) : ''));
   // 1b. 带教：员工学推来的微课；店长对学完的人复查一次；问题集中的店安排晨会微课，区域负责人安排支持
   const ck = { learn: 0, ver: 0, verBad: 0, brief: 0, acc: 0, sdone: 0 };
   await pool(tryQ2("SELECT id, user_id, store_id FROM learns WHERE status='todo'").filter(l => rnd() < storeQ(l.store_id) * 0.6), 8, async l => { if (await call(l.user_id, `/learn/${l.id}/done`, { note: '' })) ck.learn++; });
